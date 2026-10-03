@@ -1,0 +1,181 @@
+[project]
+name = "tempus-api"
+version = "0.1.0"
+description = "API de Tempus: SaaS multi-tenant de gestion de turnos con recordatorios por WhatsApp"
+requires-python = ">=3.13"
+
+# Dependencias de la Fase 0. Son las minimas que hacen que la app levante,
+# verifique su configuracion, se conecte a Postgres y sirva los health checks. Se fueron
+# sumando por fase, y cada bloque dice que fase lo trailer.
+#
+# Lo que todavia NO esta aca y por que (cada dependencia entra con la fase que la
+# necesita, no antes, para no pagar dependencias que nadie usa):
+#   cryptography           Fase 7 (WhatsApp). Cifrado en reposo de los tokens de Meta.
+#   fastapi-slim           no se usa: shadcn/ui es frontend, el slim de FastAPI solo
+#                          economiza en despliegue y con las 27 tablas aqui no
+#                          cambia nada.
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "greenlet>=3.1",          # requerido por SQLAlchemy asyncio
+    "alembic>=1.14",
+    "structlog>=24.4",
+    # Sin esto, `zoneinfo` no encuentra ningun timezone en Windows: la base IANA no
+    # esta en el sistema, vive en el paquete. Sin `tzdata`, la app no levanta en
+    # el escritorio del que hace el desarrollo y el validador de DEFAULT_TIMEZONE
+    # falla con "timezone IANA inexistente" en una zona que si existe.
+    "tzdata>=2024.2",
+    # --- Fase 1: auth ---
+    # Argon2id es el unico algoritmo de hashing de password que el §10.1 admite.
+    # `bcrypt` se descarta por el limite de 72 bytes: trunca en silencio las
+    # passwords largas y dos passwords distintas con el mismo prefijo dan el mismo
+    # hash. scrypt y PBKDF2 tambien quedan afuera: Argon2id gana en GPU y es lo que
+    # recomiendan hoy las guias de FastAPI y OWASP.
+    "argon2-cffi>=23.1",
+    # `pwdlib` es la API que recomienda la documentacion de FastAPI para passwords.
+    # El extra `[argon2]` trae `argon2-cffi`, que es el backend real: sin el extra
+    # `PasswordHash.recommended()` falla en runtime, no en la instalacion.
+    "pwdlib[argon2]>=0.2",
+    # PyJWT con el extra `crypto`. Sin el extra, el backend HMAC no puede detectar
+    # que le estan pasando una clave publica RSA en vez de un secreto, y el ataque de
+    # confusion de algoritmo ("none" y HS256 con la publica) queda abierto. Un token
+    # con `alg: none` ya lo rechaza PyJWT >= 2, pero el otro sentido no.
+    "pyjwt[crypto]>=2.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "httpx>=0.27",            # cliente de pruebas para TestClient
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "types-python-dateutil>=2.9",
+    "types-PyYAML>=6.0",       # el test del pipeline parsea el workflow
+    "mutmut>=3.8",             # mutation testing
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+
+# =============================================================================
+# RUFF
+# =============================================================================
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "A",    # builtin shadowing
+    "C4",   # comprehensions
+    "DTZ",  # datetime con timezone explicito
+    "T20",  # print en produccion
+    "SIM",  # simplify
+    "TID",  # imports ordenados
+    "ARG",  # argumentos sin usar
+    "PTH",  # usar pathlib
+    "RUF",
+]
+ignore = [
+    "E501",    # el line-length ya lo informa ruff format
+    # B008: `Depends(...)`/`Query(...)` en los defaults de los argumentos *es* el
+    # patron que FastAPI documenta, no un bug. Bugbear lo reporta porque fuera
+    # de FastAPI un default mutable se evaluaria una vez al importar el modulo y
+    # todas las rutas comparte la misma instancia. Aca el default se lee en cada
+    # peticion y es precisamente lo que se quiere. Ruff recomienda ignorar B008
+    # en proyectos con FastAPI; ponerlo por excepcion en cada endpoint deja el
+    # proyecto entero unable de pasar `ruff check`.
+    "B008",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Los tests declaran fixtures que ruff ve como argumentos sin usar.
+"tests/**" = ["ARG001", "ARG002", "S101"]
+# Alembic usa imports dinamicos que ruff no puede resolver.
+"migrations/**" = ["I001"]
+# Los scripts de la raiz son programas de linea de comandos: imprimir **es** su
+# salida. Lo que se busca evitar aca es el `print` dentro de `app/`, y eso lo siguen
+# prohibiendo `T201` y el resto de las reglas, que siguen valiendo sin cambios.
+# El glob `*.py` no cruza directorios, asi que esto no le perdona nada a `app/**`.
+"*.py" = ["T201"]
+
+
+# =============================================================================
+# MYPY
+# =============================================================================
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unreachable = true
+warn_no_return = true
+plugins = ["pydantic.mypy"]
+
+# SQLAlchemy y Alembic no traen stubs completos;(strict) no puede activarse sin
+# desactivar el chequeo de llamadas sin tipar en esos modulos.
+[[tool.mypy.overrides]]
+module = ["sqlalchemy.*", "alembic.*"]
+disallow_untyped_calls = false
+
+
+# =============================================================================
+# PYTEST
+# =============================================================================
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+# Fixtures y tests comparten el loop de sesion. Sin esto, el engine (fixture de
+# sesion) se crea en un event loop y los tests corren en otro: asyncpg falla con
+# "got Future attached to a different loop", que no dice nada sobre el codigo bajo
+# prueba. La alternativa seria un engine por test, que multiplica el costo de
+# conexion por la cantidad de tests.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=app",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-fail-under=0",   # Fase 0: sin umbral. Se fija por capa mas adelante.
+]
+filterwarnings = [
+    "error",                                   # los warnings son errores a proposito
+    "ignore::DeprecationWarning:passlib.*",
+]
+markers = [
+    "unit: no toca la base, corre en cualquier parte",
+    "integration: requiere PostgreSQL real",
+    "concurrency: prueba de concurrencia contra PostgreSQL real",
+    "tenancy: prueba de aislamiento entre tenants",
+    "slow: tarda del orden de segundos. Se excluye con -m 'not slow'",
+]
+
+[tool.mutmut]
+paths_to_mutate = [
+    "app/modules/auth/service.py",
+    "app/core/security.py",
+    "backend/migrations/versions/0005_login_definer_role.py",
+]
+runner = "python -m pytest -x --no-cov -q {test_args}"
+tests_dir = "tests/"
+timeout_factor = 2

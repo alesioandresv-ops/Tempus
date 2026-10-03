@@ -1,0 +1,42 @@
+# El repo se desarrollo en Windows y corre en Linux (CI, Docker, Render). Con
+# `core.autocrlf=true`--que es el default de Git para Windows-- los finales de linea
+# se convierten **en la copia de trabajo**, no en el repositorio. Funciona para Python,
+# que tolera CRLF, pero rompe los dos archivos donde no tolera nada:
+#
+#   - `docker-entrypoint.sh`: lo ejecuta `/bin/sh`, y `set -eu\r` no es un comando
+#     existente. El contenedor muere antes de levantar el servidor, con un error que
+#     no menciona finales de linea.
+#   - `Dockerfile`: Docker corre en Linux y lee el archivo tal cual llega.
+#
+# Esto fija los finales de linea **en el repositorio**, que es el unico lugar donde
+# tienen que estar, en vez de depender de la config de cada maquina.
+
+# Normaliza a LF en el repo y deja CRLF solo donde tiene sentido para Windows.
+* text=auto eol=lf
+
+# Los que Windows abre como texto y donde CRLF si se espera.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binarios: que nadie los toque.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+*.zip binary
+*.sqlite3 binary
+
+# Sin esto, Git trata los .env como texto normalizable y un CRLF los rompe al
+# parsearlos. El repo nunca deberia contenerlos--estan en .gitignore-- pero la regla
+# protege el `.env.example`, que si se versiona.
+.env text eol=lf
+.env.example text eol=lf
+
+# Los shell scripts nunca CRLF. Es la linea que evita el problema del entrypoint.
+*.sh text eol=lf
+Dockerfile text eol=lf

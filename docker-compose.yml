@@ -1,0 +1,70 @@
+# Solo para desarrollo local. El despliegue real es Render/Neon/Cloudflare y no usa
+# este archivo.
+#
+# Las credenciales van como `${VAR:-valor-por-defecto}` y no como valores fijos. La
+# diferencia importa por dos motivos: una permite levantar el compose en otra
+# maquina sin editar el archivo, y la segunda evita que estas contrasenas--que son de
+# desarrollo, pero son contrasenas-- parezcan las de un despliegue configurado a
+# mano. `${...}` tambien avisa en el log de compose cuando se usa un default.
+version: "3.9"
+
+services:
+  # Base de datos PostgreSQL
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tempus_owner}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tempus_owner_dev_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-tempus}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/postgresql-data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tempus_owner} -d ${POSTGRES_DB:-tempus}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Backend FastAPI
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      # Rol de la app: este es el que corre en el servidor web.
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://tempus_app:tempus_app_dev_pw@postgres:5432/tempus}
+      # Rol de DDL: lo usa **solo** el entrypoint para `alembic upgrade head`.
+      DATABASE_MIGRATION_URL: ${DATABASE_MIGRATION_URL:-postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@postgres:5432/tempus}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-cambiame_en_produccion_openssl_rand_hex_32}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-cambiame_openssl_rand_base64_32}
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+      # Proxy de confianza para el rate limiting. Vacio = la IP del peer.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    # `--reload` solo porque este compose es de desarrollo y monta el codigo.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Frontend Vite
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev -- --host 0.0.0.0
+
+volumes:
+  postgres_data:

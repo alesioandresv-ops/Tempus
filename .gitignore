@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Entorno virtual
+.venv/
+venv/
+env/
+
+# Tests
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.mypy_cache/
+.ruff_cache/
+
+# Secretos. El `.env` NUNCA se commitea (PROJECT_MASTER §42).
+.env
+.env.*
+!.env.example
+
+# Editores
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/playwright-report/
+frontend/test-results/
+coverage/
+
+# Datos locales de desarrollo
+*.sqlite3
+.pgdata/
+.env.testing
