@@ -1,4 +1,4 @@
-name: CI
+﻿name: CI
 on:
   push:
     branches: [master, main]
@@ -53,7 +53,7 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
           DATABASE_MIGRATION_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
-          JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-32chars
+          JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-64-chars-long-xxxx-xxxx-xxxx
           ENCRYPTION_KEY: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
           SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
@@ -63,7 +63,7 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
           DATABASE_MIGRATION_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
-          JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-32chars
+          JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-64-chars-long-xxxx-xxxx-xxxx
           ENCRYPTION_KEY: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
           SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
@@ -98,7 +98,7 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
           DATABASE_MIGRATION_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
-          JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-32chars
+          JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-64-chars-long-xxxx-xxxx-xxxx
           ENCRYPTION_KEY: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
           SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
@@ -109,7 +109,7 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
           TEST_DATABASE_URL: postgresql+asyncpg://tempus_app:tempus_app_dev_pw@localhost:5433/tempus_test
           DATABASE_MIGRATION_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
-          JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-32chars
+          JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-64-chars-long-xxxx-xxxx-xxxx
           ENCRYPTION_KEY: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
           SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
@@ -144,7 +144,7 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
           DATABASE_MIGRATION_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
-          JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-32chars
+          JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-64-chars-long-xxxx-xxxx-xxxx
           ENCRYPTION_KEY: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
           SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
