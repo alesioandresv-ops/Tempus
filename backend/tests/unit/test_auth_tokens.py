@@ -1,4 +1,4 @@
-"""Access token: emision, validacion y, sobre todo, que se rechaza.
+﻿"""Access token: emision, validacion y, sobre todo, que se rechaza.
 
 El foco de este archivo son los rechazos. Un token que se emite bien es codigo de cinco
 lineas que ya exercise el login; lo que hay que demostrar es que **todo lo demas** no
@@ -311,7 +311,7 @@ class TestRechazosDeClaims:
         """Sin `exp` el token no expira nunca. Sin `sub` no tiene titular.
 
         Cada claim de `REQUIRED_CLAIMS` tiene que ver: se prueba uno por uno porque un
-        `require` mal escrito es facil de no notar — PyJWT no avisa de lo que no le
+        `require` mal escrito es facil de no notar â€” PyJWT no avisa de lo que no le
         pidio.
         """
         payload = _sin_verificar(_emitir(usuario, negocio))

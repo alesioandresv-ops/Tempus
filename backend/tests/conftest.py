@@ -1,4 +1,4 @@
-"""Fixtures compartidas.
+﻿"""Fixtures compartidas.
 
 Dos decisiones que conviene tener presentes al leer los tests:
 
@@ -103,6 +103,9 @@ def _apuntar_la_app_a_la_base_de_test() -> None:
     get_settings.cache_clear()
 
 
+os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-32-chars-long-xxxx")
+os.environ.setdefault("ENCRYPTION_KEY", "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
+os.environ.setdefault("SCHEDULER_TICK_SECRET", "test-scheduler-secret-32-chars-long")
 _apuntar_la_app_a_la_base_de_test()
 
 #: Tenants de prueba. IDs fijos para que un fallo se pueda reproducir a mano
@@ -202,7 +205,7 @@ async def connection(engine: AsyncEngine, seeded: None) -> AsyncIterator[AsyncCo
     una tabla vacia y falla con `rowcount == 0`, que no dice nada sobre RLS.
 
     **El rollback se hace solo si la transaccion sigue viva.** Cuando un test levanta
-    una excepcion a mitad de camino, el cierre del fixture `session` ya desasoció la
+    una excepcion a mitad de camino, el cierre del fixture `session` ya desasociÃ³ la
     transaccion--SQLAlchemy la marca como cerrada-- y el `rollback` final la
     encuentra en ese estado. Con `filterwarnings = error` ese `SAWarning` deja de
     ser una nota y pasa a ser un error, asi que el test se reporta como fallido en el
@@ -257,7 +260,7 @@ def set_tenant(connection: AsyncConnection):
     Se expone como fixture y no como helper suelto porque "usar el negocio de
     prueba" son dos pasos inseparables: pedir el fixture `business_c` **y** decir
     que se opera como ese tenant. Si se olvida el segundo, el test falla con
-    `new row violates row-level security policy`, que no dice "te faltó el
+    `new row violates row-level security policy`, que no dice "te faltÃ³ el
     `set_config`" sino "tu politica no deja escribir".
 
     Va antes de cada `INSERT` de tabla de tenant, porque las politicas miran el
