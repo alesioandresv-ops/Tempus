@@ -613,7 +613,7 @@ async def _revocar_familia(session: AsyncSession, family_id: uuid.UUID) -> int:
         .values(revoked_at=now())
     )
     await session.commit()
-    return int(getattr(resultado, "rowcount", 0) or 0) # type: ignore[attr-defined]
+    return int(getattr(resultado, "rowcount", 0) or 0)  # type: ignore[attr-defined]
 
 
 @dataclass(frozen=True, slots=True)
@@ -681,7 +681,7 @@ async def rotate_refresh_token(
         .values(revoked_at=now(), last_used_at=now())
     )
 
-    if getattr(revocacion, "rowcount", 0) == 0: # type: ignore[attr-defined]
+    if getattr(revocacion, "rowcount", 0) == 0:  # type: ignore[attr-defined]
         # El token ya estaba revocado cuando llegamos: alguien lo uso antes.
         affected = await _revocar_familia(session, fila.family_id)
         logger.warning(
