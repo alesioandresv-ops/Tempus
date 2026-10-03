@@ -69,6 +69,29 @@ jobs:
         run: |
           cd backend
           .venv/bin/alembic check
+      - name: Check piso irreversible 0003
+        env:
+          DATABASE_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
+          DATABASE_MIGRATION_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
+          JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-64-chars-long-xxxx-xxxx-xxxx
+          ENCRYPTION_KEY: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
+          SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
+        run: |
+          cd backend
+          # 0003_auth_roles es un piso de reversibilidad: agregar valores a enum no tiene vuelta con asyncpg
+          # deberia ser un piso y no poder bajar de ahi sin dejar la base rota
+          set +e
+          .venv/bin/alembic downgrade 0002_rls_triggers_grants
+          codigo=$?
+          echo "codigo $codigo"
+          .venv/bin/alembic current | grep 0003_auth_roles
+          if [ $codigo -eq 0 ]; then
+            echo "0003 deberia fallar al hacer downgrade"
+            exit 1
+          fi
+          .venv/bin/alembic history | grep 0002_rls_triggers_grants
+          .venv/bin/alembic history | grep 0003_auth_roles
+          .venv/bin/alembic upgrade head
       - name: Teardown
         if: always()
         run: docker compose down -v
@@ -158,3 +181,4 @@ jobs:
       - name: Teardown
         if: always()
         run: docker compose down -v
+
