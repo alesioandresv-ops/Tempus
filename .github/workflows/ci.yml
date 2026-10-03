@@ -48,7 +48,7 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
           DATABASE_MIGRATION_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
           JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-32chars
-          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          ENCRYPTION_KEY: c2VjcmV0X2VuY3J5cHRpb25fa2V5XzMyX2J5dGVzXyEh
           SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
           cd backend
@@ -58,7 +58,7 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
           DATABASE_MIGRATION_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
           JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-32chars
-          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          ENCRYPTION_KEY: c2VjcmV0X2VuY3J5cHRpb25fa2V5XzMyX2J5dGVzXyEh
           SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
           cd backend
@@ -87,7 +87,7 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
           DATABASE_MIGRATION_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
           JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-32chars
-          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          ENCRYPTION_KEY: c2VjcmV0X2VuY3J5cHRpb25fa2V5XzMyX2J5dGVzXyEh
           SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
           cd backend
@@ -98,7 +98,7 @@ jobs:
           TEST_DATABASE_URL: postgresql+asyncpg://tempus_app:tempus_app_dev_pw@localhost:5433/tempus_test
           DATABASE_MIGRATION_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
           JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-32chars
-          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          ENCRYPTION_KEY: c2VjcmV0X2VuY3J5cHRpb25fa2V5XzMyX2J5dGVzXyEh
           SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
           cd backend
@@ -127,7 +127,7 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
           DATABASE_MIGRATION_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
           JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-32chars
-          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          ENCRYPTION_KEY: c2VjcmV0X2VuY3J5cHRpb25fa2V5XzMyX2J5dGVzXyEh
           SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
           cd backend
