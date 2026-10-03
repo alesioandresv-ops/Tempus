@@ -29,6 +29,7 @@ dependencies = [
     # el escritorio del que hace el desarrollo y el validador de DEFAULT_TIMEZONE
     # falla con "timezone IANA inexistente" en una zona que si existe.
     "tzdata>=2024.2",
+    "email-validator>=2.0",
     # --- Fase 1: auth ---
     # Argon2id es el unico algoritmo de hashing de password que el §10.1 admite.
     # `bcrypt` se descarta por el limite de 72 bytes: trunca en silencio las
