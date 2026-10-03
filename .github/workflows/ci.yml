@@ -16,17 +16,17 @@ jobs:
       - name: Install dependencies
         run: |
           cd backend
-          python -m venv.venv
-         .venv/bin/pip install -e ".[dev]"
+          python -m venv .venv
+          .venv/bin/pip install -e ".[dev]"
       - name: Lint
         run: |
           cd backend
-         .venv/bin/ruff check.
-         .venv/bin/ruff format --check.
+          .venv/bin/ruff check .
+          .venv/bin/ruff format --check .
       - name: Type check (critico)
         run: |
           cd backend
-         .venv/bin/mypy app/core app/modules/auth
+          .venv/bin/mypy app/core app/modules/auth
 
   migraciones:
     runs-on: ubuntu-latest
@@ -39,8 +39,8 @@ jobs:
       - name: Install dependencies
         run: |
           cd backend
-          python -m venv.venv
-         .venv/bin/pip install -e ".[dev]"
+          python -m venv .venv
+          .venv/bin/pip install -e ".[dev]"
       - name: Start PostgreSQL
         run: docker compose up -d --wait postgres
       - name: Run migrations
@@ -52,7 +52,7 @@ jobs:
           SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
           cd backend
-         .venv/bin/alembic upgrade head
+          .venv/bin/alembic upgrade head
       - name: Verify migrations
         env:
           DATABASE_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
@@ -62,7 +62,7 @@ jobs:
           SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
           cd backend
-         .venv/bin/alembic check
+          .venv/bin/alembic check
       - name: Teardown
         if: always()
         run: docker compose down -v
@@ -78,8 +78,8 @@ jobs:
       - name: Install dependencies
         run: |
           cd backend
-          python -m venv.venv
-         .venv/bin/pip install -e ".[dev]"
+          python -m venv .venv
+          .venv/bin/pip install -e ".[dev]"
       - name: Start PostgreSQL
         run: docker compose up -d --wait postgres
       - name: Run migrations
@@ -91,7 +91,7 @@ jobs:
           SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
           cd backend
-         .venv/bin/alembic upgrade head
+          .venv/bin/alembic upgrade head
       - name: Run tests
         env:
           DATABASE_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
@@ -102,7 +102,7 @@ jobs:
           SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
           cd backend
-         .venv/bin/python -m pytest
+          .venv/bin/python -m pytest
       - name: Teardown
         if: always()
         run: docker compose down -v
@@ -118,8 +118,8 @@ jobs:
       - name: Install dependencies
         run: |
           cd backend
-          python -m venv.venv
-         .venv/bin/pip install -e ".[dev]"
+          python -m venv .venv
+          .venv/bin/pip install -e ".[dev]"
       - name: Start PostgreSQL
         run: docker compose up -d --wait postgres
       - name: Run migrations
@@ -131,7 +131,7 @@ jobs:
           SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
           cd backend
-         .venv/bin/alembic upgrade head
+          .venv/bin/alembic upgrade head
       - name: Build frontend
         run: |
           cd frontend
