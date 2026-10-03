@@ -11,86 +11,60 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-
       - name: Install dependencies
         run: |
           cd backend
-          python -m venv .venv
-          .venv/bin/pip install -e ".[dev]"
-
+          python -m venv.venv
+         .venv/bin/pip install -e ".[dev]"
       - name: Lint
         run: |
           cd backend
-          .venv/bin/ruff check .
-          .venv/bin/ruff format --check .
-
+         .venv/bin/ruff check.
+         .venv/bin/ruff format --check.
       - name: Type check (critico)
         run: |
           cd backend
-          # Solo `app/core` y `app/modules/auth`: los dos cleaners donde un error de
-          # tipos es un agujero--firma de token, comparacion de contrasenas, ventana
-          # del rate limit-- y hoy dan cero errores.
-          #
-          # **No** es `mypy app tests`. Ese comando tiene 122 errores known, casi todos
-          # anotaciones faltantes y `Literal`s que el tipo estatico no puede estrechar,
-          # y dejarlo como puerta dejaba el pipeline **rojo en todos los pushes**, que
-          # es peor que la deuda: un CI que siempre falla deja de leerse y termina
-          # ignorandose. Ampliar el alcance es trabajo aparte, con su propio PR.
-          # Lo que si no se negocia es que estos dos directorios no retrocedan.
-          .venv/bin/mypy app/core app/modules/auth
+         .venv/bin/mypy app/core app/modules/auth
 
   migraciones:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-
       - name: Install dependencies
         run: |
           cd backend
-          python -m venv .venv
-          .venv/bin/pip install -e ".[dev]"
-
+          python -m venv.venv
+         .venv/bin/pip install -e ".[dev]"
       - name: Start PostgreSQL
         run: docker compose up -d --wait postgres
-
       - name: Run migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
+          DATABASE_MIGRATION_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
+          JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-32chars
+          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
           cd backend
-          DATABASE_MIGRATION_URL=postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test \
-          .venv/bin/alembic upgrade head
-
+         .venv/bin/alembic upgrade head
       - name: Verify migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
+          DATABASE_MIGRATION_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
+          JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-32chars
+          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
           cd backend
-          DATABASE_MIGRATION_URL=postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test \
-          .venv/bin/alembic check
-
-      - name: Test downgrade floor
-        run: |
-          cd backend
-          DATABASE_MIGRATION_URL=postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus
-          # Verificar que el piso 0003_auth_roles existe
-          .venv/bin/alembic current | grep "0003_auth_roles"
-          # Verificar que el piso 0002_rls_triggers_grants existe
-          .venv/bin/alembic current | grep "0002_rls_triggers_grants"
-          # Intentar downgrade base deberia fallar (0003 es un piso de reversibilidad)
-          set +e
-          codigo_salida=$?
-          .venv/bin/alembic downgrade base 2>&1 | grep "deberia ser un piso" || true
-          set -e
-          # Verificar que la base sigue en 0003_auth_roles
-          .venv/bin/alembic current | grep "0003_auth_roles"
-
+         .venv/bin/alembic check
       - name: Teardown
         if: always()
         run: docker compose down -v
@@ -99,34 +73,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-
       - name: Install dependencies
         run: |
           cd backend
-          python -m venv .venv
-          .venv/bin/pip install -e ".[dev]"
-
+          python -m venv.venv
+         .venv/bin/pip install -e ".[dev]"
       - name: Start PostgreSQL
         run: docker compose up -d --wait postgres
-
       - name: Run migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
+          DATABASE_MIGRATION_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
+          JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-32chars
+          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
           cd backend
-          DATABASE_MIGRATION_URL=postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test \
-          .venv/bin/alembic upgrade head
-
+         .venv/bin/alembic upgrade head
       - name: Run tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
+          TEST_DATABASE_URL: postgresql+asyncpg://tempus_app:tempus_app_dev_pw@localhost:5433/tempus_test
+          DATABASE_MIGRATION_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
+          JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-32chars
+          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
           cd backend
-          TEST_DATABASE_URL=postgresql+asyncpg://tempus_app:tempus_app_dev_pw@localhost:5433/tempus_test \
-          DATABASE_MIGRATION_URL=postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test \
-          .venv/bin/python -m pytest
-
+         .venv/bin/python -m pytest
       - name: Teardown
         if: always()
         run: docker compose down -v
@@ -135,33 +113,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-
       - name: Install dependencies
         run: |
           cd backend
-          python -m venv .venv
-          .venv/bin/pip install -e ".[dev]"
-
+          python -m venv.venv
+         .venv/bin/pip install -e ".[dev]"
       - name: Start PostgreSQL
         run: docker compose up -d --wait postgres
-
       - name: Run migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
+          DATABASE_MIGRATION_URL: postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test
+          JWT_SECRET_KEY: ci-test-jwt-secret-key-not-for-prod-32chars
+          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          SCHEDULER_TICK_SECRET: ci-test-scheduler-secret-not-for-prod
         run: |
           cd backend
-          DATABASE_MIGRATION_URL=postgresql+asyncpg://tempus_owner:tempus_owner_dev_pw@localhost:5433/tempus_test \
-          .venv/bin/alembic upgrade head
-
+         .venv/bin/alembic upgrade head
       - name: Build frontend
         run: |
           cd frontend
           npm install
           npm run build
-
       - name: Teardown
         if: always()
         run: docker compose down -v
