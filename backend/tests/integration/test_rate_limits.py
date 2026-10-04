@@ -110,6 +110,19 @@ async def negocio_activo(migration_database_url: str, business_c: uuid.UUID) -> 
     hay que **commitear** y por eso hay que **restaurar** al final: la sesion del test
     se deshace sola, esta escritura no.
 
+    **Y hay que poner el GUC del tenant.** `businesses` esta con `FORCE ROW LEVEL
+    SECURITY`, asi que la politica `businesses_write`--que exige
+    `app.current_business_id = id`-- le aplica **tambien al dueno de la tabla**. Que
+    este `UPDATE` lo haga el rol de migraciones no lo exime de las politicas: sin el
+    GUC no matchea ninguna fila y el `UPDATE` reporta `UPDATE 0` en vez de fallar,
+    que es la forma de fallo que uno no ve. El negocio se queda en `trial`, el endpoint
+    publico responde 404, y el test que--segun su nombre--mide el techo de reservas
+    falla por un motivo que no tiene que ver con el techo.
+
+    Esto solo se nota donde `tempus_owner` es `NOSUPERUSER` como en el init de docker,
+    porque un superusuario se salta la RLS y el GUC no hacia falta. Un test que
+    depende de que el rol de DDL sea superusuario no esta probando lo que dice probar.
+
     Sin el `finally`, un test que fallara a mitad de camino dejaria el negocio en
     `active` para el resto de la corrida, y los tests de reserva--que asumen que el
     negocio no existe porque esta en `trial`-- empezarian a fallar por un motivo que
@@ -118,19 +131,23 @@ async def negocio_activo(migration_database_url: str, business_c: uuid.UUID) -> 
     from sqlalchemy.ext.asyncio import create_async_engine
 
     motor = create_async_engine(migration_database_url, poolclass=None)
-    try:
+
+    async def _poner_estado(estado: str) -> None:
         async with motor.begin() as conn:
             await conn.execute(
-                text("UPDATE businesses SET status = 'active' WHERE id = :id"),
+                text("SELECT set_config('app.current_business_id', :id, true)"),
                 {"id": str(business_c)},
             )
+            await conn.execute(
+                text("UPDATE businesses SET status = :estado WHERE id = :id"),
+                {"id": str(business_c), "estado": estado},
+            )
+
+    try:
+        await _poner_estado("active")
         yield
     finally:
-        async with motor.begin() as conn:
-            await conn.execute(
-                text("UPDATE businesses SET status = 'trial' WHERE id = :id"),
-                {"id": str(business_c)},
-            )
+        await _poner_estado("trial")
         await motor.dispose()
 
 
