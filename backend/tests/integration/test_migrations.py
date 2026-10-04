@@ -1,6 +1,6 @@
 """Las migraciones y el modelo no pueden desincronizarse.
 
-`alembic check` es el guardián: compara el modelo de SQLAlchemy contra la base y
+`alembic check` es el guardiÃ¡n: compara el modelo de SQLAlchemy contra la base y
 falla si hay diferencias. Es la unica forma de que un `ALTER TABLE` olvidado llegue
 a produccion, porque el resto del suite pasa igual: los tests de unitario miran la
 metadata, los de integracion miran la base, y sin este puente nadie los junta.
@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import ast
 import datetime as dt
+import os
 import subprocess
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 from sqlalchemy import text
@@ -25,6 +27,39 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 BACKEND = Path(__file__).resolve().parents[2]
 
 pytestmark = [pytest.mark.integration]
+
+
+def _superuser_url(migration_database_url: str) -> str:
+    """La misma base de test, pero con un rol que pueda deshacer `0005`.
+
+    Se **deriva de `migration_database_url`** en vez de escribirla entera. La
+    version anterior traia `127.0.0.1:5433` copiado a mano, y por eso este test
+    apuntaba a otra base: una vacia, con `alembic_version` en NULL. Ahi
+    `downgrade base` no tiene nada que deshacer, sale con codigo 0, y el test
+    fallaba diciendo que no habia piso de reversibilidad--o sea, el piso existia y
+    el test no lo estaba mirando. Un puerto escrito a mano en un test es una
+    promesa de que el puerto no va a cambiar; el puerto SI cambia.
+
+    Solo se sustituyen las credenciales: host, puerto y base se heredan, asi que
+    el superuser cae en la base de test aunque `TEST_DATABASE_URL` apunte a otro
+    lado. `SUPERUSER_DATABASE_URL` gana si esta definida, y las variables sueltas
+    `POSTGRES_*` son el override de una linea, igual que en
+    `tests/tenancy/test_login_definer.py`.
+    """
+    if override := os.environ.get("SUPERUSER_DATABASE_URL"):
+        return override
+    partes = urlsplit(migration_database_url)
+    return urlunsplit(
+        (
+            partes.scheme,
+            f"{os.environ.get('POSTGRES_USER', 'postgres')}:"
+            f"{os.environ.get('POSTGRES_PASSWORD', 'postgres_dev_pw')}"
+            f"@{partes.hostname or '127.0.0.1'}:{partes.port or 5432}",
+            partes.path,
+            "",
+            "",
+        )
+    )
 
 
 def _alembic(*args: str, url: str) -> subprocess.CompletedProcess[str]:
@@ -42,6 +77,9 @@ def _alembic(*args: str, url: str) -> subprocess.CompletedProcess[str]:
         cwd=BACKEND,
         env={
             "PATH": "/usr/bin:/bin",
+            "JWT_SECRET_KEY": "ci-test-jwt-secret-key-not-for-prod-64-chars-long-xxxx-xxxx-xxxx",
+            "ENCRYPTION_KEY": "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+            "SCHEDULER_TICK_SECRET": "ci-test-scheduler-secret-not-for-prod",
             "DATABASE_MIGRATION_URL": url,
             "DATABASE_URL": url,
             "SYSTEMROOT": "C:\\Windows",
@@ -99,7 +137,7 @@ class TestEstadoDeLasMigraciones:
         """Las migraciones no importan el codigo de aplicacion.
 
         Es tentador y es un error. Una migracion tiene que seguir aplicando dentro
-        de dos años, cuando el modelo haya cambiado: si importa `app.models`, el dia
+        de dos aÃ±os, cuando el modelo haya cambiado: si importa `app.models`, el dia
         que se renombre una tabla la migracion vieja deja de importar y no hay forma
         de llegar a la ultima revision desde cero.
 
@@ -179,7 +217,7 @@ class TestAutogenerate:
         reencendido no reencendia nada.
 
         El resultado era el peor posible de diagnosticar: 20 politicas en su sitio,
-        `FORCE` intacto, y `alembic check` conforme, pero **cualquier rol veía las
+        `FORCE` intacto, y `alembic check` conforme, pero **cualquier rol veÃ­a las
         filas de todos los tenants**. No habia ni una linea de log. Los tests de
         tenancy lo detectaron como "de pronto el seed no aplica", y la primera
         hipotesis razonable era el seed.
@@ -249,8 +287,7 @@ class TestElPisoDeReversibilidad:
         (cambiar owner de funcion). El test usa la URL de superuser para el downgrade,
         de modo que 0005 se revierte correctamente y luego falla en 0003 como se espera.
         """
-        # Usar superuser para que el downgrade de 0005 (cambio de owner) funcione
-        superuser_url = "postgresql+asyncpg://postgres:postgres_dev_pw@127.0.0.1:5433/tempus_test"
+        superuser_url = _superuser_url(migration_database_url)
         resultado = _alembic("downgrade", "base", url=superuser_url)
         assert resultado.returncode != 0, (
             "deberia haber un piso de reversibilidad y no se pudo deshacer"

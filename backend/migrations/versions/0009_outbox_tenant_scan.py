@@ -44,6 +44,13 @@ from collections.abc import Sequence
 
 from alembic import op
 
+from migrations.roles_definer import (
+    definer_con_create,
+    definer_sin_create,
+    membresia_temporal_al_definer,
+    revoca_membresia_al_definer,
+)
+
 revision: str = "0009_outbox_tenant_scan"
 down_revision: str | None = "0008_login_definer_email"
 branch_labels: str | Sequence[str] | None = None
@@ -82,8 +89,15 @@ def upgrade() -> None:
         $$;
         """
     )
-    op.execute(f'GRANT "{DEFINER_ROLE}" TO {OWNER_ROLE}')
+    # El dueno tiene que ser el rol BYPASSRLS, y por eso va por el puente: `tempus_owner`
+    # no es miembro del definer, y `ALTER ... OWNER TO` ademas exige que el dueno
+    # nuevo tenga `CREATE` en el esquema. Las dos piezas--la membresia y el `CREATE`--
+    # se dan y se devuelven dentro de esta misma transaccion.
+    membresia_temporal_al_definer()
+    definer_con_create()
     op.execute(f'ALTER FUNCTION {FUNCTION}(integer) OWNER TO "{DEFINER_ROLE}"')
+    definer_sin_create()
+    revoca_membresia_al_definer()
 
     # `SELECT` por columna, igual que en `0005`, y por la misma razon: el rol tiene
     # BYPASSRLS, y darle `SELECT` sobre la tabla entera lo convertiria en elReader
