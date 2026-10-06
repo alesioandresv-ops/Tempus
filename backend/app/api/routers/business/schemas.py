@@ -37,6 +37,8 @@ from app.models.enums import (
     TimeOffKind,
     TimeOffStatus,
 )
+from app.modules.professionals.service import WHATSAPP_RE
+from app.modules.services.service import DURACIONES_PERMITIDAS
 
 # --------------------------------------------------------------------------- #
 # Negocio
@@ -120,7 +122,7 @@ class ServicioCreate(BaseModel):
 
     name: str = Field(min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=1024)
-    duration_minutes: int = Field(ge=5, le=480)
+    duration_minutes: int = Field(ge=1, le=480)
     price: Decimal = Field(ge=0, max_digits=12, decimal_places=2)
     currency: str = Field(min_length=3, max_length=3)
     color: str | None = Field(default=None, max_length=32)
@@ -130,6 +132,15 @@ class ServicioCreate(BaseModel):
     @classmethod
     def _moneda(cls, v: str) -> str:
         return v.strip().upper()
+
+    @field_validator("duration_minutes")
+    @classmethod
+    def _duracion(cls, v: int) -> int:
+        # Misma lista que el servicio (`DURACIONES_PERMITIDAS`): el esquema
+        # valida para el 422 rapido, el servicio para la garantia.
+        if v not in DURACIONES_PERMITIDAS:
+            raise ValueError(f"debe ser una de: {', '.join(str(d) for d in DURACIONES_PERMITIDAS)}")
+        return v
 
     @field_validator("price")
     @classmethod
@@ -145,7 +156,7 @@ class ServicioPatch(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=1024)
-    duration_minutes: int | None = Field(default=None, ge=5, le=480)
+    duration_minutes: int | None = Field(default=None, ge=1, le=480)
     price: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     color: str | None = Field(default=None, max_length=32)
@@ -156,6 +167,14 @@ class ServicioPatch(BaseModel):
     @classmethod
     def _moneda(cls, v: str | None) -> str | None:
         return v.strip().upper() if v is not None else None
+
+    @field_validator("duration_minutes")
+    @classmethod
+    def _duracion(cls, v: int | None) -> int | None:
+        # Misma lista que el servicio (`DURACIONES_PERMITIDAS`).
+        if v is not None and v not in DURACIONES_PERMITIDAS:
+            raise ValueError(f"debe ser una de: {', '.join(str(d) for d in DURACIONES_PERMITIDAS)}")
+        return v
 
     @field_validator("price")
     @classmethod
@@ -190,6 +209,34 @@ class ProfesionalCreate(BaseModel):
     bio: str | None = Field(default=None, max_length=2048)
     color: str | None = Field(default=None, max_length=32)
     sort_order: int | None = Field(default=None, ge=0, le=10_000)
+    whatsapp: str | None = Field(default=None, max_length=15)
+    avatar_url: str | None = Field(default=None, max_length=2048)
+
+    @field_validator("whatsapp")
+    @classmethod
+    def _whatsapp(cls, v: str | None) -> str | None:
+        # Mismo patron que el servicio (`WHATSAPP_RE`): el esquema
+        # valida para el 422 rapido, el servicio para la garantia.
+        # Vacio se deja vacio a proposito: `model_dump(exclude_unset=True)`
+        # del PATCH distingue "no se mando" de "se mando vacio", y el
+        # servicio es el que convierte vacio en NULL (el CHECK de la
+        # base no aceptaria "").
+        if v is None:
+            return v
+        limpio = v.strip()
+        if limpio and WHATSAPP_RE.fullmatch(limpio) is None:
+            raise ValueError("digitos E.164 sin '+': de 7 a 15 digitos, sin cero al inicio")
+        return limpio
+
+    @field_validator("avatar_url")
+    @classmethod
+    def _avatar(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        limpio = v.strip()
+        if limpio and not limpio.lower().startswith(("http://", "https://")):
+            raise ValueError("tiene que empezar con http:// o https://")
+        return limpio
 
 
 class ProfesionalPatch(BaseModel):
@@ -200,6 +247,30 @@ class ProfesionalPatch(BaseModel):
     color: str | None = Field(default=None, max_length=32)
     is_active: bool | None = None
     sort_order: int | None = Field(default=None, ge=0, le=10_000)
+    whatsapp: str | None = Field(default=None, max_length=15)
+    avatar_url: str | None = Field(default=None, max_length=2048)
+
+    @field_validator("whatsapp")
+    @classmethod
+    def _whatsapp(cls, v: str | None) -> str | None:
+        # Mismo patron que el servicio (`WHATSAPP_RE`). Vacio se deja
+        # vacio: es la forma de borrar el campo (ver ProfesionalCreate).
+        if v is None:
+            return v
+        limpio = v.strip()
+        if limpio and WHATSAPP_RE.fullmatch(limpio) is None:
+            raise ValueError("digitos E.164 sin '+': de 7 a 15 digitos, sin cero al inicio")
+        return limpio
+
+    @field_validator("avatar_url")
+    @classmethod
+    def _avatar(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        limpio = v.strip()
+        if limpio and not limpio.lower().startswith(("http://", "https://")):
+            raise ValueError("tiene que empezar con http:// o https://")
+        return limpio
 
 
 class ProfesionalOut(BaseModel):
@@ -209,6 +280,8 @@ class ProfesionalOut(BaseModel):
     display_name: str
     bio: str | None
     color: str | None
+    whatsapp: str | None
+    avatar_url: str | None
     is_active: bool
     sort_order: int
     archived_at: dt.datetime | None

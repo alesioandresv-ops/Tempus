@@ -8,7 +8,7 @@ Tres decisiones que importan, y una trampa que ya costo una migracion entera.
    aplicacion empiece a correr con permiso de modificar el schema.
 
 2. **La RLS se apaga solo para comparar, y solo si el comando es autogenerate.**
-   §7 exige `FORCE ROW LEVEL SECURITY`, y `FORCE` somete tambien al dueno de la
+   Â§7 exige `FORCE ROW LEVEL SECURITY`, y `FORCE` somete tambien al dueno de la
    tabla. El rol de migraciones ES el dueno, asi que al comparar el schema no ve
    sus propias filas y el autogenere propone cambios que no existen.
 
@@ -63,6 +63,11 @@ target_metadata = Base.metadata
 
 def get_url() -> str:
     """URL del rol con DDL, con el SSL de la configuracion aplicado."""
+    import os
+
+    url = os.getenv("DATABASE_MIGRATION_URL") or os.getenv("DATABASE_URL")
+    if url:
+        return url
     settings = get_settings()
     if not settings.database_migration_url:
         raise RuntimeError(
@@ -97,7 +102,7 @@ def _set_rls(connection: Connection, tables: list[str], enabled: bool) -> None:
      Se usa `ALTER TABLE ... DISABLE/ENABLE ROW LEVEL SECURITY` y no
      `SET session_replication_role = replica` porque lo segundo es `SUSET`: solo un
      superusuario puede cambiarlo, y darle superusuario al rol de migraciones
-     anularia por completo la separacion de permisos de §7. Lo primero lo puede
+     anularia por completo la separacion de permisos de Â§7. Lo primero lo puede
      hacer cualquiera que sea dueno de la tabla, que es el caso.
 
      La lista se recibe como parametro y **no se vuelve a leer de `pg_class`**. Es

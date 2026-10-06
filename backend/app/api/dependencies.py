@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.rate_limit import (
+    WINDOW_HOUR,
     WINDOW_MINUTE,
     enforce_rate_limit,
     rate_limit_key,
@@ -401,6 +402,21 @@ async def limitar_tick(*, request: Request, settings: Settings) -> None:
     )
 
 
+async def limit_register_business_per_ip(
+    request: Request,
+    settings: Settings = Depends(get_settings_dep),
+) -> None:
+    """3/h por IP para registro self-service."""
+    if not settings.rate_limit_enabled:
+        return
+    await enforce_rate_limit(
+        key=rate_limit_key("register:ip", rate_limit_client_ip(request)),
+        limit=settings.rate_limit_register_business_per_ip_hourly,
+        window_seconds=WINDOW_HOUR,
+        scope="register:ip",
+    )
+
+
 async def limit_panel_por_usuario(
     principal: Annotated[Principal, Depends(require_principal)],
     settings: Settings = Depends(get_settings_dep),
@@ -437,6 +453,7 @@ __all__ = [
     "get_tenant_session_readonly",
     "limit_panel_por_usuario",
     "limit_public_per_ip",
+    "limit_register_business_per_ip",
     "limitar_tick",
     "require_platform_principal",
     "require_principal",

@@ -57,12 +57,26 @@ class Professional(TenantBase, Base):
             "(user_id IS NULL) OR (archived_at IS NULL)",
             name="login_requires_not_archived",
         ),
+        # WhatsApp E.164 **sin** `+`: digitos nomas. El CHECK es la
+        # garantia de ultimo recurso--el servicio y el esquema validan
+        # antes--pero un INSERT directo desde psql no pasa por ninguno
+        # de los dos, y un telefono mal guardado es un recordatorio que
+        # nunca llega.
+        CheckConstraint(
+            "(whatsapp IS NULL) OR (whatsapp ~ '^[1-9][0-9]{6,14}$')",
+            name="whatsapp_e164_sin_mas",
+        ),
     )
 
     user_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
     color: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # NULL significa "no dejo numero", no "no se cargo": no hay forma de
+    # distinguir un profesional sin WhatsApp de uno al que le falta cargar
+    # el campo, y no hace falta distinguirlos.
+    whatsapp: Mapped[str | None] = mapped_column(Text, nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"))
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     archived_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime(), nullable=True)

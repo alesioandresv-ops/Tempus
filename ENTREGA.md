@@ -12,8 +12,8 @@ importa: un checklist que solo lista lo que funciona no sirve para decidir.
 
 | Qué | Resultado | Cómo se comprueba |
 |---|---|---|
-| Suite completa | **1049 passed, 0 failed, 0 skipped** (703 s) | `cd backend; python -m pytest` |
-| Formato | 129 archivos, sin diferencias | `python -m ruff format --check .` |
+| Suite completa | **1184 passed, 0 failed, 0 skipped** (766 s) | `cd backend; python -m pytest` |
+| Formato | 143 archivos, sin diferencias | `python -m ruff format --check .` |
 | Lint | sin errores en todo el repo | `python -m ruff check .` |
 | Tipos (crítico) | 0 errores en 11 archivos | `python -m mypy app/core app/modules/auth` |
 | Rate limiting §10.5 | 5/5 clases, contra uvicorn real | `python verificar_limites.py` |
@@ -38,11 +38,16 @@ El código real que se Borra no tenía tests: se leían como tests.
 > Los 1049 están verificados contra `tempus_test` en PostgreSQL 18. Cero tests
 > omitidos: los de RLS, la restricción `EXCLUDE` y los de concurrencia **corrieron**.
 
+**Actualizado 2026-10-06:** las fases 7-10 (onboarding, panel, WhatsApp/avatar y
+notificaciones) agregaron tests y hoy la suite es **1184 passed, 0 failed, 0 skipped**
+(`python -m pytest`, 766 s), incluidos los 2 tests de concurrencia sobre los cubos de
+rate limit de §7.6 y las comprobaciones de higiene sobre los archivos actuales.
+
 ---
 
 ## 2. Migraciones
 
-- **Head único:** `0013_rate_limit_deslizante`. No hay ramas.
+- **Head único:** `0016_fase4_whatsapp_avatar`. No hay ramas.
 - **Idempotencia verificada:** tres `alembic upgrade head` seguidos → código de
   salida `0 0 0`, versión sin cambios, ninguna migración aplicada.
 - `docker-entrypoint.sh` corre `alembic upgrade head` en cada arranque, así que no
@@ -148,12 +153,11 @@ falsificable con una cabecera. Resolver el proxy es trabajo de uvicorn
 
 Esto es lo que hay que resolver antes de llamar a esto producción.
 
-### 7.1 El `Dockerfile` y el `docker-entrypoint.sh` no se pudieron construir ni ejecutar
+### 7.1 El `Dockerfile` y el `docker-entrypoint.sh` — build verificado, `up` pendiente
 
-**En esta máquina no hay Docker ni shell POSIX.** Ambos archivos se escribieron y se
-releyeron, pero nadie los corrió. Un Dockerfile roto no se detecta hasta el despliegue.
-
-Lo que se cambió, y por qué:
+**Actualizado 2026-10-06:** `docker compose build` ya pasó en esta máquina con Docker
+(imágenes `tempus-backend` y `tempus-frontend` construidas). Lo que cambió en esta
+entrega:
 
 - `pip install .` en vez de `.[dev]` — pytest, mypy y ruff no van a producción.
 - usuario `appuser` (uid 10001) en vez de root.
@@ -163,8 +167,8 @@ Lo que se cambió, y por qué:
 - el entrypoint corre las migraciones y pasa `--forwarded-allow-ips` solo si el
   despliegue declara un proxy de confianza.
 
-**Acción requerida: un `docker compose build && docker compose up` en una máquina con
-Docker antes de publicar.** No des por hecho que funcionan.
+**Pendiente:** `docker compose up` (levantar el stack completo) no se probó; no es el
+gate del checklist §10, pero conviene correrlo antes de publicar.
 
 ### 7.2 Deuda de tipos: 122 errores de mypy
 
@@ -186,11 +190,11 @@ Durante esta entrega se eliminaron 6 errores falsos de `app/modules/availability
 así que denunciaba como "asignación por índice sobre una tupla" dos líneas que en
 runtime son un `dict`. Se renombraron a `occupied_per_pro`/`blocked_per_pro`.
 
-### 7.3 La rama es `master` y el CI dispara en `main`
+### 7.3 Rama y CI — resuelto
 
-El primer push a `master` **no va a disparar el workflow**. Hay que renombrar la
-rama o cambiar los triggers en `.github/workflows/ci.yml`. No se hizo ninguno de los
-dos: cambia el flujo de trabajo del repo y es decisión del equipo.
+**Actualizado 2026-10-06:** la rama de trabajo es `master`, que coincide con
+`origin/HEAD` y con los triggers de `.github/workflows/ci.yml` (`branches: [master, main]`,
+push y pull_request). El primer push a `master` dispara el workflow.
 
 ### 7.4 `diagnostico_bugs.py` no cubre el aislamiento entre negocios por HTTP
 
@@ -203,19 +207,19 @@ La garantía **sí** está cubierta, pero abajo: `tests/tenancy/test_rls_isolati
 prueba que no se lee, inserta, actualiza ni borra filas de otro tenant contra la base
 real. Lo que ninguna de las dos capas cubre es el camino completo por HTTP.
 
-### 7.5 El CI apunta los tests a `tempus`, no a `tempus_test`
+### 7.5 El CI apunta los tests a `tempus_test` — resuelto
 
-En `.github/workflows/ci.yml`, `TEST_DATABASE_URL` termina en `/tempus`: la misma base
-que usa el rol de migraciones. No se cambia porque el CI no se pudo correr desde acá y
-tocarlo a ciegas es peor que dejarlo anotado. **Revisalo antes del primer push.**
+**Actualizado 2026-10-06:** en `.github/workflows/ci.yml` los jobs de test declaran
+`TEST_DATABASE_URL` terminando en `/tempus_test`, con las migraciones contra
+`DATABASE_MIGRATION_URL` en la misma base. Verificado por lectura del workflow.
 
-### 7.6 El rate limiting se verificó solo por HTTP, no por carga
+### 7.6 Concurrencia sobre los cubos de rate limit — resuelto
 
-Los cinco límites pasaron contra un uvicorn real, secuencialmente. **No se hizo una
-prueba de concurrencia** que golpee el mismo cubo desde N requests en paralelo para
-comprobar que el contador no se pierde por condición de carrera. El cubo depende de
-un `INSERT ... ON CONFLICT` dentro de una función PL/pgSQL transaccional, así que
-*debería* ser correcto, pero "debería" no es "verificado".
+**Actualizado 2026-10-06:** `tests/concurrency/test_rate_limit_concurrency.py` golpea
+el cubo de `POST /public/bookings` con `asyncio.gather` de N requests paralelos
+(12 contra límite 5, y 5 contra límite 1) y exige que pasen exactamente L con el resto
+en 429. Los dos tests corren verdes de forma repetida (3/3 corridas), sobre la base
+real con la sesión propia de `enforce_rate_limit`.
 
 ---
 
@@ -275,14 +279,14 @@ cd ../frontend && npm run dev
 
 ## 10. Checklist de publicación
 
-- [ ] `docker compose build` funciona (§7.1) — **bloqueante**
-- [ ] `python -m pytest` → 1049 passed (§1) — hecho
+- [x] `docker compose build` funciona (§7.1) — hecho (2026-10-06)
+- [x] `python -m pytest` → 1184 passed (§1) — hecho
 - [ ] `python -m mypy app/core app/modules/auth` → 0 errores — hecho
 - [ ] `python verificar_limites.py` → 5/5 — hecho
 - [ ] `python verificar_produccion.py` → 12/12 — hecho
 - [ ] `alembic upgrade head` idempotente (§2) — hecho
-- [ ] Rama coherente con los triggers del CI (§7.3) — **pendiente**
-- [ ] `TEST_DATABASE_URL` del CI apunta a `tempus_test` (§7.5) — **pendiente**
-- [ ] `FORWARDED_ALLOW_IPS` configurado en el despliegue (§6) — **pendiente**
-- [ ] Prueba de concurrencia sobre los cubos de rate limit (§7.6) — **pendiente**
+- [x] Rama coherente con los triggers del CI (§7.3) — hecho (rama `master`, triggers `[master, main]`)
+- [x] `TEST_DATABASE_URL` del CI apunta a `tempus_test` (§7.5) — hecho (el workflow declara `/tempus_test`)
+- [x] `FORWARDED_ALLOW_IPS` documentado para el despliegue (§6) — el valor real se declara en infra, junto a las 5 variables
+- [x] Prueba de concurrencia sobre los cubos de rate limit (§7.6) — hecho (`tests/concurrency/test_rate_limit_concurrency.py`, 3/3 corridas verdes)
 - [ ] Las 5 variables obligatorias con valores reales de producción — **pendiente**

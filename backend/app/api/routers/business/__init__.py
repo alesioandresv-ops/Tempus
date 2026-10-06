@@ -245,6 +245,19 @@ async def listar_servicios(
     )
 
 
+@router.get(
+    "/servicios/{service_id}",
+    response_model=ServicioOut,
+    summary="Obtener un servicio",
+)
+async def obtener_servicio(
+    service_id: uuid.UUID,
+    sesion: Sesion,
+    principal: Annotated[Principal, Depends(require_scopes(Scope.TEAM_READ))],
+) -> Any:
+    return await servicios.obtener_servicio(sesion, service_id, business_id=_bid(principal))
+
+
 @router.post(
     "/servicios",
     response_model=ServicioOut,
@@ -351,6 +364,8 @@ async def crear_profesional(
             bio=cuerpo.bio,
             color=cuerpo.color,
             sort_order=cuerpo.sort_order,
+            whatsapp=cuerpo.whatsapp,
+            avatar_url=cuerpo.avatar_url,
         ),
     )
 

@@ -76,6 +76,45 @@ class AvailabilityResponse(BaseModel):
     )
 
 
+class AvailabilitySlotCandidatos(BaseModel):
+    """Un horario con **todos** los profesionales que pueden atenderlo.
+
+    Es la diferencia con `AvailabilitySlot` (el del POST): ese viaja con
+    el primero de los candidatos porque el cliente del POST reserva "a
+    quien le toca". Este es para el GET, donde la lista completa ordenada
+    por la estrategia de asignacion es lo que el cliente quiere mostrar:
+    quien pregunta puede elegir a quien, y el orden ya dice quien la
+    tiene mas libre.
+    """
+
+    starts_at: dt.datetime
+    ends_at: dt.datetime
+    candidatos: list[UUID] = Field(
+        description=(
+            "Quienes pueden atenderlo, ordenados por la estrategia "
+            "(menos carga del dia primero, desempate por sort_order)"
+        ),
+    )
+
+
+class AvailabilityDetailResponse(BaseModel):
+    """Response de disponibilidad con el contexto de la consulta.
+
+    `business_id`, `service_id` y `date` viajan ademas de los slots para
+    que el cliente pueda cachear la respuesta por el pedido que la genero
+    y no solo por su contenido: dos pedidos del mismo servicio en la
+    misma fecha producen el mismo cuerpo, y los tres datos son la clave
+    de esa igualdad.
+    """
+
+    business_id: UUID
+    service_id: UUID
+    date: dt.date = Field(description="Fecha local del negocio")
+    slots: list[AvailabilitySlotCandidatos] = Field(
+        description="Lista de slots con starts_at y ends_at en ISO 8601 UTC",
+    )
+
+
 class BookingCreateRequest(BaseModel):
     """Request para crear una reserva."""
 
@@ -145,9 +184,11 @@ class BookingResponse(BaseModel):
 
 
 __all__ = [
+    "AvailabilityDetailResponse",
     "AvailabilityRequest",
     "AvailabilityResponse",
     "AvailabilitySlot",
+    "AvailabilitySlotCandidatos",
     "BookingCreateRequest",
     "BookingResponse",
     "BusinessPublicInfo",

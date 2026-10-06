@@ -25,6 +25,9 @@ coverage.xml
 .env.*
 !.env.example
 
+# Config local de opencode (contiene API keys del harness). No se commitea.
+.opencode.json
+
 # Editores
 .vscode/
 .idea/
@@ -38,6 +41,11 @@ frontend/.vite/
 frontend/playwright-report/
 frontend/test-results/
 coverage/
+
+# Artefactos que `tsc -b` regenera en cada `npm run build`
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
 
 # Datos locales de desarrollo
 *.sqlite3

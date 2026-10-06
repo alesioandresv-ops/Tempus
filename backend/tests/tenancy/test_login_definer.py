@@ -12,18 +12,21 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_en
 
 
 @pytest_asyncio.fixture(scope="session")
-async def superuser_engine() -> AsyncIterator[AsyncEngine]:
-    """Engine con el superusuario para tests de catálogo.
+async def superuser_engine(migration_database_url: str) -> AsyncIterator[AsyncEngine]:
+    """Engine con el rol de DDL para tests de catálogo.
 
-    En local y CI el superusuario es tempus_owner (POSTGRES_USER), no postgres.
+    Sale de la **misma** fuente que siembra el resto de la suite
+    (`migration_database_url`) y no de `POSTGRES_USER`/`POSTGRES_PORT`
+    reconstruidos a mano: esos defaults son los del compose (5433) y se
+    rompen en cuanto el Postgres local escucha en otro puerto, que es
+    exactamente lo que pasaba--diez tests que no llegaban ni a correr.
+
+    Lo que se consulta aca es `pg_roles` y `pg_auth_members`, que son
+    catálogo de cluster: se ven igual desde cualquier base, asi que no
+    hace falta conectarse a la de mantenimiento. `SUPERUSER_DATABASE_URL`
+    queda como override explicito para cuando si haga falta otra.
     """
-    user = os.environ.get("POSTGRES_USER", "tempus_owner")
-    pw = os.environ.get("POSTGRES_PASSWORD", "tempus_owner_dev_pw")
-    port = os.environ.get("POSTGRES_PORT", "5433")
-    url = (
-        os.environ.get("SUPERUSER_DATABASE_URL")
-        or f"postgresql+asyncpg://{user}:{pw}@127.0.0.1:{port}/postgres"
-    )
+    url = os.environ.get("SUPERUSER_DATABASE_URL") or migration_database_url
     engine = create_async_engine(url, poolclass=None, echo=False)
     try:
         yield engine

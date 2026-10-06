@@ -218,10 +218,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from app.api.routers import auth as auth_router
     from app.api.routers import business as business_router
     from app.api.routers import internal as internal_router
+    from app.api.routers import onboarding as onboarding_router
     from app.api.routers import public as public_router
     from app.api.routers import webhooks as webhooks_router
 
     app.include_router(auth_router.router, prefix="/api/v1")
+    app.include_router(onboarding_router.router, prefix="/api/v1")
     app.include_router(public_router.router, prefix="/api/v1")
     app.include_router(internal_router.router, prefix="/api/v1")
     app.include_router(webhooks_router.router, prefix="/api/v1")

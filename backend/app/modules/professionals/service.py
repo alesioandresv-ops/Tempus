@@ -21,6 +21,7 @@ deciden:
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass
 
@@ -34,6 +35,13 @@ from app.modules.services.models import ProfessionalService, Service
 
 MAX_NAME_LENGTH = 160
 MAX_BIO_LENGTH = 2048
+MAX_AVATAR_URL_LENGTH = 2048
+
+#: WhatsApp de contacto: E.164 **sin** `+`, digitos nomas. Es el
+#: mismo patron que `PHONE_E164_RE` del schema publico; se define
+#: aca porque el servicio es la garantia y no puede depender de la
+#: capa de API. El esquema lo importa de aca para no divergir.
+WHATSAPP_RE = re.compile(r"[1-9]\d{6,14}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +53,8 @@ class ProfessionalCreate:
     color: str | None = None
     sort_order: int | None = None
     user_id: uuid.UUID | None = None
+    whatsapp: str | None = None
+    avatar_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +66,8 @@ class ProfessionalUpdate:
     color: str | None = None
     is_active: bool | None = None
     sort_order: int | None = None
+    whatsapp: str | None = None
+    avatar_url: str | None = None
 
 
 def _validar_nombre(nombre: str) -> str:
@@ -64,6 +76,42 @@ def _validar_nombre(nombre: str) -> str:
         raise ValidationError("El nombre no puede estar vacio.")
     if len(limpio) > MAX_NAME_LENGTH:
         raise ValidationError(f"El nombre no puede pasar de {MAX_NAME_LENGTH} caracteres.")
+    return limpio
+
+
+def _validar_whatsapp(whatsapp: str | None) -> str | None:
+    """E.164 sin `+`: digitos nomas, primer digito no cero.
+
+    Vacio despues de espacios significa **borrar** el numero, que es
+    la unica forma de limpiarlo por PATCH: `None` significa "no lo
+    toques" y un campo vacio es la manera explicita de decir "quitalo".
+    """
+    if whatsapp is None:
+        return None
+    limpio = whatsapp.strip()
+    if not limpio:
+        return None
+    if WHATSAPP_RE.fullmatch(limpio) is None:
+        raise ValidationError(
+            "El WhatsApp debe ser digitos E.164 sin '+': de 7 a 15 "
+            "digitos, sin cero al principio ni signos."
+        )
+    return limpio
+
+
+def _validar_avatar_url(avatar_url: str | None) -> str | None:
+    """URL de foto. Vacio despues de espacios borra la foto (ver arriba)."""
+    if avatar_url is None:
+        return None
+    limpio = avatar_url.strip()
+    if not limpio:
+        return None
+    if len(limpio) > MAX_AVATAR_URL_LENGTH:
+        raise ValidationError(
+            f"La URL del avatar no puede pasar de {MAX_AVATAR_URL_LENGTH} caracteres."
+        )
+    if not limpio.lower().startswith(("http://", "https://")):
+        raise ValidationError("La URL del avatar tiene que empezar con http:// o https://.")
     return limpio
 
 
@@ -136,6 +184,8 @@ async def crear_profesional(
         bio=datos.bio,
         color=datos.color,
         user_id=datos.user_id,
+        whatsapp=_validar_whatsapp(datos.whatsapp),
+        avatar_url=_validar_avatar_url(datos.avatar_url),
         is_active=True,
         sort_order=(
             datos.sort_order
@@ -166,6 +216,10 @@ async def actualizar_profesional(
         professional.is_active = cambios.is_active
     if cambios.sort_order is not None:
         professional.sort_order = cambios.sort_order
+    if cambios.whatsapp is not None:
+        professional.whatsapp = _validar_whatsapp(cambios.whatsapp)
+    if cambios.avatar_url is not None:
+        professional.avatar_url = _validar_avatar_url(cambios.avatar_url)
     await session.flush()
     return professional
 
@@ -284,8 +338,10 @@ async def asignar_servicios(
 
 
 __all__ = [
+    "MAX_AVATAR_URL_LENGTH",
     "MAX_BIO_LENGTH",
     "MAX_NAME_LENGTH",
+    "WHATSAPP_RE",
     "ProfessionalCreate",
     "ProfessionalUpdate",
     "actualizar_profesional",

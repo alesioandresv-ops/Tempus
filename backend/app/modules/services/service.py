@@ -40,6 +40,13 @@ OCUPYING_STATUSES: tuple[str, ...] = ("confirmed", "pending_hold")
 MAX_NAME_LENGTH = 160
 MAX_DESCRIPTION_LENGTH = 1024
 
+#: Duraciones que un servicio puede tener. No es una lista abierta a
+#: proposito: el motor de disponibilidad (Fase 5) cuenta ventanas en
+#: pasos de cuarto de hora, y una duracion fuera del set deja slots que
+#: no caen en ninguna ventana. Si el negocio necesita otra, se cambia
+#: aca -- un solo lugar -- y no en cada formulario.
+DURACIONES_PERMITIDAS: tuple[int, ...] = (15, 30, 45, 60, 90, 120)
+
 
 @dataclass(frozen=True, slots=True)
 class ServiceCreate:
@@ -75,6 +82,17 @@ def _validar_nombre(nombre: str) -> str:
     if len(limpio) > MAX_NAME_LENGTH:
         raise ValidationError(f"El nombre no puede pasar de {MAX_NAME_LENGTH} caracteres.")
     return limpio
+
+
+def _validar_duracion(duracion: int) -> int:
+    """La duracion tiene que ser una de `DURACIONES_PERMITIDAS`."""
+    if duracion not in DURACIONES_PERMITIDAS:
+        raise ValidationError(
+            "La duracion debe ser una de "
+            + ", ".join(str(d) for d in DURACIONES_PERMITIDAS)
+            + " minutos."
+        )
+    return duracion
 
 
 async def _siguiente_sort_order(session: AsyncSession, business_id: uuid.UUID) -> int:
@@ -145,8 +163,7 @@ async def crear_servicio(
     respuesta y sin `flush` no habria id.
     """
     nombre = _validar_nombre(datos.name)
-    if datos.duration_minutes <= 0:
-        raise ValidationError("La duracion debe ser mayor a cero minutos.")
+    duracion = _validar_duracion(datos.duration_minutes)
     if datos.price < 0:
         raise ValidationError("El precio no puede ser negativo.")
 
@@ -154,7 +171,7 @@ async def crear_servicio(
         business_id=business_id,
         name=nombre,
         description=datos.description,
-        duration_minutes=datos.duration_minutes,
+        duration_minutes=duracion,
         price=datos.price,
         currency=datos.currency.strip().upper(),
         color=datos.color,
@@ -188,12 +205,10 @@ async def actualizar_servicio(
     if cambios.currency is not None:
         service.currency = cambios.currency.strip().upper()
     if cambios.duration_minutes is not None:
-        if cambios.duration_minutes <= 0:
-            raise ValidationError("La duracion debe ser mayor a cero minutos.")
         # La duracion no se cambia de Reservas hechas: `bookings.duration_minutes`
         # es un snapshot y el `bookings.ends_at` ya esta calculado. Cambiar el
         # servicio no puede reescribir el pasado; el admin decide reprogramar.
-        service.duration_minutes = cambios.duration_minutes
+        service.duration_minutes = _validar_duracion(cambios.duration_minutes)
     if cambios.price is not None:
         if cambios.price < 0:
             raise ValidationError("El precio no puede ser negativo.")
@@ -223,6 +238,7 @@ async def archivar_servicio(
 
 
 __all__ = [
+    "DURACIONES_PERMITIDAS",
     "MAX_DESCRIPTION_LENGTH",
     "MAX_NAME_LENGTH",
     "OCUPYING_STATUSES",

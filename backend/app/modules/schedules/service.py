@@ -27,6 +27,7 @@ import datetime as dt
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import Literal
 
 from sqlalchemy import delete, select
@@ -77,6 +78,24 @@ def _validar_weekday(weekday: int) -> int:
     if not WEEKDAY_MIN <= weekday <= WEEKDAY_MAX:
         raise ValidationError(f"El dia de semana debe estar entre {WEEKDAY_MIN} y {WEEKDAY_MAX}.")
     return weekday
+
+
+def _validar_sin_solapadas(ventanas: Sequence[Ventana]) -> None:
+    """Dos ventanas del mismo dia no pueden pisarse.
+
+    La base no lo restringe porque el orden de las ventanas lo define
+    `window_index`: que dos de la misma semana se pisen es un error de
+    la peticion, no de la escritura. El esquema del router ya lo
+    rechaza; el servicio lo repite porque es la garantia para todo lo
+    que no sea ese router (un worker, un import de datos, un test).
+    """
+    ordenadas = sorted(ventanas, key=lambda v: v.start)
+    for anterior, siguiente in pairwise(ordenadas):
+        if siguiente.start < anterior.end:
+            raise ValidationError(
+                f"Las ventanas {anterior.start}-{anterior.end} y "
+                f"{siguiente.start}-{siguiente.end} del mismo dia se pisan."
+            )
 
 
 # --------------------------------------------------------------------------- #
@@ -156,6 +175,7 @@ async def reemplazar_horarios(
         _validar_weekday(dia.weekday)
         for ventana in dia.windows:
             _validar_ventana(ventana.start, ventana.end)
+        _validar_sin_solapadas(dia.windows)
 
     await session.execute(delete(BusinessHour).where(BusinessHour.business_id == business_id))
     await session.flush()
@@ -223,6 +243,7 @@ async def reemplazar_horarios_profesional(
         _validar_weekday(dia.weekday)
         for ventana in dia.windows:
             _validar_ventana(ventana.start, ventana.end)
+        _validar_sin_solapadas(dia.windows)
 
     if heredar:
         await session.execute(

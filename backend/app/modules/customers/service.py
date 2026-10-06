@@ -87,19 +87,33 @@ async def listar_clientes(
     parcial y sin distincion de mayusculas, que es lo que espera alguien que
     escribe "juan" esperando encontrar a "Juan Perez". Sin `ILIKE` el admin
     tendria que escribir el nombre exacto, y eso no lo hace nadie.
+    `total` y `ultima` son **dos subconsultas escalares correlacionadas**, no una sola con
+    dos columnas. La version anterior armaba una subconsulta de dos columnas y la
+    declaraba `scalar_subquery()`, que le dice a SQLAlchemy "esto trae una columna":
+    PostgreSQL rechaza la consulta entera con `la subconsulta debe retornar solo una
+    columna` y `GET /business/clientes` devuelve 500 para todos los tenants. Dos
+    subconsultas escalares de una columna cada una es la forma que corresponde; la
+    alternativa--una subconsulta derivada con `.subquery()`-- evita ese error pero
+    introduce un producto cartesiano entre la tabla derivada y `customers`, que
+    SQLAlchemy marca como `SAWarning` y el proyecto trata como error.
     """
-    consulta_booking = (
-        select(
-            func.count(Booking.id).label("total"),
-            func.max(Booking.starts_at).label("ultima"),
-        )
+    total_reservas = (
+        select(func.count(Booking.id))
         .where(Booking.customer_id == Customer.id)
         .correlate(Customer)
         .scalar_subquery()
+        .label("total")
+    )
+    ultima_reserva = (
+        select(func.max(Booking.starts_at))
+        .where(Booking.customer_id == Customer.id)
+        .correlate(Customer)
+        .scalar_subquery()
+        .label("ultima")
     )
 
     consulta = (
-        select(Customer, consulta_booking.label("total"), consulta_booking.label("ultima"))
+        select(Customer, total_reservas, ultima_reserva)
         .where(Customer.business_id == business_id)
         .order_by(Customer.last_booking_at.desc().nulls_last(), Customer.first_name)
         .limit(limite)

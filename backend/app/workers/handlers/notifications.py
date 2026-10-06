@@ -44,7 +44,7 @@ async def handle_send_notification(session: AsyncSession, job: Job) -> None:
     - notification_request_id: ID de la NotificationRequest
 
     **Este handler no es el camino de las notificaciones.** Las crea
-    `schedule_booking_notifications` como filas de `notification_requests` y las
+    `schedule_for_booking` como filas de `notification_requests` y las
     manda `app.workers.outbox.drain_once`. Este existe para el caso puntual de
     reenviar una notificacion puntual fuera de ciclo, que si necesita pasar por la
     cola para heredar los reintentos y el leasing.
@@ -97,7 +97,7 @@ async def handle_schedule_reminders(_session: AsyncSession, job: Job) -> None:
         raise ValueError("Falta booking_id en el payload")
 
     # TODO: Cargar la reserva y programar los recordatorios con
-    # `schedule_booking_notifications`. Hoy el camino real es que `create_booking`
+    # `schedule_for_booking`. Hoy el camino real es que `create_booking`
     # los programe en su propia transaccion, que es lo que garantiza que existen
     # aunque el worker nunca llegue a correr.
     logger.info(

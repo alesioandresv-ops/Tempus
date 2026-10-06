@@ -124,6 +124,7 @@ class Settings(BaseSettings):
     rate_limit_general_per_ip: int = Field(default=120, ge=1)
     rate_limit_admin_per_user: int = Field(default=600, ge=1)
     rate_limit_scheduler_tick: int = Field(default=2, ge=1)
+    rate_limit_register_business_per_ip_hourly: int = Field(default=3, ge=1)
 
     # --- WhatsApp ----------------------------------------------------------
     meta_app_id: str = Field(default="")

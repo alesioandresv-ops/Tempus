@@ -10,6 +10,7 @@ los usa para:
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -24,9 +25,11 @@ from app.api.dependencies import (
     limit_public_per_ip,
 )
 from app.api.routers.public.schemas import (
+    AvailabilityDetailResponse,
     AvailabilityRequest,
     AvailabilityResponse,
     AvailabilitySlot,
+    AvailabilitySlotCandidatos,
     BookingCreateRequest,
     BookingResponse,
     BusinessPublicInfo,
@@ -385,6 +388,97 @@ async def calculate_availability(
                 )
                 for slot in slots
             ]
+        )
+
+
+@router.get(
+    "/businesses/{slug}/availability",
+    response_model=AvailabilityDetailResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Calcular disponibilidad",
+    responses={
+        200: {"description": "Disponibilidad calculada"},
+        404: {"description": "Negocio o servicio no encontrado"},
+    },
+)
+async def get_availability_public(
+    slug: str,
+    service_id: UUID = Query(..., description="Servicio a reservar"),
+    date: dt.date = Query(..., description="Fecha local del negocio (YYYY-MM-DD)"),
+    professional_id: UUID | None = Query(
+        None,
+        description="Profesional concreto, o ausente para 'cualquier profesional'",
+    ),
+) -> AvailabilityDetailResponse:
+    """Calcula los slots disponibles para un servicio en una fecha.
+
+    Es la misma cuenta que el POST de al lado, por query params en
+    vez de por cuerpo: un GET es cacheable por el navegador y por
+    un proxy, y la disponibilidad es lectura pura. Los dos conviven
+    a proposito--el POST ya lo usan clientes que mandan el cuerpo,
+    y sacarlo los romperia.
+
+    Si `professional_id` **no** viene, la cuenta es para "cualquier
+    profesional": los slots se anotan con `candidatos`, la lista
+    completa de quienes pueden atenderlo **ordenada por la
+    estrategia** (menos carga del dia primero, desempate por
+    `sort_order`). Si no hay profesionales elegibles para el
+    servicio, la respuesta es una lista vacia y no un 404: no es
+    un error de la peticion, es que ese servicio nadie lo puede
+    atender hoy.
+
+    La logica de disponibilidad **no vive aca**. Este handler solo
+    resuelve el negocio por slug y el servicio por id--los dos 404
+    con los que arranca el contrato--y delega en
+    `app.modules.availability.service.get_availability`, que es la
+    unica que sabe de ventanas, reservas y bloqueos.
+    """
+    async with _public_session(slug) as (session, business):
+        service_result = await session.execute(
+            select(Service).where(
+                Service.id == service_id,
+                Service.business_id == business.id,
+                Service.is_active.is_(True),
+            )
+        )
+        service = service_result.scalar_one_or_none()
+        if not service:
+            raise HTTPException(status_code=404, detail="Servicio no encontrado")
+
+        slots = await get_availability(
+            session,
+            business_id=str(business.id),
+            professional_id=str(professional_id) if professional_id else None,
+            service_duration_minutes=service.duration_minutes,
+            # El intervalo de grilla es del **negocio**, no del
+            # servicio: es el negocio el que define cada cuantos
+            # minutos ofrece horarios. El `or 15` es defensa--la
+            # columna es NOT NULL con default 15 y el CHECK la
+            # mantiene mayor que cero, asi que en la practica nunca
+            # se activa.
+            slot_interval_minutes=business.slot_interval_minutes or 15,
+            local_date=date,
+            timezone=business.timezone,
+            service_id=str(service.id),
+            min_lead_minutes=business.min_lead_minutes or 60,
+            current_time=now(),
+        )
+
+        return AvailabilityDetailResponse(
+            business_id=business.id,
+            service_id=service.id,
+            date=date,
+            slots=[
+                AvailabilitySlotCandidatos(
+                    starts_at=slot.starts_at,
+                    ends_at=slot.ends_at,
+                    # La lista completa, no el primero: `candidatos`
+                    # ya viene ordenada por la estrategia desde el
+                    # servicio, y es lo que el cliente muestra.
+                    candidatos=list(slot.candidatos),
+                )
+                for slot in slots
+            ],
         )
 
 

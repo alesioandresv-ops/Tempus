@@ -692,14 +692,14 @@ async def create_booking(
     # genera la base, y `notification_requests.booking_id` es FK: antes del id no
     # hay fila que pueda referenciar.
     #
-    # Import local y no arriba del modulo: `notifications.service` importa
-    # `bookings.models`, asi que importar el servicio de notificaciones en el tope
-    # de `bookings.service` cerraria el ciclo. El import diferido lo rompe sin
-    # pagar el costo en cada arranque.
-    from app.modules.notifications.service import schedule_booking_notifications
+    # Import local y no arriba del modulo: `notifications.scheduler` importa
+    # `bookings.models`, asi que importarlo en el tope de `bookings.service`
+    # cerraria el ciclo. El import diferido lo rompe sin pagar el costo en cada
+    # arranque.
+    from app.modules.notifications.scheduler import schedule_for_booking
 
-    if notificar:
-        await schedule_booking_notifications(session, booking)
+    if notificar and source is not BookingSource.WALKIN:
+        await schedule_for_booking(session, booking)
 
     result = BookingResult(
         booking_id=booking.id,
@@ -916,9 +916,9 @@ async def reschedule_booking(
     # Outbox de notificaciones. Va en la misma transaccion que la reserva: si
     # fallara el insert y no la reserva, el cliente tendria un turno sin ningun
     # recordatorio y nadie se enteraria hasta el dia del turno.
-    from app.modules.notifications.service import schedule_booking_notifications
+    from app.modules.notifications.scheduler import schedule_for_booking
 
-    await schedule_booking_notifications(session, booking)
+    await schedule_for_booking(session, booking)
 
     await session.flush()
     return booking

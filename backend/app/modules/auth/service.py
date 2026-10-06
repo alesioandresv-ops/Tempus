@@ -87,6 +87,7 @@ from app.modules.auth.tokens import (
     create_access_token,
     create_platform_access_token,
 )
+from app.modules.businesses.service import slugify
 
 logger = get_logger(__name__)
 
@@ -334,6 +335,54 @@ def _verificar(password: str, candidatos: list[dict[str, Any]]) -> list[dict[str
     return [fila for fila in candidatos if verify_password(password, str(fila["password_hash"]))]
 
 
+async def _desambiguar_por_slug(
+    session: AsyncSession,
+    verificados: list[dict[str, Any]],
+    business_slug: str | None,
+) -> dict[str, Any] | None:
+    """Elige cual de las N membresias con el mismo email es la que se autentica.
+
+    Devuelve la fila elegida, o `None` si el slug no resuelve a ninguna de las
+    membresias ya verificadas --o si no vino slug.
+
+    **Va despues de verificar la contrasena, y por eso no es un enumerador.** Para
+    llegar aca el atacante ya tiene que haber probado la credencial correcta de las N
+    cuentas; lo unico que queda por decidir es *cual* de los N negocios quiere, y eso
+    lo decide el slug. Ademas, un slug que no corresponde y un slug que no existe
+    devuelven los dos `None`, asi que tampoco distinguen "existe pero no es mio" de "no
+    existe": la respuesta es el mismo 401 de siempre en los dos casos.
+
+    El slug se canoniza con el mismo `slugify` que usa el alta, para que lo que el
+    navegador pone en la barra de direcciones y lo que el backend tiene guardado
+    comparen igual.
+
+    **No se resuelve por `business_id`.** Aceptar un id de tenant desde el cliente
+    seria exactamente el `business_id` que la firma de `authenticate_business_user`
+    rechaza, y ademas dejaria al atacante recorrer tenants probando UUID.
+    """
+    if business_slug is None:
+        return None
+
+    slug = slugify(business_slug)
+    if not slug:
+        # Un slug que se canoniza a cadena vacia ("!!!") no puede ser el de un
+        # negocio: `businesses.slug` no admite vacio. Se trata como "no vino", que es
+        # el mismo 401 de siempre.
+        return None
+
+    business_id = await session.scalar(
+        text("SELECT id FROM businesses WHERE slug = CAST(:slug AS citext)"),
+        {"slug": slug},
+    )
+    if business_id is None:
+        return None
+
+    for fila in verificados:
+        if fila["business_id"] == business_id:
+            return fila
+    return None
+
+
 def _rechazar(email: str, motivo: str, **extra: Any) -> NoReturn:
     """Registra el motivo real en el log interno y levanta el 401 uniforme.
 
@@ -420,6 +469,7 @@ async def authenticate_business_user(
     password: str,
     ip_address: str,
     user_agent: str | None = None,
+    business_slug: str | None = None,
 ) -> BusinessLogin:
     """Autentica a un miembro de negocio. Levanta `AuthenticationError` si no entra.
 
@@ -429,6 +479,11 @@ async def authenticate_business_user(
     devolvio, o sea del registro que la contrasena acabo de autenticar. Un endpoint
     con un bug de mass assignment no puede cruzar tenants con esta firma, porque no
     tiene de donde sacar un tenant ajeno.
+
+    `business_slug` es la unica excepcion, y no por que abra la puerta: elige entre
+    filas que la contrasena **ya** autentico. No agrega un tenant que antes no se
+    pudiera alcanzar; solo desempata cuando el mismo email es miembro de varios
+    negocios, algo que sin slug es un 401 por `membresia_ambigua`.
 
     `session` debe ser una sesion **sin** contexto de tenant: todavia no hay tenant,
     que es justo lo que se esta resolviendo. El GUC se pone despues, en el router,
@@ -449,18 +504,29 @@ async def authenticate_business_user(
         )
 
     if len(verificados) > 1:
-        # Politica acordada: la ambiguedad es un fallo, no una eleccion. Se evalua
-        # **despues** de verificar la contrasena, asi que no es enumeracion: para
-        # llegar aca hay que haber probado la credencial correcta.
-        #
-        # Entrar a "la primera" seria entrar a un tenant arbitrario, y el dano es
-        # exactamente el que el ADR-0010 quiere cerrar.
-        _rechazar(
-            email,
-            "membresia_ambigua",
-            membresias=len(verificados),
-            negocio=str(verificados[0]["business_id"]),
-        )
+        elegido = await _desambiguar_por_slug(session, verificados, business_slug)
+
+        if elegido is None:
+            # Politica acordada: la ambiguedad es un fallo, no una eleccion, salvo que
+            # el cliente diga cual de los N es. Se evalua **despues** de verificar la
+            # contrasena, asi que no es enumeracion: para llegar aca hay que haber
+            # probado la credencial correcta.
+            #
+            # Enterar a "la primera" seria entrar a un tenant arbitrario, y el dano es
+            # exactamente el que el ADR-0010 quiere cerrar. Un slug equivocado y uno
+            # inexistente se registran con motivos distintos y responden igual, porque
+            # la respuesta unica es justamente lo que los hace indistinguibles.
+            _rechazar(
+                email,
+                "slug_no_corresponde" if business_slug else "membresia_ambigua",
+                membresias=len(verificados),
+                negocio=str(verificados[0]["business_id"]),
+            )
+
+        verificados = [elegido]
+    # Con una sola membresia el slug se ignora a proposito. Aceptarlo seria validar un
+    # dato que no puede cambiar el resultado, y exigir que coincida daria un 401 a
+    # quien tiene las credenciales correctas solo por escribir mal la URL.
 
     fila = verificados[0]
     estado = MembershipStatus(str(fila["status"]))

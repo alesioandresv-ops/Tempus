@@ -1,1540 +1,269 @@
-# DESARROLLO DE PLATAFORMA SaaS DE TURNOS
+# DESARROLLO DE PLATAFORMA SAAS DE TURNOS - TEMPUS
+
+> Nombre comercial: Tempus (ex Turnify). Caso base: Barbería El Peluche con Gabriel, Daniel, José.
 
 ## 1. ROL
-
-Actúa como un equipo senior compuesto por:
-
-* Senior Full Stack Engineer
-* Senior Software Architect
-* Senior Backend Engineer
-* Senior Frontend Engineer
-* Senior Database Engineer
-* Senior DevOps Engineer
-* Senior QA / Test Engineer
-* Senior Security Engineer
-* Senior UX/UI Engineer
-* Product Engineer
-* Prompt Engineer
-
-Tu responsabilidad es diseñar y construir una plataforma SaaS profesional, escalable, segura y mantenible.
-
-No quiero código improvisado ni soluciones rápidas que comprometan la arquitectura.
-
-Antes de implementar cualquier funcionalidad importante:
-
-1. Analiza los requisitos.
-2. Comprueba cómo encaja con la arquitectura existente.
-3. Identifica dependencias.
-4. Detecta posibles problemas.
-5. Propón la solución técnica.
-6. Explica brevemente la decisión.
-7. Recién después implementa.
-
-Si existe una solución técnicamente mejor que la que estoy proponiendo, indícala y explica por qué.
-
-No aceptes automáticamente mis decisiones si técnicamente pueden mejorarse.
-
----
-
-# 2. PRODUCTO
-
-Estamos construyendo una plataforma SaaS de gestión y reserva de turnos para negocios que trabajan con profesionales y servicios.
-
-El sistema debe poder utilizarse inicialmente para:
-
-* Barberías
-* Peluquerías
-* Estudios de maquillaje
-* Estudios de tatuajes
-* Masajes
-* Estética
-* Otros profesionales o negocios basados en citas
-
-IMPORTANTE:
-
-NO diseñes el sistema específicamente para barberías.
-
-La arquitectura debe ser genérica.
-
-Usa conceptos como:
-
-* Business
-* Professional
-* Service
-* Customer
-* Booking / Appointment
-* Schedule
-* Availability
-* Block
-* Holiday
-* Leave
-* Notification
-
-y evita conceptos rígidamente ligados a una profesión.
-
----
-
-# 3. PROPUESTA DE VALOR
-
-La plataforma no debe limitarse a ser una agenda.
-
-Debe automatizar el proceso completo de reserva y gestión de turnos.
-
-El sistema debe:
-
-* Calcular disponibilidad real.
-* Permitir elegir un profesional específico.
-* Permitir elegir "Cualquier profesional".
-* Encontrar automáticamente profesionales disponibles.
-* Evitar dobles reservas.
-* Confirmar automáticamente los turnos.
-* Liberar inmediatamente los horarios cancelados.
-* Gestionar horarios de negocio.
-* Gestionar vacaciones y ausencias.
-* Gestionar bloqueos específicos.
-* Enviar notificaciones por WhatsApp.
-* Enviar recordatorios automáticos.
-* Permitir cancelar y reprogramar sin crear una cuenta.
-* Reducir al mínimo la administración manual.
-
-El objetivo es que el negocio tenga que intervenir lo menos posible.
-
----
-
-# 4. MULTI-TENANCY
-
-La plataforma debe ser multi-tenant.
-
-Cada negocio debe tener aislados:
-
-* Profesionales
-* Servicios
-* Clientes
-* Turnos
-* Horarios
-* Bloqueos
-* Vacaciones
-* Configuración
-* Notificaciones
-* Estadísticas
-* Otros datos propios
-
-Nunca permitas que un usuario de un negocio pueda acceder a datos de otro negocio.
-
-Toda consulta relacionada con información privada debe respetar el tenant/business_id correspondiente.
-
-La separación entre tenants debe estar contemplada desde el diseño de la base de datos y la capa de aplicación.
-
----
-
-# 5. URL PÚBLICA DEL NEGOCIO
-
-Cada negocio tendrá una URL pública propia.
-
-Ejemplos:
-
-/el-peluche
-
-/peluqueria-maria
-
-/sofia-makeup
-
-La URL debe apuntar directamente a la página pública del negocio.
-
-El usuario no debe necesitar pasar primero por la página general de la plataforma.
-
-El sistema puede tener una Home general en la raíz del dominio para presentar la plataforma o eventualmente funcionar como marketplace.
-
-Pero el negocio debe poder compartir directamente su URL.
-
-El negocio tendrá:
-
-* business_id interno
-* slug público
-
-El slug NO debe utilizarse como identificador interno.
-
-El business_id debe ser estable aunque el nombre o slug del negocio cambie.
-
----
-
-# 6. CLIENTES
-
-IMPORTANTE:
-
-El cliente NO debe crear una cuenta.
-
-NO debe necesitar:
-
-* Email
-* Contraseña
-* Login
-* Aplicación móvil
-
-Para reservar debe proporcionar únicamente:
-
-* Nombre
-* Apellido
-* Número de WhatsApp
-
-El backend debe crear o asociar internamente el Customer correspondiente.
-
-El cliente no debe ver ni administrar una cuenta tradicional.
-
----
-
-# 7. RESERVA SIN CUENTA
-
-Cada reserva debe tener internamente información equivalente a:
-
-* booking_id
-* customer_id
-* secure_token
-
-El secure_token debe ser:
-
-* criptográficamente seguro
-* impredecible
-* no secuencial
-* no derivado del booking_id
-* apropiado para acciones sin autenticación
-
-El token permitirá acceder a acciones limitadas sobre una reserva.
-
-Por ejemplo:
-
-* Ver reserva
-* Cancelar
-* Reprogramar
-
-Nunca expongas IDs internos sensibles innecesariamente.
-
----
-
-# 8. FLUJO DE RESERVA
-
-El flujo principal debe ser:
-
-1. Cliente entra a la URL pública del negocio.
-2. Selecciona un servicio.
-3. Selecciona un profesional específico O "Cualquier profesional".
-4. Selecciona fecha.
-5. El sistema calcula disponibilidad real.
-6. Se muestran horarios disponibles.
-7. El cliente selecciona horario.
-8. Introduce:
-
-   * Nombre
-   * Apellido
-   * WhatsApp
-9. El backend vuelve a verificar disponibilidad.
-10. El backend crea la reserva dentro de una transacción.
-11. La reserva queda automáticamente CONFIRMADA.
-12. Se envía confirmación por WhatsApp.
-13. Se notifica al profesional correspondiente.
-14. Se programan los recordatorios.
-
-NO debe existir un flujo de "esperando confirmación del profesional".
-
----
-
-# 9. "CUALQUIER PROFESIONAL"
-
-Esta funcionalidad es fundamental.
-
+Actúa como equipo senior: Full Stack, Architect, Backend, Frontend, Database, DevOps, QA, Security, UX/UI, Product, Prompt Engineer.
+Responsabilidad: plataforma SaaS profesional, escalable, segura, mantenible. Calidad > Velocidad.
+
+Antes de implementar: 1. Analiza requisitos 2. Encaje con arquitectura 3. Dependencias 4. Problemas 5. Solución técnica 6. Explicación decisión 7. Implementa. Si hay solución mejor, proponela.
+
+## 2. PRODUCTO
+Plataforma SaaS de gestión y reserva de turnos para negocios con profesionales y servicios. Inicial: barberías, peluquerías, maquillaje, tatuajes, masajes, estética. Luego genérico.
+
+NO diseñar para barberías. Usar vocabulario genérico: Business, Professional, Service, Customer, Booking, Schedule, Availability, Block, Holiday, Leave, Notification.
+
+MEJORA APLICADA: Modelo self-service. El negocio se crea solo vía /register. No necesita Platform Admin. Flujo onboarding: User(owner) + Business + Professional(owner) en transacción atómica.
+
+## 3. PROPUESTA DE VALOR
+No solo agenda. Automatizar todo. Debe:
+- Calcular disponibilidad real (motor único backend)
+- Permitir profesional específico O "Cualquier profesional" (diferencial El Peluche)
+- Mostrar "Gabriel no disponible, Daniel y José sí a las 14:00" y primera disponibilidad global
+- Evitar dobles reservas con garantía DB
+- Confirmar automáticamente, sin que barbero tenga que confirmar
+- Liberar inmediatamente cancelados
+- Horarios 100% configurables por negocio (no regla fija)
+- Vacaciones, bloqueos, feriados
+- WhatsApp oficial Cloud API como núcleo, no complemento
+- Cancelar/reprogramar sin cuenta vía secure_token
+- Mínima administración manual
+
+Objetivo: negocio interviene lo menos posible. Agenda = realidad.
+
+## 4. MULTI-TENANCY
+Esquema compartido + business_id + RLS FORCE. 3 capas:
+Capa 1: FK compuestas UNIQUE(id,business_id) + FK (professional_id,business_id) REFERENCES professionals(id,business_id) = imposible cross-tenant.
+Capa 2: RLS FORCE + SET LOCAL app.current_business_id por transacción (nunca SET sesión por PgBouncer).
+Capa 3: App repo exige TenantContext desde JWT tid.
+
+Todo dato privado filtra por business_id. Test parametrizado por tabla.
+
+## 5. URL PÚBLICA DEL NEGOCIO - MEJORA CLAVE
+Cada negocio URL propia:
+tempus.com/el-peluche
+tempus.com/peluqueria-maria
+tempus.com/sofia-makeup
+
+Entra a /el-peluche y ve DIRECTO a El Peluche, no a home general. Home general existe en / (landing SaaS con marketplace futuro).
+
+Separación:
+business_id interno UUIDv7 estable = identidad real
+slug público citext UNIQUE = dirección pública mutable
+
+Si cambia nombre, business_id no cambia. Links de Instagram no se rompen. Slugs reservados en tabla slug_reservations: api,admin,panel,r,assets,login,register,www,app,docs. Reserva atómica con SELECT FOR UPDATE.
+
+Futuro: dominio personalizado peluqueriamaria.com -> apunta a su página dentro de Tempus.
+
+Seguridad: /{slug} solo datos públicos. Datos internos solo panel auth. Gestión reservas vía token, no booking_id.
+
+## 6. CLIENTES - SIN CUENTA
+Cliente NO crea cuenta. No email, no password, no login, no app.
+Solo: Nombre, Apellido, WhatsApp.
+Backend crea/asocia Customer interno por phone_e164 UNIQUE(business_id,phone). Historial interno sin cuenta visible.
+
+## 7. RESERVA SIN CUENTA
+Internamente: booking_id, customer_id, secure_token
+secure_token: secrets.token_urlsafe(32) 256bits CSPRNG, impredecible, no secuencial, no derivado booking_id. Almacén: sha256 hash UNIQUE, token claro nunca en DB. Búsqueda por hash.
+Permite: ver, cancelar, reprogramar su propia reserva. No agenda completa.
+URL: /r/{token}
+
+## 8. FLUJO DE RESERVA
+1. Cliente entra a /el-peluche
+2. Selecciona servicio (Corte 45min)
+3. Selecciona profesional Gabriel/José/Daniel o Cualquier profesional
+4. Selecciona fecha
+5. Sistema calcula disponibilidad real (motor único)
+6. Muestra horarios: 14:00 Gabriel ocupado, 14:00 Daniel disponible, 14:00 José disponible + Primera disponibilidad
+7. Selecciona horario
+8. Introduce Nombre, Apellido, WhatsApp
+9. Backend re-verifica disponibilidad en transacción
+10. Crea reserva transaccional + idempotency_key
+11. Confirmada automática
+12. WhatsApp cliente: confirmación + botones [Cancelar][Reprogramar] con link /r/{token}
+13. WhatsApp profesional: Nuevo turno
+14. Programa recordatorios 2h y 1h
+
+NO flujo "esperando confirmación".
+
+## 9. CUALQUIER PROFESIONAL - CORE
+Barbería: Gabriel, José, Daniel. Cliente quiere Corte, Cualquier profesional.
+Sistema busca profesionales que: pertenecen negocio, activos, pueden hacer servicio, trabajan ese horario, no vacaciones/licencia/bloqueo, no turno solapado, ventana suficiente duración.
+Devuelve opciones: 18:00 Daniel, 18:00 José, o 18:30 Gabriel primera disponibilidad.
+Si selecciona Any, backend asigna automáticamente según estrategia configurable (round-robin, menos ocupado, primera disponibilidad). Asignación solo backend.
+
+## 10. SERVICIOS
+Por negocio: Nombre, Descripción, Duración, Precio numeric(12,2) no float, activo/inactivo. Relación Professional N--N Service. No todos hacen todo.
+
+## 11. HORARIOS DEL NEGOCIO - 100% CONFIGURABLES - MEJORA
+No sistema rígido descanso. Ventanas de funcionamiento configurables por negocio desde panel.
 Ejemplo:
-
-Una barbería tiene:
-
-* Gabriel
-* José
-* Daniel
-
-El cliente quiere:
-
-Servicio: Corte
-
-Profesional: Cualquier profesional
-
-El sistema debe buscar profesionales que:
-
-1. Pertenecen al negocio.
-2. Están activos.
-3. Pueden realizar el servicio.
-4. Están trabajando en ese horario.
-5. No están de vacaciones.
-6. No están de licencia.
-7. No tienen un bloqueo.
-8. No tienen otro turno ocupando el horario.
-9. Tienen disponibilidad suficiente para la duración del servicio.
-
-El sistema debe devolver las opciones disponibles.
-
-Si el cliente selecciona "Cualquier profesional", el backend puede asignar automáticamente uno de los profesionales elegibles según una estrategia definida.
-
-La estrategia debe ser configurable posteriormente.
-
-Nunca realices esta asignación solamente desde frontend.
-
----
-
-# 10. SERVICIOS
-
-Cada negocio podrá crear servicios.
-
-Un servicio debe poder tener al menos:
-
-* Nombre
-* Descripción
-* Duración
-* Precio
-* Estado activo/inactivo
-
-Ejemplos:
-
-Corte — 45 min
-
-Corte + barba — 60 min
-
-Coloración — 120 min
-
-Maquillaje — 90 min
-
-Cada profesional debe poder tener una relación con los servicios que puede realizar.
-
-No todos los profesionales necesariamente realizan todos los servicios.
-
----
-
-# 11. HORARIOS DEL NEGOCIO
-
-NO crear un sistema rígido de "descanso".
-
-Cada negocio debe configurar sus propias ventanas de funcionamiento.
-
-Ejemplo:
-
-Lunes:
-
-08:00–12:00
-
-17:00–21:00
-
-Otro negocio:
-
-08:00–18:00
-
-Otro:
-
-10:00–14:00
-
-16:00–22:00
-
-El sistema debe soportar:
-
-* Negocio abierto/cerrado.
-* Una ventana.
-* Múltiples ventanas.
-* Horarios diferentes por día.
-* Cambios excepcionales.
-* Feriados.
-
-Los horarios deben ser configurables desde el panel administrativo.
-
-El sistema NUNCA debe ofrecer un turno fuera de estas ventanas.
-
----
-
-# 12. DISPONIBILIDAD DEL PROFESIONAL
-
-La disponibilidad real debe considerar como mínimo:
-
-* Horario del negocio.
-* Disponibilidad del profesional.
-* Servicios que puede realizar.
-* Duración del servicio.
-* Reservas existentes.
-* Bloqueos.
-* Vacaciones.
-* Licencias/ausencias.
-* Feriados.
-* Cambios excepcionales.
-
-Ejemplo:
-
-Negocio:
-
-08:00–18:00
-
-Profesional:
-
-09:00–17:00
-
-Servicio:
-
-45 minutos
-
-Reserva existente:
-
-11:00–11:45
-
-El sistema debe calcular correctamente los huecos disponibles.
-
-No utilices simplemente una lista fija de horarios.
-
-La disponibilidad debe ser calculada dinámicamente.
-
----
-
-# 13. BLOQUEOS
-
-El negocio debe poder bloquear horarios específicos de un profesional.
-
-Ejemplo:
-
-Gabriel:
-
-14:00–15:30
-
-Motivo:
-
-Trámite personal
-
-Ese horario no debe aparecer como disponible.
-
-Los bloqueos deben coexistir correctamente con reservas, horarios, vacaciones y otras reglas.
-
----
-
-# 14. VACACIONES Y AUSENCIAS
-
-Debe existir soporte para:
-
-* Vacaciones
-* Licencias
-* Ausencias
-* Bloqueos específicos
-
-Las vacaciones/ausencias pertenecen al profesional.
-
-Los feriados generales pertenecen al negocio.
-
-El motor de disponibilidad debe considerar todas estas reglas.
-
----
-
-# 15. DOBLE RESERVA
-
-La prevención de double booking es CRÍTICA.
-
-NO confiar solamente en:
-
-* React
-* JavaScript
-* validaciones frontend
-* consultas previas simples
-
-Debe existir protección real en backend y base de datos.
-
-La creación de una reserva debe ser transaccional.
-
-Debes considerar:
-
-* concurrencia
-* race conditions
-* locks
-* constraints
-* transacciones
-* aislamiento apropiado
-
-Dos usuarios intentando reservar simultáneamente el mismo horario NO deben poder obtener dos reservas confirmadas.
-
----
-
-# 16. CANCELACIÓN
-
-El profesional y el administrador NO deben confirmar ni cancelar reservas.
-
-La reserva se confirma automáticamente al realizarse.
-
-El cliente podrá cancelar mediante:
-
-* WhatsApp
-* enlace seguro
-
-Al cancelar:
-
-1. Se valida el secure_token.
-2. Se verifica que la reserva pueda cancelarse.
-3. Se cambia el estado.
-4. Se libera inmediatamente el horario.
-5. Se actualiza la agenda.
-6. Se notifica al profesional cuando corresponda.
-
-El horario debe volver a estar disponible automáticamente.
-
----
-
-# 17. REPROGRAMACIÓN
-
-El cliente debe poder reprogramar.
-
-Flujo:
-
-1. Cliente recibe WhatsApp.
-2. Presiona "Reprogramar".
-3. Se abre una URL segura.
-4. El sistema identifica la reserva mediante secure_token.
-5. Muestra los nuevos horarios disponibles.
-6. Cliente selecciona nuevo horario.
-7. Backend vuelve a validar disponibilidad.
-8. Se realiza el cambio dentro de una transacción.
-9. Se actualiza la reserva.
-10. Se envían las notificaciones correspondientes.
-
-No permitir inconsistencias entre la reserva anterior y la nueva.
-
----
-
-# 18. WHATSAPP
-
-WhatsApp es una pieza CENTRAL del producto.
-
-Utilizar:
-
-META WHATSAPP BUSINESS PLATFORM / CLOUD API
-
-NO utilizar automatizaciones basadas en WhatsApp Web.
-
-NO utilizar scraping.
-
-NO depender de una sesión de WhatsApp Web.
-
-Debe existir una arquitectura preparada para:
-
-* mensajes
-* plantillas
-* webhooks
-* botones/interacciones cuando correspondan
-* reintentos
-* errores
-* logs
-* idempotencia
-
----
-
-# 19. WHATSAPP AL RESERVAR
-
-Al crear una reserva:
-
-### Cliente
-
-Debe recibir confirmación con información como:
-
-* Negocio
-* Servicio
-* Profesional
-* Fecha
-* Hora
-* Opciones para gestionar la reserva
-
-### Profesional
-
-Debe recibir información como:
-
-* Nuevo turno
-* Cliente
-* Servicio
-* Fecha
-* Hora
-
----
-
-# 20. RECORDATORIOS
-
-Cada reserva debe generar automáticamente dos recordatorios:
-
-* 2 horas antes
-* 1 hora antes
-
-El mensaje debe contener:
-
-* Negocio
-* Servicio
-* Profesional
-* Fecha/hora
-* Botón/opción Cancelar
-* Botón/opción Reprogramar
-
-Los recordatorios deben ser enviados mediante un sistema de tareas/background jobs.
-
-NO bloquear una request HTTP esperando el momento del recordatorio.
-
----
-
-# 21. AGENDA DEL PROFESIONAL
-
-El profesional debe tener un panel.
-
-Debe poder consultar:
-
-* Turnos de hoy
-* Próximos turnos
-* Historial
-* Clientes
-* Servicios que realiza
-* Horarios
-* Bloqueos
-* Vacaciones/ausencias según permisos
-
-La agenda debe actualizarse automáticamente cuando:
-
-* se reserva
-* se cancela
-* se reprograma
-
----
-
-# 22. AGENDA POR WHATSAPP
-
-Posteriormente se puede ofrecer un resumen diario.
-
-Ejemplo:
-
-"Agenda de hoy — Gabriel"
-
-09:00 — Juan Pérez — Corte
-
-10:00 — Pedro Gómez — Corte + barba
-
-11:30 — Disponible
-
-12:15 — María López — Corte
-
-Debe ser claro y compacto.
-
----
-
-# 23. WALK-IN
-
-El sistema debe contemplar eventualmente clientes que llegan físicamente sin reserva.
-
-Desde el panel profesional/admin se podrá registrar una reserva manual.
-
-Ejemplo:
-
-"Agregar cliente sin reserva"
-
-Esto permite que la agenda represente la realidad.
-
-Esta funcionalidad puede implementarse después del flujo principal de reservas online.
-
----
-
-# 24. PANEL ADMINISTRATIVO
-
-El administrador del negocio debe poder gestionar:
-
-### Negocio
-
-* Nombre
-* Descripción
-* Logo
-* Imagen
-* Dirección
-* WhatsApp
-* Configuración
-* Slug público
-
-### Profesionales
-
-* Crear
-* Editar
-* Activar/desactivar
-* Servicios
-* Horarios
-* Vacaciones
-* Licencias
-* Bloqueos
-
-### Servicios
-
-* Crear
-* Editar
-* Precio
-* Duración
-* Activar/desactivar
-
-### Horarios
-
-* Horarios por día
-* Múltiples ventanas
-* Excepciones
-
-### Feriados
-
-* Crear
-* Editar
-* Eliminar
-
-### Reservas
-
-* Consultar
-* Filtrar
-* Historial
-
-IMPORTANTE:
-
-El administrador NO debe confirmar manualmente reservas online.
-
----
-
-# 25. SEGURIDAD
-
-La seguridad debe diseñarse desde el principio.
-
-Implementar:
-
-* JWT
-* Access tokens
-* Refresh token rotation
-* Argon2
-* Validación de permisos
-* RBAC
-* Rate limiting
-* Validación de entrada
-* Protección contra IDOR
-* Protección contra mass assignment
-* CORS correctamente configurado
-* CSRF cuando corresponda
-* Sanitización
-* Logs de seguridad
-* Gestión segura de secretos
-* Variables de entorno
-* Secure cookies cuando correspondan
-* HTTPS en producción
-
-Nunca guardar contraseñas en texto plano.
-
-Nunca incluir secretos en el repositorio.
-
-Nunca confiar en datos provenientes del frontend.
-
----
-
-# 26. STACK TECNOLÓGICO
-
-## Frontend
-
-React
-
-TypeScript
-
-Vite
-
-Tailwind CSS
-
-shadcn/ui
-
-TanStack Query
-
-React Hook Form
-
-Zod
-
-Vitest
-
-Playwright
-
----
-
-## Backend
-
-Python
-
-FastAPI
-
-Pydantic
-
-SQLAlchemy 2.x
-
-Alembic
-
-Pytest
-
----
-
-## Base de datos
-
-PostgreSQL
-
-La base de datos debe diseñarse pensando en:
-
-* integridad
-* índices
-* relaciones
-* concurrencia
-* escalabilidad
-* multi-tenancy
-
----
-
-## Infraestructura
-
-Docker
-
-Docker Compose
-
-Redis
-
-Sistema de background jobs
-
----
-
-## Archivos
-
-Utilizar:
-
-Cloudflare R2
-
-o almacenamiento S3-compatible.
-
-NO guardar imágenes grandes directamente dentro de PostgreSQL.
-
----
-
-# 27. AUTENTICACIÓN
-
-Los usuarios internos sí tendrán autenticación.
-
-Por ejemplo:
-
-* Platform Admin
-* Business Admin
-* Professional
-
-El cliente público NO tendrá login.
-
-Utilizar:
-
-JWT access token
-
-*
-
-Refresh token rotation
-
-Las contraseñas deben almacenarse mediante:
-
-Argon2
-
-Implementar RBAC correctamente.
-
----
-
-# 28. ARQUITECTURA
-
-Utilizar:
-
-MODULAR MONOLITH
-
-NO microservicios inicialmente.
-
-La aplicación debe estar modularizada para que posteriormente pueda evolucionar.
-
-Módulos principales:
-
-* auth
-* businesses
-* professionals
-* services
-* schedules
-* availability
-* bookings
-* customers
-* notifications
-* payments
-* reports
-
----
-
-# 29. ESTRUCTURA PROPUESTA
-
-```text
+Barbería A Lunes 08:00-12:00 y 17:00-21:00 = 2 filas
+Peluquería B Lunes 08:00-18:00 = 1 fila
+Estudio C Lunes 09:00-13:00 y 15:00-20:00
+Domingo 0 filas = cerrado
+Soporta: abierto/cerrado, 1 o N ventanas, diferente por día, cambios excepcionales, feriados. Nunca ofrecer fuera ventanas. Modelo: business_hours(business_id, weekday, open_time, close_time).
+
+## 12. DISPONIBILIDAD PROFESIONAL
+Considera: horario negocio + horario profesional (professional_schedules) + servicios que puede + duración + reservas + bloqueos + vacaciones + licencias + feriados + excepciones. Cálculo dinámico huecos, no lista fija. Única fuente de verdad backend.
+
+## 13. BLOQUEOS
+Bloquear horario específico profesional: Gabriel 14:00-15:30 trámite. No aparece disponible. Coexiste con reservas/horarios/vacaciones.
+
+## 14. VACACIONES Y AUSENCIAS
+Vacaciones/licencias pertenecen a profesional (time_off). Feriados a negocio (holidays). No bloquear negocio completo porque un profesional ausente. Motor considera todo.
+
+## 15. DOBLE RESERVA - CRÍTICA
+No confiar frontend. Protección backend + DB transaccional:
+BEGIN; SET LOCAL business_id; SELECT FOR UPDATE bookings WHERE professional_id; verificar disponibilidad motor; INSERT con EXCLUDE USING gist (professional_id WITH =, tstzrange WITH &&) WHERE status=confirmed; INSERT idempotency_keys ON CONFLICT DO NOTHING; COMMIT;
+Dos simultáneos mismo horario = solo uno 201, otro 409. Tests concurrencia 50 threads.
+
+## 16. CANCELACIÓN
+Profesional/admin NO confirman ni cancelan. Reserva nace confirmada. Cliente cancela vía WhatsApp botón -> URL segura /r/{token} -> confirmar cancelación.
+Validar token hash, verificar puede cancelarse (no cancelada/completada/no_show, no dentro cancellation_window, no en curso), cambiar estado, liberar horario inmediato, actualizar agenda, notificar profesional. Horario vuelve disponible automático para walk-in.
+
+## 17. REPROGRAMACIÓN
+WhatsApp [Reprogramar] -> URL segura token -> muestra nuevos horarios disponibles -> cliente elige -> backend revalida disponibilidad -> transacción libera horario anterior y ocupa nuevo -> notificaciones. Sin inconsistencias.
+
+## 18. WHATSAPP - CENTRAL - OFICIAL - MEJORA
+WhatsApp es CENTRAL, no complemento. Usar META WHATSAPP BUSINESS PLATFORM / CLOUD API oficial. NO WhatsApp Web scraping, NO Baileys, NO sesión web.
+Arquitectura preparada para: mensajes, plantillas aprobadas, webhooks firmados, botones/interacciones Quick Reply, reintentos exponenciales, logs sin PII, idempotencia por event_id, outbox pattern.
+Docs actuales Meta exponen Cloud API, webhooks, recursos integración externa - usar eso.
+
+## 19. WHATSAPP AL RESERVAR
+Cliente: ✅ Turno reservado El Peluche 📅 Lunes 28 🕐 18:30 ✂️ Corte 👤 Gabriel + [Cancelar][Reprogramar] + [Ver reserva]
+Profesional: 🔔 Nuevo turno Cliente: Juan Pérez Servicio: Corte Fecha: lunes 28 Hora: 18:30 WhatsApp: +54... + agenda auto.
+
+## 20. RECORDATORIOS
+2 recordatorios automáticos: 2 horas antes y 1 hora antes. Contenido: negocio, servicio, profesional, fecha/hora, botones Cancelar/Reprogramar. Vía background jobs (jobs tabla + drain in-process + tick Cloudflare Worker cron). No bloquear request HTTP. Ejemplo: ⏰ Recordatorio hoy 18:00 en El Peluche con Gabriel [Cancelar][Reprogramar]. Útil para liberar si no va y tomar walk-in.
+
+## 21. AGENDA PROFESIONAL
+Panel: turnos hoy, próximos, historial, clientes, servicios, horarios, bloqueos, vacaciones según permisos. Actualiza auto reserva/cancel/reprograma. No confirma manualmente.
+
+## 22. AGENDA POR WHATSAPP
+Resumen diario mañana: Agenda de hoy — Gabriel 09:00 Juan Pérez Corte 10:00 Pedro Gómez Corte+barba 11:30 Disponible 12:15 María López Corte - claro y compacto, no bombardeo.
+
+## 23. WALK-IN
+Clientes sin reserva físicos. Panel "Agregar cliente sin reserva" registra atención para que agenda = realidad, permite stats ocupación real. Después de MVP reservas online.
+
+## 24. PANEL ADMINISTRATIVO
+Negocio: nombre, descripción, logo/cover R2, dirección, WhatsApp, slug, timezone, slot_interval, min_lead, max_advance, cancellation_window
+Profesionales: crear, editar, activar/desactivar, servicios, horarios, vacaciones, licencias, bloqueos
+Servicios: crear, editar, precio numeric, duración, activar/desactivar
+Horarios: por día múltiples ventanas, excepciones
+Feriados: CRUD
+Reservas: consultar, filtrar, historial
+IMPORTANTE: admin NO confirma manualmente reservas online.
+
+## 25. SEGURIDAD
+JWT access 15min + refresh rotation + reuse detection familia + bloqueo user, Argon2id, RBAC admin/staff/professional/platform_admin separado, rate limiting PG (login 5/min IP, register-business 3/h IP, public bookings 10/min IP + 5/h teléfono), validación Pydantic/Zod, IDOR protegido por RLS + token hash, mass assignment bloqueado por schemas, CORS strict, Turnstile en /register y /public/bookings, sanitización, logs seguridad sin secretos,.env.example sin secretos, secure cookies HttpOnly Secure SameSite=Strict Path=/api/v1/auth, HTTPS prod.
+
+## 26. STACK
+Frontend: React, TypeScript, Vite, Tailwind CSS, shadcn/ui, TanStack Query, React Hook Form, Zod, Vitest, Playwright
+Backend: Python 3.13+, FastAPI, Pydantic, SQLAlchemy 2.x, Alembic, Pytest
+DB: PostgreSQL con btree_gist, índices, transacciones, constraints
+Infra: Docker, Docker Compose, Redis opcional (PG como cola en MVP), background jobs
+Archivos: Cloudflare R2 S3-compatible, no imágenes en PG
+
+## 27. AUTENTICACIÓN
+Usuarios internos: Platform Admin (platform_users tabla separada), Business Admin, Staff, Professional. Cliente público NO login.
+JWT access + refresh rotation + Argon2 + RBAC. Password hash nunca sale API ni log.
+
+## 28. ARQUITECTURA
+MODULAR MONOLITH, NO microservicios inicial. Módulos: auth, onboarding, businesses, professionals, services, schedules, availability, bookings, customers, notifications, payments, reports. Cada módulo autonomous, no importa repos de otro. Dependencia: api->services->repositories->db, core.
+
+## 29. ESTRUCTURA
 project/
-│
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   ├── pages/
-│   │   ├── features/
-│   │   ├── hooks/
-│   │   ├── services/
-│   │   ├── types/
-│   │   └── lib/
-│   │
-│   └── package.json
-│
-├── backend/
-│   ├── app/
-│   │   ├── api/
-│   │   ├── core/
-│   │   ├── models/
-│   │   ├── schemas/
-│   │   ├── services/
-│   │   ├── repositories/
-│   │   └── workers/
-│   │
-│   ├── migrations/
-│   └── pyproject.toml
-│
-├── tests/
-│
-├── docker-compose.yml
-├── .env.example
-├── README.md
-└── ARCHITECTURE.md
-```
-
-Puedes modificar esta estructura si existe una razón técnica clara.
-
----
-
-# 30. API
-
-La API debe utilizar:
-
-REST
-
-OpenAPI
-
-Versionado:
-
-/api/v1/
-
-Ejemplos:
-
-GET /api/v1/businesses
-
-GET /api/v1/businesses/{id}
-
-GET /api/v1/businesses/{id}/services
-
-GET /api/v1/businesses/{id}/professionals
-
-GET /api/v1/availability
-
-POST /api/v1/bookings
-
-GET /api/v1/bookings
-
-PATCH /api/v1/bookings/{id}
-
-DELETE /api/v1/bookings/{id}
-
-Los endpoints definitivos deben diseñarse según los casos de uso reales.
-
-No crear endpoints innecesarios.
-
----
-
-# 31. FRONTEND
-
-La interfaz debe ser:
-
-* moderna
-* profesional
-* responsive
-* rápida
-* accesible
-* clara
-* mobile-first donde tenga sentido
-
-Utilizar componentes reutilizables.
-
-Evitar:
-
-* componentes gigantes
-* lógica duplicada
-* estados globales innecesarios
-* estilos repetidos
-* llamadas API dispersas
-* lógica de negocio dentro de componentes visuales
-
-Separar correctamente:
-
-UI
-
-estado
-
-API
-
-lógica de negocio
-
-tipos
-
-validación
-
----
-
-# 32. MOTOR DE DISPONIBILIDAD
-
-Este será uno de los componentes más importantes del sistema.
-
-Diseñarlo como una pieza de dominio independiente.
-
-Debe poder recibir:
-
-* business
-* service
-* professional opcional
-* fecha
-* duración
-
-y considerar:
-
-* horarios del negocio
-* horarios profesionales
-* reservas
-* bloqueos
-* vacaciones
-* ausencias
-* feriados
-* excepciones
-
-Debe devolver únicamente slots realmente reservables.
-
-Debe existir una única fuente de verdad.
-
-NO duplicar la lógica de disponibilidad entre frontend y backend.
-
-El frontend puede previsualizar.
-
-El backend siempre debe validar nuevamente.
-
----
-
-# 33. DINERO
-
-Los precios deben manejarse de manera segura.
-
-NO utilizar floats para dinero.
-
-Utilizar:
-
-Decimal
-
-o representación equivalente apropiada.
-
-Preparar la arquitectura para incorporar Mercado Pago posteriormente.
-
-NO implementar pagos antes de que el núcleo de reservas esté correctamente terminado.
-
----
-
-# 34. MAPAS
-
-Los mapas no son necesarios para el MVP inicial.
-
-Cuando se incorporen:
-
-preferir:
-
-MapLibre
-
-OpenStreetMap
-
-Evitar dependencia innecesaria de proveedores propietarios.
-
----
-
-# 35. EMAIL
-
-El email no es obligatorio para el cliente.
-
-Podrá incorporarse posteriormente para:
-
-* administración
-* recuperación de contraseña
-* notificaciones internas
-* comunicaciones empresariales
-
-WhatsApp tiene prioridad para el cliente.
-
----
-
-# 36. TESTING
-
-Todo componente crítico debe tener tests.
-
-Backend:
-
-Pytest
-
-Frontend:
-
-Vitest
-
-E2E:
-
-Playwright
-
-Especial atención a:
-
-* disponibilidad
-* reservas
-* concurrencia
-* cancelaciones
-* reprogramaciones
-* "cualquier profesional"
-* horarios
-* vacaciones
-* bloqueos
-* feriados
-* multi-tenancy
-* permisos
-* tokens seguros
-
----
-
-# 37. CASOS CRÍTICOS QUE DEBES PROBAR
-
-### Caso 1
-
-Dos clientes intentan reservar simultáneamente el mismo horario.
-
-Resultado esperado:
-
-Solo una reserva confirmada.
-
----
-
-### Caso 2
-
-Cliente cancela una reserva.
-
-Resultado:
-
-El horario vuelve a estar disponible.
-
----
-
-### Caso 3
-
-Cliente reprograma.
-
-Resultado:
-
-La reserva anterior deja de ocupar el horario anterior y la nueva ocupa el nuevo horario.
-
----
-
-### Caso 4
-
-Cliente selecciona "Cualquier profesional".
-
-Resultado:
-
-Solo aparecen profesionales que realmente pueden realizar el servicio y están disponibles.
-
----
-
-### Caso 5
-
-Profesional está de vacaciones.
-
-Resultado:
-
-No aparecen sus horarios.
-
----
-
-### Caso 6
-
-Existe un bloqueo.
-
-Resultado:
-
-No aparece disponibilidad durante el bloqueo.
-
----
-
-### Caso 7
-
-Negocio cerrado.
-
-Resultado:
-
-No aparecen turnos.
-
----
-
-### Caso 8
-
-Servicio dura 90 minutos.
-
-Resultado:
-
-No ofrecer un slot si no existe una ventana continua de 90 minutos.
-
----
-
-### Caso 9
-
-Cliente intenta manipular booking_id.
-
-Resultado:
-
-No debe poder acceder a reservas ajenas.
-
----
-
-### Caso 10
-
-Cliente utiliza un token inválido.
-
-Resultado:
-
-Acceso rechazado.
-
----
-
-# 38. MVP
-
-El MVP debe priorizar:
-
-1. Arquitectura
-2. Base de datos
-3. Autenticación interna
-4. Negocios
-5. Profesionales
-6. Servicios
-7. Horarios
-8. Disponibilidad
-9. Reservas
-10. "Cualquier profesional"
-11. Cancelación
-12. Reprogramación
-13. Panel profesional
-14. Panel administrador
-15. URL pública del negocio
-16. WhatsApp
-17. Recordatorios
-18. Tests
-19. Seguridad
-20. Docker
-
-Después:
-
-* estadísticas avanzadas
-* Mercado Pago
-* mapas
-* email avanzado
-* marketplace
-* dominios personalizados
-* funciones avanzadas de WhatsApp
-* funcionalidades SaaS avanzadas
-
----
-
-# 39. REGLAS DE DESARROLLO
-
-NO inventes APIs.
-
-NO inventes respuestas del backend.
-
-NO agregues dependencias sin justificar.
-
-NO cambies el stack sin explicarlo.
-
-NO implementes microservicios.
-
-NO dupliques lógica de negocio.
-
-NO pongas lógica crítica solamente en frontend.
-
-NO uses mocks como sustituto de funcionalidades reales salvo que explícitamente te lo solicite.
-
-NO ocultes errores.
-
-NO ignores errores de compilación.
-
-NO marques una funcionalidad como terminada si no fue probada.
-
-NO afirmes que algo funciona si no fue ejecutado/verificado.
-
----
-
-# 40. MANEJO DE CAMBIOS
-
-Antes de modificar una parte importante:
-
-1. Analiza el código existente.
-2. Identifica dependencias.
-3. Explica qué vas a modificar.
-4. Implementa el cambio.
-5. Ejecuta los tests relevantes.
-6. Verifica errores.
-7. Actualiza documentación.
-
-No sobrescribas funcionalidades existentes sin analizar su impacto.
-
----
-
-# 41. DOCUMENTACIÓN
-
-Mantener actualizados:
-
-README.md
-
-ARCHITECTURE.md
-
-.env.example
-
-Documentación de API cuando corresponda.
-
-La documentación debe reflejar el estado REAL del proyecto.
-
-No documentes funcionalidades inexistentes.
-
----
-
-# 42. VARIABLES DE ENTORNO
-
-Nunca hardcodear:
-
-* passwords
-* JWT secrets
-* API keys
-* WhatsApp tokens
-* database credentials
-* Mercado Pago credentials
-* storage credentials
-
-Crear:
-
-.env.example
-
-con variables necesarias y valores de ejemplo seguros.
-
----
-
-# 43. LOGS Y OBSERVABILIDAD
-
-Preparar el sistema para registrar:
-
-* errores
-* reservas
-* cancelaciones
-* reprogramaciones
-* notificaciones
-* webhooks
-* eventos importantes
-* errores de integración
-
-Los logs NO deben exponer:
-
-* contraseñas
-* tokens
-* datos sensibles innecesarios
-* credenciales
-
----
-
-# 44. IDEMPOTENCIA
-
-Las operaciones sensibles deben contemplar idempotencia.
-
-Especialmente:
-
-* creación de reservas
-* webhooks
-* envío de notificaciones
-* cancelaciones
-* reprogramaciones
-
-Un mismo evento recibido dos veces NO debe generar dos efectos.
-
----
-
-# 45. WHATSAPP Y JOBS
-
-Las tareas como:
-
-* recordatorios
-* notificaciones
-* mensajes programados
-* procesamiento de webhooks
-
-deben ejecutarse mediante workers/background jobs.
-
-NO mantener requests HTTP abiertas esperando tareas.
-
-Redis puede utilizarse como infraestructura para jobs y cache.
-
----
-
-# 46. EXPERIENCIA DEL CLIENTE
-
-El cliente debe poder reservar en pocos pasos.
-
-Idealmente:
-
-Servicio
-
-→ Profesional
-
-→ Fecha
-
-→ Hora
-
-→ Datos
-
-→ Confirmación
-
-La experiencia debe ser extremadamente sencilla desde móvil.
-
-No pedir información innecesaria.
-
----
-
-# 47. EXPERIENCIA DEL NEGOCIO
-
-El administrador debe poder configurar su negocio sin conocimientos técnicos.
-
-Debe poder entender fácilmente:
-
-* agenda
-* disponibilidad
-* profesionales
-* servicios
-* horarios
-* reservas
-* clientes
-
----
-
-# 48. PRINCIPIO FUNDAMENTAL
-
-La plataforma debe representar la REALIDAD.
-
-Si un profesional está ocupado:
-
-NO mostrar disponibilidad.
-
-Si está de vacaciones:
-
-NO mostrar disponibilidad.
-
-Si el negocio está cerrado:
-
-NO mostrar disponibilidad.
-
-Si un cliente cancela:
-
-LIBERAR el horario.
-
-Si dos clientes intentan reservar simultáneamente:
-
-SOLO UNO debe conseguirlo.
-
-Si un servicio dura 90 minutos:
-
-NO ofrecer un hueco de 60 minutos.
-
-Si un profesional no realiza el servicio:
-
-NO asignarlo.
-
-Si un negocio cambia sus horarios:
-
-La disponibilidad debe reflejarlo.
-
----
-
-# 49. FORMA DE TRABAJAR CONMIGO
-
-Quiero que trabajes conmigo como un Senior Tech Lead.
-
-Cuando te pida implementar algo:
-
-### Primero
-
-Analiza.
-
-### Después
-
-Explica brevemente la solución.
-
-### Luego
-
-Implementa.
-
-### Después
-
-Prueba.
-
-### Finalmente
-
-Indica:
-
-* Qué se modificó.
-* Qué archivos se modificaron.
-* Qué tests se ejecutaron.
-* Resultado de los tests.
-* Problemas encontrados.
-* Qué queda pendiente.
-
-No me entregues simplemente código sin contexto.
-
----
-
-# 50. REGLA DE ORO
-
-CALIDAD > VELOCIDAD
-
-CORRECCIÓN > CANTIDAD DE FUNCIONALIDADES
-
-SEGURIDAD > COMODIDAD
-
-ARQUITECTURA LIMPIA > PARCHE RÁPIDO
-
-DATOS REALES > MOCKS
-
-TESTS REALES > "PARECE FUNCIONAR"
-
----
-
-# 51. PRIMERA TAREA
-
-NO empieces programando inmediatamente.
-
-Primero realiza una fase de arquitectura.
-
-Quiero que me entregues:
-
-1. Nombre técnico recomendado para el proyecto.
-2. Arquitectura general.
-3. Diagrama conceptual de componentes.
-4. Modelo de datos completo.
-5. Relaciones entre entidades.
-6. Estrategia multi-tenant.
-7. Estrategia de disponibilidad.
-8. Estrategia anti-double-booking.
-9. Estrategia de autenticación.
-10. Estrategia de secure tokens.
-11. Arquitectura de WhatsApp.
-12. Arquitectura de background jobs.
-13. Estructura definitiva del proyecto.
-14. Diseño de API.
-15. Estrategia de testing.
-16. Estrategia de seguridad.
-17. Estrategia de despliegue.
-18. Roadmap por fases.
-19. Riesgos técnicos.
-20. Decisiones arquitectónicas y justificación.
-
-NO escribas código de producción todavía.
-
-Primero quiero validar la arquitectura.
-
-Una vez aprobada la arquitectura, comenzaremos la implementación desde cero, siguiendo las fases y sin saltarnos pasos.
+ frontend/src/{components,pages/{LandingPage,RegisterPage,LoginPage,BusinessPage,BookingSuccessPage,ManageBookingPage,PanelPage,AdminPage},features,hooks,services,types,lib}
+ backend/app/{api/v1/{auth,onboarding,public,businesses},core/{config,security},models, schemas, services/{availability_engine,booking_service,onboarding_service}, repositories, workers}
+ migrations/ tests/ docker-compose.yml.env.example README.md ARCHITECTURE.md PROJECT_MASTER.md docs/adr/
+
+## 30. API
+REST OpenAPI versionado /api/v1/
+POST /api/v1/auth/register-business (público, self-service, atómico, rate limit) - NUEVO
+POST /api/v1/auth/login
+POST /api/v1/auth/refresh
+GET /api/v1/public/businesses/{slug}
+GET /api/v1/public/businesses/{slug}/services
+GET /api/v1/public/businesses/{slug}/professionals
+GET /api/v1/availability?business_id&service_id&date&professional_id
+POST /api/v1/public/bookings (idempotency-key requerido)
+GET /api/v1/public/bookings/{token}
+POST /api/v1/public/bookings/{token}/cancel
+POST /api/v1/public/bookings/{token}/reschedule
+No endpoints innecesarios.
+
+## 31. FRONTEND
+Moderna, profesional, responsive, rápida, accesible, clara, mobile-first. Componentes reutilizables. Evitar componentes gigantes, lógica duplicada, estados globales innecesarios, estilos repetidos, llamadas API dispersas, lógica negocio en componentes visuales. Separar UI, estado, API, lógica negocio, tipos, validación.
+
+## 32. MOTOR DISPONIBILIDAD
+Pieza más importante. Diseño dominio independiente. Recibe business, service, professional opcional, fecha, duración. Considera horarios negocio, horarios profesional, servicios, reservas, bloqueos, vacaciones, feriados, excepciones. Devuelve solo slots realmente reservables. Única fuente de verdad. Frontend previsualiza, backend revalida.
+
+## 33. DINERO
+No floats. numeric(12,2) + ISO 4217. Preparar Mercado Pago después núcleo reservas.
+
+## 34. MAPAS
+No MVP. Luego MapLibre + OpenStreetMap, evitar propietario.
+
+## 35. EMAIL
+No obligatorio cliente. Luego admin, recupero password, notificaciones internas. WhatsApp prioridad cliente.
+
+## 36. TESTING
+Backend Pytest, Frontend Vitest, E2E Playwright. Atención a disponibilidad, reservas, concurrencia, cancelaciones, reprogramaciones, any professional, horarios, vacaciones, bloqueos, feriados, multi-tenancy, permisos, tokens seguros.
+
+## 37. CASOS CRÍTICOS
+1. Dos reservan mismo horario -> solo 1 confirmada
+2. Cancel -> horario disponible
+3. Reprograma -> libera anterior ocupa nuevo
+4. Any professional -> solo elegibles disponibles
+5. Vacaciones -> no horarios
+6. Bloqueo -> no disponibilidad bloqueo
+7. Negocio cerrado -> no turnos
+8. Servicio 90min -> no slot si no ventana 90min continua
+9. Manipular booking_id -> no acceso (no existe endpoint público por id)
+10. Token inválido -> 403
+
+## 38. MVP
+Priorizar: 1 Arquitectura 2 DB 3 Auth interna + onboarding self-service 4 Negocios 5 Profesionales 6 Servicios 7 Horarios configurables 8 Disponibilidad 9 Reservas 10 Any professional 11 Cancelación 12 Reprogramación 13 Panel profesional 14 Panel admin 15 URL pública /{slug} 16 WhatsApp Cloud API 17 Recordatorios 18 Tests 19 Seguridad 20 Docker
+Después: estadísticas avanzadas, Mercado Pago, mapas, email avanzado, marketplace, dominios personalizados, WhatsApp avanzado, SaaS avanzado.
+
+## 39. REGLAS DESARROLLO
+NO inventes APIs, NO inventes respuestas backend, NO agregues dependencias sin justificar, NO cambies stack sin explicar, NO microservicios, NO dupliques lógica negocio, NO lógica crítica solo frontend, NO mocks sustituto salvo explícito, NO ocultes errores, NO ignores errores compilación, NO marques terminada sin probar, NO afirmes funciona sin ejecutar.
+
+## 40. MANEJO CAMBIOS
+Analiza código existente, identifica dependencias, explica qué modificar, implementa, ejecuta tests relevantes, verifica errores, actualiza docs. No sobrescribir sin analizar impacto.
+
+## 41. DOCUMENTACIÓN
+README.md, ARCHITECTURE.md, PROJECT_MASTER.md,.env.example, docs/adr, API docs. Reflejar estado REAL, no funcionalidades inexistentes.
+
+## 42. VARIABLES ENTORNO
+Nunca hardcodear passwords, JWT secrets, API keys, WhatsApp tokens, DB creds, Mercado Pago creds, storage creds..env.example con ejemplos seguros.
+
+## 43. LOGS Y OBSERVABILIDAD
+Registrar errores, reservas, cancelaciones, reprogramaciones, notificaciones, webhooks, eventos importantes, errores integración. Logs NO exponer passwords, tokens, datos sensibles, creds.
+
+## 44. IDEMPOTENCIA
+Operaciones sensibles idempotentes: creación reservas (idempotency_key), webhooks (event_id), envío notificaciones (provider_message_id), cancelaciones, reprogramaciones. Mismo evento 2 veces NO 2 efectos.
+
+## 45. WHATSAPP Y JOBS
+Tareas recordatorios, notificaciones, mensajes programados, webhooks vía workers/background jobs. NO requests HTTP abiertas esperando. Redis puede usarse pero PG como cola suficiente MVP. Outbox pattern.
+
+## 46. EXPERIENCIA CLIENTE
+Pocos pasos móvil: Servicio -> Profesional -> Fecha -> Hora -> Datos (nombre apellido WhatsApp) -> Confirmación. Extremadamente sencilla, sin fricción, sin cuenta.
+
+## 47. EXPERIENCIA NEGOCIO
+Admin configura sin conocimientos técnicos: agenda, disponibilidad, profesionales, servicios, horarios, reservas, clientes. Entiende fácil.
+
+## 48. PRINCIPIO FUNDAMENTAL
+Plataforma debe representar REALIDAD. Si profesional ocupado NO mostrar disponibilidad. Si vacaciones NO mostrar. Si negocio cerrado NO mostrar. Si cancela LIBERAR horario. Si dos intentan simultáneo SOLO UNO. Si servicio 90min NO hueco 60min. Si profesional no realiza servicio NO asignarlo. Si cambia horarios disponibilidad refleja.
+
+## 49. FORMA TRABAJAR
+Senior Tech Lead. Analiza, explica breve solución, implementa, prueba, indica qué se modificó, archivos modificados, tests ejecutados, resultado tests, problemas, pendiente. No código sin contexto.
+
+## 50. REGLA ORO
+CALIDAD > VELOCIDAD, CORRECCIÓN > CANTIDAD, SEGURIDAD > COMODIDAD, ARQUITECTURA LIMPIA > PARCHE RÁPIDO, DATOS REALES > MOCKS, TESTS REALES > "PARECE FUNCIONAR"
+
+## 51. PRIMERA TAREA - MEJORA
+No programar inmediato. Fase arquitectura ya aprobada con self-service.
+Entregables §51 ya en ARCHITECTURE.md con mejoras: onboarding transaccional, horarios ventanas múltiples configurables por negocio, WhatsApp Cloud API oficial con botones/webhooks/outbox, slug vs business_id con reserva atómica, URL propia /{slug} directo sin pasar por home.
+Una vez aprobada, implementación desde cero por fases sin saltarse pasos, empezando por Fase 0.2 Register.

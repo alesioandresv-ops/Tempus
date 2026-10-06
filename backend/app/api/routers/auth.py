@@ -70,7 +70,7 @@ from app.api.dependencies import (
     get_settings_dep,
     verify_csrf_and_origin,
 )
-from app.api.routers.schemas import LoginRequest
+from app.api.routers.schemas import BusinessLoginRequest, LoginRequest
 from app.core.config import Settings
 from app.core.logging import get_logger
 from app.core.time import now
@@ -101,7 +101,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 async def login_business(
     request: Request,
     response: Response,
-    credentials: LoginRequest,
+    credentials: BusinessLoginRequest,
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings_dep),
 ) -> dict[str, str | int]:
@@ -112,6 +112,11 @@ async def login_business(
     - Emite access token JWT (15 min) en el cuerpo JSON.
     - Emite refresh token opaco en cookie HttpOnly (Secure en prod, SameSite=Lax).
     - No devuelve el refresh token en el JSON.
+
+    `business_slug` solo se usa cuando el mismo email es miembro de varios negocios.
+    Con una sola membresia se ignora, y cuando el slug no corresponde la respuesta es
+    el mismo 401 que una contrasena incorrecta: no hay 404 para un slug inexistente,
+    porque ese 404 confirmaria que el negocio existe.
     """
     client_ip = get_request_ip(request)
 
@@ -121,6 +126,7 @@ async def login_business(
         password=credentials.password,
         ip_address=client_ip,
         user_agent=request.headers.get("User-Agent"),
+        business_slug=credentials.business_slug,
     )
 
     # Establecer cookie de refresh token

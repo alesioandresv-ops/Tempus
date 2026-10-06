@@ -155,6 +155,11 @@ addopts = [
     "-ra",
     "--strict-markers",
     "--strict-config",
+    # `pytest-flask` no es dependencia del proyecto (es FastAPI, no Flask), pero
+    # si esta instalado en el interprete se autoregistra y mete un fixture
+    # `autouse` que hace `app.response_class` sobre la app de FastAPI: 32 tests
+    # morian en el setup con `AttributeError`, sin llegar a probar nada.
+    "-p", "no:flask",
     "--cov=app",
     "--cov-report=term-missing:skip-covered",
     "--cov-fail-under=0",   # Fase 0: sin umbral. Se fija por capa mas adelante.

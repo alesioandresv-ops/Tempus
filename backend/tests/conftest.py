@@ -1,4 +1,4 @@
-﻿"""Fixtures compartidas.
+"""Fixtures compartidas.
 
 Dos decisiones que conviene tener presentes al leer los tests:
 
@@ -103,7 +103,9 @@ def _apuntar_la_app_a_la_base_de_test() -> None:
     get_settings.cache_clear()
 
 
-os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-64-chars-long-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx")
+os.environ.setdefault(
+    "JWT_SECRET_KEY", "test-jwt-secret-key-64-chars-long-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx"
+)
 os.environ.setdefault("ENCRYPTION_KEY", "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
 os.environ.setdefault("SCHEDULER_TICK_SECRET", "test-scheduler-secret-32-chars-long")
 _apuntar_la_app_a_la_base_de_test()

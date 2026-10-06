@@ -1,4 +1,4 @@
-﻿"""Access token: emision, validacion y, sobre todo, que se rechaza.
+"""Access token: emision, validacion y, sobre todo, que se rechaza.
 
 El foco de este archivo son los rechazos. Un token que se emite bien es codigo de cinco
 lineas que ya exercise el login; lo que hay que demostrar es que **todo lo demas** no
