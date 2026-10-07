@@ -27,9 +27,11 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from dataclasses import dataclass
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Select, and_, func, select
+from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import ConflictError, NotFoundError, ValidationError
@@ -39,6 +41,7 @@ from app.modules.bookings.models import Booking, BookingEvent
 from app.modules.bookings.service import (
     ReglasAgenda,
     _assert_cancellable,
+    _calculate_occupied_interval,
     _cancel_pending_notifications,
     create_booking,
 )
@@ -71,6 +74,9 @@ class ReservaFiltros:
     customer_id: uuid.UUID | None = None
     estado: BookingStatus | None = None
     solo_pendientes: bool = False
+    #: Busqueda libre por nombre o telefono del cliente. No es un filtro por
+    #: id: la persona escribe "juan" o un numero con o sin el +54 y matchea.
+    busqueda: str | None = None
     limite: int = 50
     offset: int = 0
 
@@ -124,6 +130,20 @@ def _aplicar_filtros(consulta: Select, business_id: uuid.UUID, f: ReservaFiltros
                 Booking.ends_at >= now(),
             )
         )
+    if f.busqueda:
+        # Va por subconsulta y no por join a proposito: `_aplicar_filtros` se
+        # aplica dos veces (una para el total, una para la pagina) y las dos
+        # comparten el mismo SELECT base; un join duplicado romperia la pagina con
+        # "duplicate table alias". La subconsulta filtra lo mismo sin tocar joins.
+        termino = f"%{f.busqueda.strip()}%"
+        coincidencias = select(Customer.id).where(
+            or_(
+                Customer.first_name.ilike(termino),
+                Customer.last_name.ilike(termino),
+                Customer.phone_e164.ilike(termino),
+            )
+        )
+        consulta = consulta.where(Booking.customer_id.in_(coincidencias))
     return consulta
 
 
@@ -319,6 +339,97 @@ async def cancelar_desde_panel(
     return booking
 
 
+async def reprogramar_desde_panel(
+    session: AsyncSession,
+    booking_id: uuid.UUID,
+    *,
+    business_id: uuid.UUID,
+    new_starts_at: dt.datetime,
+    new_ends_at: dt.datetime,
+    new_duration_minutes: int,
+    timezone: str,
+    actor_user_id: uuid.UUID | None = None,
+) -> Booking:
+    """Reprograma una reserva desde el panel, sin secure token.
+
+    Es el espejo admin de `reschedule_booking` (publico): las mismas reglas de
+    negocio --no se mueve una reserva cancelada o cerrada, el nuevo horario no
+    puede estar en el pasado y la EXCLUDE de la base es la autoridad
+    anti-solapamiento-- pero la autorizacion es el `Principal` del token en vez
+    del token del cliente. Por eso el evento de auditoria queda con
+    `actor_type='user'`, igual que el cancelado del panel.
+
+    `timezone` es el del negocio, no un parametro de conveniencia: `local_date`
+    se recalcula a partir de el, y con UTC un turno de las 22:00 en Buenos Aires
+    se archivaria en el dia siguiente.
+    """
+    booking = await _obtener_para_escritura(session, booking_id, business_id)
+
+    if booking.status == BookingStatus.CANCELLED:
+        raise ConflictError("No se puede reprogramar una reserva cancelada.")
+    if booking.status in (BookingStatus.COMPLETED, BookingStatus.NO_SHOW):
+        raise ConflictError(f"No se puede reprogramar una reserva {booking.status}.")
+    if new_starts_at <= now():
+        raise ConflictError("El nuevo horario ya paso.")
+    if new_ends_at <= new_starts_at:
+        raise ValidationError("El fin del turno no puede ser anterior al inicio.")
+
+    old_starts_at = booking.starts_at
+    old_ends_at = booking.ends_at
+
+    # La reserva se reprograma **en su misma fila**, igual que en el camino
+    # publico: duplicar la fila dejaria el token viejo apuntando a un turno
+    # fantasma y los recordatorios en un estado que nadie puede reconciliar.
+    booking.starts_at = new_starts_at
+    booking.ends_at = new_ends_at
+    booking.duration_minutes = new_duration_minutes
+    booking.local_date = new_starts_at.astimezone(ZoneInfo(timezone)).date()
+    booking.occupied_from, booking.occupied_to = _calculate_occupied_interval(
+        new_starts_at, new_ends_at
+    )
+
+    # Los recordatorios del horario viejo quedaron pegados a un turno que ya no
+    # existe. Se cancelan y los nuevos se crean despues con el horario nuevo.
+    await _cancel_pending_notifications(session, booking.id)
+
+    session.add(
+        BookingEvent(
+            business_id=booking.business_id,
+            booking_id=booking.id,
+            type=BookingEventType.RESCHEDULED,
+            actor_type=AuditActorType.USER,
+            actor_id=actor_user_id,
+            from_starts_at=old_starts_at,
+            to_starts_at=new_starts_at,
+            payload={
+                "from_starts_at": old_starts_at.isoformat(),
+                "to_starts_at": new_starts_at.isoformat(),
+                "from_ends_at": old_ends_at.isoformat(),
+                "to_ends_at": new_ends_at.isoformat(),
+                "origen": "panel",
+            },
+        )
+    )
+
+    # Outbox de notificaciones en la misma transaccion, igual que el publico: si
+    # el insert fallara y la reserva no, el cliente tendria un turno movido sin
+    # ningun recordatorio y nadie se enteraria hasta el dia del turno.
+    from app.modules.notifications.scheduler import schedule_for_booking
+
+    await schedule_for_booking(session, booking)
+
+    # El `EXCLUDE` de la base es la autoridad anti-doble-reserva: si el horario
+    # nuevo ya esta tomado, el flush falla aca y el 409 dice "ese horario no
+    # esta", no "el servidor se rompio".
+    try:
+        await session.flush()
+    except IntegrityError as exc:
+        if "no_overlap" in str(exc.orig) or "exclusion" in str(exc.orig).lower():
+            raise ConflictError("Ese horario acaba de ser tomado. Elegi otro.") from exc
+        raise
+    return booking
+
+
 async def marcar_estado_final(
     session: AsyncSession,
     booking_id: uuid.UUID,
@@ -478,16 +589,122 @@ async def registrar_walkin(
     return booking
 
 
+@dataclass(frozen=True, slots=True)
+class OcupacionProfesional:
+    """Turnos concretados y cancelados de un profesional en la ventana."""
+
+    professional_id: uuid.UUID
+    nombre: str
+    turnos: int
+    cancelados: int
+
+
+@dataclass(frozen=True, slots=True)
+class ResumenEstadistico:
+    """Numeros crudos para el panel; el schema de la API los serializa."""
+
+    desde: dt.date
+    hasta: dt.date
+    total_reservas: int
+    ingresos: Decimal
+    canceladas: int
+    por_profesional: list[OcupacionProfesional]
+
+    @property
+    def tasa_cancelacion(self) -> float:
+        if self.total_reservas == 0:
+            return 0.0
+        return self.canceladas / self.total_reservas
+
+
+async def resumen_estadistico(
+    session: AsyncSession,
+    business_id: uuid.UUID,
+    *,
+    desde: dt.date,
+    hasta: dt.date,
+) -> ResumenEstadistico:
+    """Numeros del panel admin para una ventana de fechas **locales**.
+
+    Las cuentas van por `local_date` y no por `starts_at`, igual que el listado
+    de reservas: un turno de las 22:00 en Buenos Aires pertenece al dia siguiente
+    en UTC, y filtrar en UTC lo sacaria de la ventana que pidio el admin.
+
+    `ingresos` suma `price_snapshot` de las reservas `confirmed` y `completed`:
+    lo que el local espera cobrar (o ya cobro) por turnos que se van a atender o
+    se atendieron. Las canceladas no generan ingreso, y las `pending_hold` son
+    espejismos de la pasarela que se resuelven solos en minutos.
+    """
+    total, canceladas, ingresos = (
+        await session.execute(
+            select(
+                func.count(Booking.id),
+                func.count(Booking.id).filter(Booking.status == BookingStatus.CANCELLED),
+                func.coalesce(
+                    func.sum(Booking.price_snapshot).filter(
+                        Booking.status.in_((BookingStatus.CONFIRMED, BookingStatus.COMPLETED))
+                    ),
+                    0,
+                ),
+            ).where(
+                Booking.business_id == business_id,
+                Booking.local_date >= desde,
+                Booking.local_date <= hasta,
+            )
+        )
+    ).one()
+
+    filas = await session.execute(
+        select(
+            Professional.id,
+            Professional.display_name,
+            func.count(Booking.id).filter(
+                Booking.status.in_((BookingStatus.CONFIRMED, BookingStatus.COMPLETED))
+            ),
+            func.count(Booking.id).filter(Booking.status == BookingStatus.CANCELLED),
+        )
+        .join(Booking, Booking.professional_id == Professional.id)
+        .where(
+            Booking.business_id == business_id,
+            Booking.local_date >= desde,
+            Booking.local_date <= hasta,
+        )
+        .group_by(Professional.id, Professional.display_name)
+        .order_by(func.count(Booking.id).desc())
+    )
+
+    return ResumenEstadistico(
+        desde=desde,
+        hasta=hasta,
+        total_reservas=total,
+        canceladas=canceladas,
+        ingresos=ingresos,
+        por_profesional=[
+            OcupacionProfesional(
+                professional_id=pid,
+                nombre=nombre,
+                turnos=turnos,
+                cancelados=cancelados_p,
+            )
+            for pid, nombre, turnos, cancelados_p in filas
+        ],
+    )
+
+
 __all__ = [
     "CERRABLES",
     "MAX_LIMITE",
     "MAX_OFFSET",
+    "OcupacionProfesional",
     "ReservaDetalle",
     "ReservaFiltros",
+    "ResumenEstadistico",
     "agenda_del_profesional",
     "cancelar_desde_panel",
     "listar_reservas",
     "marcar_estado_final",
     "obtener_reserva",
     "registrar_walkin",
+    "reprogramar_desde_panel",
+    "resumen_estadistico",
 ]

@@ -35,16 +35,18 @@ import type {
   ServicioPatchRequest,
   Ventana,
 } from '@/types'
+import { BloqueosTab } from './admin/BloqueosTab'
+import { EstadisticasTab } from './admin/EstadisticasTab'
+import { FeriadosTab } from './admin/FeriadosTab'
+import { ReservasTab } from './admin/ReservasTab'
+import { VacacionesTab } from './admin/VacacionesTab'
 
 /**
- * Panel de administración del negocio (Fase 4).
+ * Panel de administración del negocio (Fase 4 + Fase C).
  *
- * Tres pestañas con CRUD real sobre `/business`: servicios,
- * profesionales y horarios. Reservas sigue "Próximamente"
- * porque es la Fase 6: no existe el endpoint de listado de
- * reservas del panel en este corte... sí existe, pero la
- * interfaz de gestión de reservas es trabajo aparte y no
- * forma de este corte.
+ * Pestañas con CRUD real sobre `/business`: servicios, profesionales,
+ * horarios, reservas (con cancelar/reprogramar), bloqueos, feriados,
+ * vacaciones y estadísticas.
  *
  * **Las validaciones del navegador son de conveniencia, no de
  * seguridad.** Zod evita un viaje de red por un campo mal
@@ -1270,7 +1272,15 @@ function HorariosTab() {
 // Página
 // --------------------------------------------------------------------------- //
 
-type Pestaña = 'bookings' | 'professionals' | 'services' | 'schedules'
+type Pestaña =
+  | 'bookings'
+  | 'professionals'
+  | 'services'
+  | 'schedules'
+  | 'bloqueos'
+  | 'feriados'
+  | 'vacaciones'
+  | 'estadisticas'
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<Pestaña>('bookings')
@@ -1280,7 +1290,7 @@ export default function AdminPage() {
       <div className="max-w-6xl mx-auto">
         <h1 className="text-2xl font-bold mb-6">Panel de Administración</h1>
 
-        <div className="flex gap-2 mb-6" role="tablist">
+        <div className="flex flex-wrap gap-2 mb-6" role="tablist">
           <Button
             variant={activeTab === 'bookings' ? 'default' : 'outline'}
             onClick={() => setActiveTab('bookings')}
@@ -1305,21 +1315,37 @@ export default function AdminPage() {
           >
             Horarios
           </Button>
+          <Button
+            variant={activeTab === 'bloqueos' ? 'default' : 'outline'}
+            onClick={() => setActiveTab('bloqueos')}
+          >
+            Bloqueos
+          </Button>
+          <Button
+            variant={activeTab === 'feriados' ? 'default' : 'outline'}
+            onClick={() => setActiveTab('feriados')}
+          >
+            Feriados
+          </Button>
+          <Button
+            variant={activeTab === 'vacaciones' ? 'default' : 'outline'}
+            onClick={() => setActiveTab('vacaciones')}
+          >
+            Vacaciones
+          </Button>
+          <Button
+            variant={activeTab === 'estadisticas' ? 'default' : 'outline'}
+            onClick={() => setActiveTab('estadisticas')}
+          >
+            Estadísticas
+          </Button>
         </div>
 
-        {activeTab === 'bookings' && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Reservas</CardTitle>
-              <CardDescription>Gestión de reservas del negocio</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-gray-500">
-                Próximamente (Fase 6: gestión de reservas del panel).
-              </p>
-            </CardContent>
-          </Card>
-        )}
+        {activeTab === 'bookings' && <ReservasTab />}
+        {activeTab === 'bloqueos' && <BloqueosTab />}
+        {activeTab === 'feriados' && <FeriadosTab />}
+        {activeTab === 'vacaciones' && <VacacionesTab />}
+        {activeTab === 'estadisticas' && <EstadisticasTab />}
 
         {activeTab === 'professionals' && <ProfesionalesTab />}
         {activeTab === 'services' && <ServiciosTab />}

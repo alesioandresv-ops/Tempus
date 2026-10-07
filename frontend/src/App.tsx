@@ -72,7 +72,7 @@ function App() {
         <Route
           path="/panel/*"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute roles={['professional', 'staff']}>
               <ProfessionalPage />
             </ProtectedRoute>
           }

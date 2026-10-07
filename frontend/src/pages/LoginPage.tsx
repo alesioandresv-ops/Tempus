@@ -152,7 +152,7 @@ export default function LoginPage() {
 
   const loginMutation = useMutation({
     mutationFn: (datos: LoginRequest) => api.login(datos),
-    onSuccess: (respuesta) => {
+    onSuccess: async (respuesta) => {
       /*
        * El token va a memoria--`guardarAccessToken` lo deja en una variable de modulo de
        * `api.ts`-- y el refresh se queda en la cookie `HttpOnly` que el backend acaba de
@@ -163,7 +163,25 @@ export default function LoginPage() {
        * de `api.ts`, que solo renewa cuando algo falla de verdad.
        */
       guardarAccessToken(respuesta.access_token)
-      navigate(destino, { replace: true })
+      /*
+       * El destino por defecto depende del rol, y lo decide la API y no el token:
+       * `api.me()` lee de la base y el claim del JWT es una cache de 15 minutos (si
+       * el rol bajo hace 5 minutos, el token todavia dice el viejo). Un admin va a
+       * /admin y un profesional o staff a /panel; el `from` de `ProtectedRoute`
+       * gana en los dos casos.
+       */
+      try {
+        const perfil = await api.me()
+        const aDonde =
+          perfil.is_admin || destino.startsWith('/panel')
+            ? destino
+            : '/panel'
+        navigate(aDonde, { replace: true })
+      } catch {
+        // Sin perfil no hay con que decidir el panel: /admin es el destino de
+        // siempre y el interceptor de 401 ya se ocupa si la sesion esta rota.
+        navigate(destino, { replace: true })
+      }
     },
     onError: (error) => {
       /*

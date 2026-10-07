@@ -71,6 +71,11 @@ SERVICE_SIN_PROFESIONAL = uuid.UUID("11111111-1111-7111-8111-111111111111")
 ANA = uuid.UUID("bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb")
 BETO = uuid.UUID("ffffffff-ffff-7fff-8fff-ffffffffffff")
 
+#: Bloqueo general de la prueba de regresion. Id fijo, como el resto de
+#: los datos de test; el teardown lo borra por `reason`, asi una corrida
+#: interrumpida no deja basura que choque con la siguiente.
+BLOQUE_GENERAL = uuid.UUID("99999999-9999-7999-8999-9999999999a1")
+
 TIMEZONE = "America/Argentina/Buenos_Aires"
 
 
@@ -209,6 +214,73 @@ async def negocio_disponibilidad(
             await _sembrar(conn)
         yield SLUG
     finally:
+        await owner_engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def bloqueo_general_de_martes(migration_database_url: str) -> AsyncIterator[dt.date]:
+    """Bloqueo de todo el negocio (`professional_id` NULL) sobre un martes.
+
+    Se siembra con el rol de DDL y commiteado, igual que el seed: el
+    endpoint publico corre en su propia sesion (ver el docstring del
+    modulo), asi que un bloqueo que viviera en la transaccion del test
+    no lo veria nadie y la prueba no probaria nada.
+
+    El teardown borra **por `reason`** y no por id: si una corrida
+    anterior se interrumpio a mitad, la fila vieja (con la ventana de
+    su propio martes) se borra junto con la actual, y el `ON CONFLICT`
+    del alta deja el dia fresco listo.
+    """
+    tz = ZoneInfo(TIMEZONE)
+    martes = _lunes_lejano() + dt.timedelta(days=1)
+    inicio = dt.datetime.combine(martes, dt.time(9, 0), tzinfo=tz).astimezone(dt.UTC)
+    fin = dt.datetime.combine(martes, dt.time(12, 0), tzinfo=tz).astimezone(dt.UTC)
+
+    owner_engine: AsyncEngine = create_async_engine(
+        migration_database_url, poolclass=None, echo=False
+    )
+    try:
+        async with owner_engine.begin() as conn:
+            await conn.execute(
+                text(f"SELECT set_config('{TENANT_GUC}', :tenant, true)"),
+                {"tenant": str(BUSINESS)},
+            )
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO blocks
+                        (id, business_id, professional_id, kind,
+                         starts_at, ends_at, occupied_from, occupied_to, reason)
+                    VALUES
+                        (:id, :business, NULL, 'blocked',
+                         :inicio, :fin, :inicio, :fin, 'Bloqueo general de prueba')
+                    ON CONFLICT (id) DO UPDATE SET
+                        starts_at = EXCLUDED.starts_at,
+                        ends_at = EXCLUDED.ends_at,
+                        occupied_from = EXCLUDED.occupied_from,
+                        occupied_to = EXCLUDED.occupied_to
+                    """
+                ),
+                {
+                    "id": BLOQUE_GENERAL,
+                    "business": BUSINESS,
+                    "inicio": inicio,
+                    "fin": fin,
+                },
+            )
+        yield martes
+    finally:
+        async with owner_engine.begin() as conn:
+            await conn.execute(
+                text(f"SELECT set_config('{TENANT_GUC}', :tenant, true)"),
+                {"tenant": str(BUSINESS)},
+            )
+            await conn.execute(
+                text(
+                    "DELETE FROM blocks WHERE business_id = :b AND reason = 'Bloqueo general de prueba'"
+                ),
+                {"b": BUSINESS},
+            )
         await owner_engine.dispose()
 
 
@@ -385,3 +457,38 @@ class TestGetDisponibilidadPublica:
             params={"service_id": str(SERVICE), "date": "15/06/2026"},
         )
         assert respuesta.status_code == 422, respuesta.text
+
+    async def test_un_bloqueo_general_quita_la_ventana_entera(
+        self,
+        http_client: AsyncClient,
+        negocio_disponibilidad: str,
+        bloqueo_general_de_martes: dt.date,
+    ) -> None:
+        """Un bloqueo `professional_id NULL` cierra el negocio **entero**.
+
+        El bloqueo cubre la mañana del martes de 09:00 a 12:00: la
+        consulta de ese dia tiene que perder los 11 slots de la mañana y
+        conservar los 15 de la tarde (16:00-20:00) -- 15 arranques de 30
+        minutos en una ventana de 240, el mismo numero que el resto del
+        archivo usa para "dia abierto".
+
+        Es la regresion del `or_(..., professional_id.is_(None))` de
+        `_load_blocked_intervals`: sin ese brazo, un cierre general se
+        ignoraba en silencio y el negocio seguia vendiendo turnos en un
+        dia cerrado.
+        """
+        respuesta = await http_client.get(
+            f"/api/v1/public/businesses/{negocio_disponibilidad}/availability",
+            params={
+                "service_id": str(SERVICE),
+                "date": bloqueo_general_de_martes.isoformat(),
+            },
+        )
+        assert respuesta.status_code == 200, respuesta.text
+        slots = respuesta.json()["slots"]
+        assert len(slots) == 15
+
+        tz = ZoneInfo(TIMEZONE)
+        for slot in slots:
+            local = dt.datetime.fromisoformat(slot["starts_at"]).astimezone(tz)
+            assert local.hour >= 16

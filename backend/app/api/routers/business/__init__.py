@@ -55,6 +55,7 @@ from app.api.routers.business.schemas import (
     ClienteOut,
     ClientePatch,
     DiaHorarioOut,
+    EstadisticasOut,
     EstadoFinalIn,
     EventoReservaOut,
     ExcepcionIn,
@@ -64,9 +65,11 @@ from app.api.routers.business.schemas import (
     HorarioProfesionalOut,
     NegocioOut,
     NegocioPatch,
+    OcupacionProfesionalOut,
     ProfesionalCreate,
     ProfesionalOut,
     ProfesionalPatch,
+    ReprogramarDesdePanelIn,
     ReservaOut,
     ReservaPagina,
     SemanaHorarioIn,
@@ -835,6 +838,15 @@ async def listar_reservas(
     customer_id: uuid.UUID | None = None,
     estado: BookingStatus | None = None,
     solo_pendientes: Annotated[bool, Query(description="Turnos futuros sin cerrar")] = False,
+    q: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Busqueda libre por nombre o telefono del cliente. Matchea parcial: "
+                '"juan" o "54911" encuentran lo mismo que el numero completo.'
+            )
+        ),
+    ] = None,
     limite: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
 ) -> Any:
@@ -856,6 +868,7 @@ async def listar_reservas(
         customer_id=customer_id,
         estado=estado,
         solo_pendientes=solo_pendientes,
+        busqueda=q,
         limite=limite,
         offset=offset,
     )
@@ -1005,6 +1018,40 @@ async def marcar_estado(
 
 
 @router.post(
+    "/reservas/{booking_id}/reprogramar",
+    response_model=ReservaOut,
+    summary="Reprogramar una reserva desde el panel",
+)
+async def reprogramar_reserva(
+    booking_id: uuid.UUID,
+    cuerpo: ReprogramarDesdePanelIn,
+    sesion: Sesion,
+    principal: Annotated[Principal, Depends(require_scopes(Scope.BOOKINGS_WRITE_ANY))],
+) -> Any:
+    """Mueve el turno sin pedir el secure token del cliente.
+
+    Es el cancelado/reprogramar del admin: la autorizacion es el `Principal`, no el
+    token que se le mando al cliente por WhatsApp. Las reglas son las mismas que en
+    el flujo publico --no se mueve una reserva cancelada o cerrada, el horario nuevo
+    no puede estar en el pasado y la EXCLUDE sigue siendo la autoridad
+    anti-solapamiento: si el horario nuevo ya esta tomado, la base responde 409.
+    """
+    business = await negocios.get_business(sesion, _bid(principal))
+    await bookings_admin.reprogramar_desde_panel(
+        sesion,
+        booking_id,
+        business_id=business.id,
+        new_starts_at=cuerpo.new_starts_at,
+        new_ends_at=cuerpo.new_ends_at,
+        new_duration_minutes=cuerpo.new_duration_minutes,
+        timezone=business.timezone,
+        actor_user_id=principal.user_id,
+    )
+    detalle = await bookings_admin.obtener_reserva(sesion, booking_id, business_id=_bid(principal))
+    return _a_reserva_out(detalle)
+
+
+@router.post(
     "/reservas/walkin",
     response_model=ReservaOut,
     status_code=status.HTTP_201_CREATED,
@@ -1044,6 +1091,53 @@ async def registrar_walkin(
     )
     detalle = await bookings_admin.obtener_reserva(sesion, booking.id, business_id=_bid(principal))
     return _a_reserva_out(detalle)
+
+
+@router.get(
+    "/estadisticas",
+    response_model=EstadisticasOut,
+    summary="Resumen estadistico de reservas",
+)
+async def resumen_estadisticas(
+    sesion: Sesion,
+    principal: Annotated[Principal, Depends(require_scopes(Scope.BOOKINGS_READ_ANY))],
+    desde: Annotated[
+        dt.date | None, Query(description="Fecha local inicial (default: hace 29 dias)")
+    ] = None,
+    hasta: Annotated[dt.date | None, Query(description="Fecha local final (default: hoy)")] = None,
+) -> Any:
+    """Tarjetas del panel admin: ingresos, volumen, cancelaciones y ocupacion.
+
+    La ventana va por **fechas locales del negocio** (`bookings.local_date`), igual
+    que el listado de reservas. Sin parametros muestra los ultimos 30 dias corriendo,
+    que es lo que alcanza a ver un admin sin tocar nada.
+    """
+    business = await negocios.get_business(sesion, _bid(principal))
+    hoy = now().astimezone(_zona(business.timezone)).date()
+    fin = hasta or hoy
+    inicio = desde or (fin - dt.timedelta(days=29))
+    resumen = await bookings_admin.resumen_estadistico(
+        sesion,
+        _bid(principal),
+        desde=inicio,
+        hasta=fin,
+    )
+    return EstadisticasOut(
+        desde=resumen.desde,
+        hasta=resumen.hasta,
+        total_reservas=resumen.total_reservas,
+        ingresos=resumen.ingresos,
+        tasa_cancelacion=resumen.tasa_cancelacion,
+        por_profesional=[
+            OcupacionProfesionalOut(
+                professional_id=p.professional_id,
+                nombre=p.nombre,
+                turnos=p.turnos,
+                cancelados=p.cancelados,
+            )
+            for p in resumen.por_profesional
+        ],
+    )
 
 
 # --------------------------------------------------------------------------- #

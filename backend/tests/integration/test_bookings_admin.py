@@ -524,3 +524,189 @@ class TestBookingsAdmin:
                 return int(res.scalar() or 0)
         finally:
             await engine.dispose()
+
+
+def _proximo_lunes(tz: ZoneInfo) -> dt.datetime:
+    """Lunes proximo a las 09:00 local, la misma convencion del resto del archivo."""
+    base = dt.datetime.now(tz).date() + dt.timedelta(days=30)
+    lunes = base + dt.timedelta(days=(-base.weekday()) % 7)
+    return dt.datetime(lunes.year, lunes.month, lunes.day, 9, 0, tzinfo=tz)
+
+
+class TestFaseC:
+    """FASE C: buscador `q`, reprogramar del admin y estadisticas.
+
+    Los tres campos de la reprogramacion van juntos (igual que el flujo
+    publico): el endpoint recalcula la ocupacion con lo que se manda, y la
+    EXCLUDE de la base sigue siendo la autoridad anti-solapamiento.
+    """
+
+    async def test_busqueda_q_por_nombre_y_telefono(
+        self,
+        http_client: AsyncClient,
+        negocio_admin: str,
+        admin_token: str,
+        booking_futuro: uuid.UUID,
+        set_tenant,
+    ) -> None:
+        """`q` matchea parcial por nombre **y** por telefono del cliente.
+
+        El cliente de `booking_futuro` es el del seed ("Ana Perez",
+        +54911000000): buscar "ana" o el prefijo del telefono tiene que
+        encontrarlo, y la misma consulta con basura devuelve cero.
+        """
+        await set_tenant(BUSINESS)
+
+        por_nombre = await http_client.get(
+            "/api/v1/business/reservas",
+            headers=_auth_header(admin_token),
+            params={"q": "ana"},
+        )
+        assert por_nombre.status_code == 200, por_nombre.text
+        assert any(i["id"] == str(booking_futuro) for i in por_nombre.json()["items"])
+
+        por_telefono = await http_client.get(
+            "/api/v1/business/reservas",
+            headers=_auth_header(admin_token),
+            params={"q": "54911000"},
+        )
+        assert por_telefono.status_code == 200, por_telefono.text
+        assert any(i["id"] == str(booking_futuro) for i in por_telefono.json()["items"])
+
+        sin_azar = await http_client.get(
+            "/api/v1/business/reservas",
+            headers=_auth_header(admin_token),
+            params={"q": "zzzz-no-existe"},
+        )
+        assert sin_azar.status_code == 200
+        assert sin_azar.json()["items"] == []
+
+    async def test_reprogramar_mueve_y_recalcula_local_date(
+        self,
+        http_client: AsyncClient,
+        negocio_admin: str,
+        admin_token: str,
+        booking_futuro: uuid.UUID,
+        set_tenant,
+    ) -> None:
+        """Reprogramar mueve el turno **en su misma fila** y recalcula la fecha local.
+
+        `local_date` se recalcula con el timezone del negocio: mover el turno de
+        un lunes a un martes 09:00 en Buenos Aires no puede quedar archivado en
+        el lunes. La respuesta del endpoint es la prueba.
+        """
+        await set_tenant(BUSINESS)
+
+        tz = ZoneInfo(TIMEZONE)
+        lunes = _proximo_lunes(tz)
+        martes = lunes + dt.timedelta(days=1)
+        starts = martes.astimezone(dt.UTC)
+
+        resp = await http_client.post(
+            f"/api/v1/business/reservas/{booking_futuro}/reprogramar",
+            headers=_auth_header(admin_token),
+            json={
+                "new_starts_at": starts.isoformat().replace("+00:00", "Z"),
+                "new_ends_at": (starts + dt.timedelta(minutes=30))
+                .isoformat()
+                .replace("+00:00", "Z"),
+                "new_duration_minutes": 30,
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["starts_at"] == starts.isoformat().replace("+00:00", "Z")
+        assert data["local_date"] == martes.date().isoformat()
+        assert data["duration_minutes"] == 30
+
+    async def test_reprogramar_a_slot_ocupado_da_409(
+        self,
+        http_client: AsyncClient,
+        negocio_admin: str,
+        admin_token: str,
+        booking_futuro: uuid.UUID,
+        set_tenant,
+    ) -> None:
+        """La reprogramacion del panel no puede pisar otro turno.
+
+        `booking_futuro` vive en el lunes 09:00; otro turno (walk-in) toma el
+        lunes 16:00 --dentro de la grilla 09-12/16-20-- y reprogramar ahi da
+        409, porque la EXCLUDE no distingue quién escribe: una reserva que se
+        mueve encima de otra es un doble turno igual que dos reservas nuevas.
+        """
+        await set_tenant(BUSINESS)
+
+        tz = ZoneInfo(TIMEZONE)
+        lunes = _proximo_lunes(tz)
+        vacio = lunes.replace(hour=16).astimezone(dt.UTC)
+
+        rival = await http_client.post(
+            "/api/v1/business/reservas/walkin",
+            headers=_auth_header(admin_token),
+            json={
+                "service_id": str(SERVICE),
+                "professional_id": str(PROFESSIONAL),
+                "starts_at": vacio.isoformat().replace("+00:00", "Z"),
+                "customer_first_name": "Rival",
+                "customer_last_name": "Uno",
+                "customer_phone_e164": "+54911666666",
+            },
+        )
+        assert rival.status_code == 201, rival.text
+
+        resp = await http_client.post(
+            f"/api/v1/business/reservas/{booking_futuro}/reprogramar",
+            headers=_auth_header(admin_token),
+            json={
+                "new_starts_at": vacio.isoformat().replace("+00:00", "Z"),
+                "new_ends_at": (vacio + dt.timedelta(minutes=30))
+                .isoformat()
+                .replace("+00:00", "Z"),
+                "new_duration_minutes": 30,
+            },
+        )
+        assert resp.status_code == 409, resp.text
+
+    async def test_estadisticas_resumen(
+        self,
+        http_client: AsyncClient,
+        negocio_admin: str,
+        admin_token: str,
+        booking_futuro: uuid.UUID,
+        set_tenant,
+    ) -> None:
+        """El resumen cuenta por `local_date` y suma el `price_snapshot` real.
+
+        En la ventana de `booking_futuro` (unica reserva confirmada del tenant
+        tras el seed) el total es 1, el ingreso es el precio del servicio y la
+        tasa de cancelacion es cero. Los numeros tienen que salir de la base,
+        no de una suma hecha en la aplicacion.
+        """
+        await set_tenant(BUSINESS)
+
+        br = await http_client.get(
+            f"/api/v1/business/reservas/{booking_futuro}",
+            headers=_auth_header(admin_token),
+        )
+        assert br.status_code == 200, br.text
+        ld = br.json()["local_date"]
+
+        resp = await http_client.get(
+            "/api/v1/business/estadisticas",
+            headers=_auth_header(admin_token),
+            params={"desde": ld, "hasta": ld},
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["desde"] == ld
+        assert data["hasta"] == ld
+        assert data["total_reservas"] == 1
+        assert data["ingresos"] == "1500.00"
+        assert data["tasa_cancelacion"] == 0.0
+        profesional = next(
+            (p for p in data["por_profesional"] if p["professional_id"] == str(PROFESSIONAL)),
+            None,
+        )
+        assert profesional is not None
+        assert profesional["turnos"] == 1
+        assert profesional["cancelados"] == 0

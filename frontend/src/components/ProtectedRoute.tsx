@@ -21,25 +21,57 @@ import { accessTokenActual, api, vencePronto } from '@/services/api'
  * admin la corto--deja tokens validos en el navegador que el backend va a rechazar.
  * La unica manera de saberlo es preguntarle, y por eso el camino sin token pide
  * `/auth/refresh` en vez de asumir que la cookie esta.
+ *
+ * **`roles` es el segundo filtro, despues de la sesion.** Con la prop definida, una
+ * sesion que pasa el primer filtro todavia tiene que declarar un rol de la lista, y
+ * eso solo lo sabe la API: el claim del token no se toca porque es una cache de 15
+ * minutos (ver `scopes.py`), y un token viejo puede mentir sobre el rol que ya no se
+ * tiene. `api.me()` es la verdad, y el rol sale de ahi--la misma llamada que va a
+ * usar la pagina para pintar distinto segun el scope.
  */
-export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
+export default function ProtectedRoute({
+  children,
+  roles,
+}: {
+  children: React.ReactNode
+  roles?: string[]
+}) {
   const location = useLocation()
-  const [estado, setEstado] = useState<'comprobando' | 'dentro' | 'fuera'>('comprobando')
+  const [estado, setEstado] = useState<'comprobando' | 'dentro' | 'fuera' | 'sin_rol'>('comprobando')
 
   useEffect(() => {
     let vigente = true
 
+    /** Decide si la sesion (ya confirmada) puede entrar a esta ruta. */
+    async function verificarRol() {
+      // Sin lista de roles, cualquier sesion entra: es lo que hace /admin hoy.
+      if (!roles) {
+        setEstado('dentro')
+        return
+      }
+      try {
+        const perfil = await api.me()
+        // Un catch no deberia llegar aca con sesion viva: el 401 ya lo maneja el
+        // interceptor y el 403 de un token de plataforma es este mismo caso--un
+        // principal que existe pero no es de negocio y no tiene rol que matchear.
+        if (vigente) setEstado(roles.includes(perfil.role) ? 'dentro' : 'sin_rol')
+      } catch {
+        if (vigente) setEstado('sin_rol')
+      }
+    }
+
     async function comprobar() {
       const token = accessTokenActual()
       if (token && !vencePronto(token)) {
-        setEstado('dentro')
+        await verificarRol()
         return
       }
 
       // Sin token usable: lo unico que puede devolver algo es la cookie. Si falla--no
       // hay cookie, la familia esta revocada, no hay red--no hay nada mas que probar.
       const renovar = await api.refresh()
-      if (vigente) setEstado(renovar ? 'dentro' : 'fuera')
+      if (vigente && renovar) await verificarRol()
+      else if (vigente) setEstado('fuera')
     }
 
     void comprobar()
@@ -47,7 +79,9 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
     return () => {
       vigente = false
     }
-  }, [])
+    // `roles` es parte de la decision de la puerta: si cambia, hay que volver a
+    // decidir. El resto de los datos del render no participan del chequeo.
+  }, [roles])
 
   /**
    * Mientras se comprueba se renderiza algo. Saltar directo a `Navigate` haria que un
@@ -70,6 +104,17 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
      * persona en la raiz, que es un lugar del que no se deduce adonde queria ir.
      */
     return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  }
+
+  if (estado === 'sin_rol') {
+    /*
+     * Sesion viva pero rol que no matchea la ruta. No es un logout--la persona sigue
+     * adentro-- asi que no va al login: va al panel que su rol si puede usar. Si el
+     * backend dice que el principal no pertenece a ningun negocio, /admin tampoco le
+     * va a servir, pero es un caso que hoy no tiene donde caer y el login no lo
+     * mejoraria.
+     */
+    return <Navigate to="/admin" replace />
   }
 
   return <>{children}</>

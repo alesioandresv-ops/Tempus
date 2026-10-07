@@ -21,6 +21,17 @@ import type {
   AsignacionesRequest,
   SemanaHorario,
   HorarioProfesional,
+  ReservaDePanel,
+  BloqueoDePanel,
+  AusenciaDePanel,
+  ReservaPagina,
+  ReservasFiltro,
+  ReprogramarReservaRequest,
+  FeriadoDePanel,
+  FeriadoCreateRequest,
+  BloqueoCreateRequest,
+  AusenciaCreateRequest,
+  Estadisticas,
 } from '@/types'
 
 const API_BASE = '/api/v1'
@@ -560,4 +571,102 @@ export const api = {
         body: JSON.stringify(semana),
       }
     ),
+
+  // --- Panel del profesional (Fase B) ---
+  //
+  // El backend resuelve el `professional_id` desde el token: un profesional
+  // solo puede leer su propia agenda. `desde`/`hasta` son fechas locales del
+  // negocio (YYYY-MM-DD) y delimitan el rango de `local_date`.
+
+  /** Agenda propia en un rango de fechas locales (`desde`..`hasta` inclusive). */
+  getMiAgenda: (desde: string, hasta: string) =>
+    fetchApi<ReservaDePanel[]>(
+      `/business/profesional/agenda?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`
+    ),
+
+  /**
+   * Bloqueos del negocio. Sin `professionalId` devuelve todos (los generales y
+   * los de cada profesional): el frontend distingue por `professional_id`.
+   */
+  getBloqueos: (professionalId?: string) =>
+    fetchApi<BloqueoDePanel[]>(
+      `/business/bloqueos${professionalId ? `?professional_id=${professionalId}` : ''}`
+    ),
+
+  /** Ausencias del negocio, opcionalmente filtradas por profesional. */
+  getAusencias: (professionalId?: string) =>
+    fetchApi<AusenciaDePanel[]>(
+      `/business/ausencias${professionalId ? `?professional_id=${professionalId}` : ''}`
+    ),
+
+  // --- Panel admin (Fase C) ---
+  //
+  // Reservas filtrables, reprogramación, bloqueos/feriados/vacaciones y el
+  // resumen estadístico. Requieren el token del admin (scopes `*_ANY`).
+
+  /** Reservas del negocio filtrables. `q` busca por nombre o teléfono del cliente. */
+  listarReservas: (filtros: ReservasFiltro) => {
+    const params = new URLSearchParams()
+    if (filtros.desde) params.set('desde', filtros.desde)
+    if (filtros.hasta) params.set('hasta', filtros.hasta)
+    if (filtros.professional_id) params.set('professional_id', filtros.professional_id)
+    if (filtros.estado) params.set('estado', filtros.estado)
+    if (filtros.q) params.set('q', filtros.q)
+    if (filtros.limite) params.set('limite', String(filtros.limite))
+    if (filtros.offset) params.set('offset', String(filtros.offset))
+    return fetchApi<ReservaPagina>(`/business/reservas?${params.toString()}`)
+  },
+
+  /** Cancela una reserva desde el panel (sin el secure token del cliente). */
+  cancelarReservaAdmin: (bookingId: string, motivo?: string) =>
+    fetchApi<ReservaDePanel>(`/business/reservas/${bookingId}/cancelar`, {
+      method: 'POST',
+      body: JSON.stringify(motivo ? { motivo } : {}),
+    }),
+
+  /** Reprograma una reserva desde el panel (sin el secure token del cliente). */
+  reprogramarReservaAdmin: (bookingId: string, datos: ReprogramarReservaRequest) =>
+    fetchApi<ReservaDePanel>(`/business/reservas/${bookingId}/reprogramar`, {
+      method: 'POST',
+      body: JSON.stringify(datos),
+    }),
+
+  /** Crea un bloqueo. Sin `professional_id` es un cierre de todo el negocio. */
+  crearBloqueo: (datos: BloqueoCreateRequest) =>
+    fetchApi<BloqueoDePanel>('/business/bloqueos', {
+      method: 'POST',
+      body: JSON.stringify(datos),
+    }),
+
+  eliminarBloqueo: (blockId: string) =>
+    fetchApi<never>(`/business/bloqueos/${blockId}`, { method: 'DELETE' }),
+
+  listarFeriados: () => fetchApi<FeriadoDePanel[]>('/business/feriados'),
+
+  crearFeriado: (datos: FeriadoCreateRequest) =>
+    fetchApi<FeriadoDePanel>('/business/feriados', {
+      method: 'POST',
+      body: JSON.stringify(datos),
+    }),
+
+  eliminarFeriado: (holidayId: string) =>
+    fetchApi<never>(`/business/feriados/${holidayId}`, { method: 'DELETE' }),
+
+  crearAusencia: (datos: AusenciaCreateRequest) =>
+    fetchApi<AusenciaDePanel>('/business/ausencias', {
+      method: 'POST',
+      body: JSON.stringify(datos),
+    }),
+
+  eliminarAusencia: (timeOffId: string) =>
+    fetchApi<never>(`/business/ausencias/${timeOffId}`, { method: 'DELETE' }),
+
+  /** Tarjetas del admin. Sin fechas, los últimos 30 días. */
+  getEstadisticas: (desde?: string, hasta?: string) => {
+    const params = new URLSearchParams()
+    if (desde) params.set('desde', desde)
+    if (hasta) params.set('hasta', hasta)
+    const sufijo = params.toString() ? `?${params.toString()}` : ''
+    return fetchApi<Estadisticas>(`/business/estadisticas${sufijo}`)
+  },
 }

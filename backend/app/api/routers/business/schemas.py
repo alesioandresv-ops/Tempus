@@ -569,6 +569,42 @@ class ReservaPagina(BaseModel):
     offset: int
 
 
+class ReprogramarDesdePanelIn(BaseModel):
+    """Reprogramar una reserva desde el panel.
+
+    Los tres campos van juntos por la misma razon que en el flujo publico
+    (`RescheduleRequest`): la reprogramacion no es "mover el inicio", el fin se
+    recalcula con la duracion real del servicio, y mandarlos sueltos habilita el
+    caso de un turno de 90 minutos con `ends_at` a 60.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    new_starts_at: dt.datetime = Field(description="Nuevo inicio (UTC)")
+    new_ends_at: dt.datetime = Field(description="Nuevo fin (UTC)")
+    new_duration_minutes: int = Field(gt=0, description="Duracion real del servicio")
+
+
+class OcupacionProfesionalOut(BaseModel):
+    """Turnos por profesional en la ventana de las estadisticas."""
+
+    professional_id: uuid.UUID
+    nombre: str
+    turnos: int
+    cancelados: int
+
+
+class EstadisticasOut(BaseModel):
+    """Resumen numerico del panel admin para una ventana de fechas locales."""
+
+    desde: dt.date
+    hasta: dt.date
+    total_reservas: int
+    ingresos: Decimal
+    tasa_cancelacion: float
+    por_profesional: list[OcupacionProfesionalOut]
+
+
 class CancelarDesdePanelIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

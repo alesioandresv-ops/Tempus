@@ -270,3 +270,138 @@ export interface HorarioProfesional {
   hereda: boolean
   dias: DiaHorario[]
 }
+
+// --------------------------------------------------------------------------- //
+// Panel del profesional (Fase B)
+//
+// Los tres tipos de abajo son los que devuelven `/business/profesional/agenda`,
+// `/business/bloqueos` y `/business/ausencias`. Un profesional solo puede leer
+// los suyos: el backend resuelve el `professional_id` desde el token, nunca
+// desde un parametro de la URL.
+// --------------------------------------------------------------------------- //
+
+/** Una reserva de la agenda del profesional, con nombres desnormalizados. */
+export interface ReservaDePanel {
+  id: string
+  status: string
+  source: string
+  starts_at: string
+  ends_at: string
+  local_date: string
+  duration_minutes: number
+  price_snapshot: string
+  currency: string
+  service_id: string
+  professional_id: string
+  customer_id: string
+  notes: string | null
+  cancel_reason: string | null
+  cancelled_at: string | null
+  created_at: string
+  servicio_nombre: string | null
+  profesional_nombre: string | null
+  cliente_nombre: string | null
+  cliente_telefono: string | null
+}
+
+/** Un bloqueo de calendario. `professional_id: null` es un cierre de todo el negocio. */
+export interface BloqueoDePanel {
+  id: string
+  professional_id: string | null
+  kind: string
+  starts_at: string
+  ends_at: string
+  reason: string | null
+}
+
+/** Vacaciones / licencia de un profesional. */
+export interface AusenciaDePanel {
+  id: string
+  professional_id: string
+  kind: string
+  status: string
+  starts_at: string
+  ends_at: string
+  reason: string | null
+}
+
+// --------------------------------------------------------------------------- //
+// Panel admin (Fase C)
+//
+// Reservas filtrables con `q`, reprogramación, bloqueos/feriados/vacaciones y
+// el resumen estadístico. Todo vive bajo `/business` con el token del admin.
+// --------------------------------------------------------------------------- //
+
+/** Página de reservas con el total, para paginar de verdad. */
+export interface ReservaPagina {
+  items: ReservaDePanel[]
+  total: number
+  limite: number
+  offset: number
+}
+
+/** Filtros del listado de reservas del admin. `q` busca por nombre o teléfono. */
+export interface ReservasFiltro {
+  desde?: string
+  hasta?: string
+  professional_id?: string
+  estado?: string
+  q?: string
+  limite?: number
+  offset?: number
+}
+
+/** Reprogramar desde el panel. Los tres campos van juntos (como el flujo público). */
+export interface ReprogramarReservaRequest {
+  new_starts_at: string
+  new_ends_at: string
+  new_duration_minutes: number
+}
+
+/** Un feriado del negocio: un día entero cerrado, con nombre. */
+export interface FeriadoDePanel {
+  id: string
+  local_date: string
+  name: string
+}
+
+export interface FeriadoCreateRequest {
+  local_date: string
+  name: string
+}
+
+/** Alta de un bloqueo. `professional_id: null` cierra todo el negocio. */
+export interface BloqueoCreateRequest {
+  starts_at: string
+  ends_at: string
+  kind: string
+  professional_id?: string | null
+  reason?: string | null
+}
+
+/** Alta de vacaciones/licencia de un profesional (siempre aprobada). */
+export interface AusenciaCreateRequest {
+  professional_id: string
+  starts_at: string
+  ends_at: string
+  kind: string
+  reason?: string | null
+}
+
+/** Ocupación por profesional en la ventana de estadísticas. */
+export interface OcupacionProfesional {
+  professional_id: string
+  nombre: string
+  turnos: number
+  cancelados: number
+}
+
+/** Resumen del panel admin para una ventana de fechas locales. */
+export interface Estadisticas {
+  desde: string
+  hasta: string
+  total_reservas: number
+  ingresos: string
+  tasa_cancelacion: number
+  por_profesional: OcupacionProfesional[]
+}

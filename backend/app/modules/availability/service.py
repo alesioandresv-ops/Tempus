@@ -15,7 +15,7 @@ import uuid
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.time import now as utc_now
@@ -231,9 +231,18 @@ async def _load_blocked_intervals(
         intervals.append(Interval(start=to.starts_at, end=to.ends_at))
 
     # Blocks
+    #
+    # `or_` con `is_(None)` **a proposito**: un bloqueo con `professional_id`
+    # NULL es un cierre de todo el negocio (ver el docstring del modelo) y tiene
+    # que restar disponibilidad para cada profesional, no solo para los que
+    # tienen un bloqueo propio. Sin ese brazo, un feriado por bloqueo general se
+    # ignoraba en silencio y el negocio seguia vendiendo turnos en un dia cerrado.
     block_result = await session.execute(
         select(Block).where(
-            Block.professional_id == professional_id,
+            or_(
+                Block.professional_id == professional_id,
+                Block.professional_id.is_(None),
+            ),
             Block.starts_at < day_end,
             Block.ends_at > day_start,
         )
