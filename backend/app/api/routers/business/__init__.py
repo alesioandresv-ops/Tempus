@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from dataclasses import asdict
 from typing import Annotated, Any, Literal
 from zoneinfo import ZoneInfo
 
@@ -80,6 +81,8 @@ from app.api.routers.business.schemas import (
     SlugDisponibleOut,
     VentanaOut,
     WalkinIn,
+    WhatsappConfigIn,
+    WhatsappConfigOut,
 )
 from app.core.time import now
 from app.models.enums import BookingStatus, BusinessUserRole
@@ -91,6 +94,7 @@ from app.modules.bookings.models import BookingEvent
 from app.modules.businesses import service as negocios
 from app.modules.businesses.models import Business
 from app.modules.customers import service as clientes
+from app.modules.notifications import config as whatsapp_config
 from app.modules.notifications.models import NotificationRequest
 from app.modules.professionals import service as profesionales
 from app.modules.professionals.models import Professional
@@ -1398,6 +1402,66 @@ async def reporte_mensual(
         media_type=media,
         headers={"Content-Disposition": f'attachment; filename="reservas_{mes}.{formato}"'},
     )
+
+
+# --------------------------------------------------------------------------- #
+# Configuracion de WhatsApp (Fase D-3)
+# --------------------------------------------------------------------------- #
+
+
+@router.get(
+    "/config/whatsapp",
+    response_model=WhatsappConfigOut,
+    summary="Ver la configuracion de WhatsApp del negocio",
+)
+async def ver_config_whatsapp(
+    sesion: Sesion,
+    principal: Annotated[Principal, Depends(require_scopes(Scope.BUSINESS_CONFIG_READ))],
+) -> WhatsappConfigOut:
+    """Estado de los recordatorios por WhatsApp: activo o inactivo.
+
+    Sin fila en `whatsapp_connections` responde el default inactivo:
+    todo negocio nace con los recordatorios apagados, y encenderlos
+    es guardar la configuracion una vez. El token nunca vuelve al
+    panel: se muestra solo el estado y sus ultimos cuatro caracteres,
+    que alcanzan para reconocer de cual cuenta se trata.
+    """
+    config = await whatsapp_config.obtener_config(sesion, _bid(principal))
+    return WhatsappConfigOut(**asdict(config))
+
+
+@router.put(
+    "/config/whatsapp",
+    response_model=WhatsappConfigOut,
+    summary="Guardar la configuracion de WhatsApp del negocio",
+)
+async def guardar_config_whatsapp(
+    datos: WhatsappConfigIn,
+    sesion: Sesion,
+    principal: Annotated[Principal, Depends(require_scopes(Scope.BUSINESS_CONFIG_WRITE))],
+) -> WhatsappConfigOut:
+    """Crea o actualiza la conexion de WhatsApp del negocio.
+
+    `activo=true` enciende los recordatorios 24h y 2h; se exige el
+    Phone Number ID y el token porque una conexion "activa" sin
+    credenciales crearia recordatorios que nunca salen y un panel
+    que dice lo contrario. Desactivar conserva las credenciales:
+    volver a encender es un click, no volver a pegar el secreto.
+
+    El token se guarda cifrado con Fernet (`ENCRYPTION_KEY`), nunca
+    en claro. Quien lo guarda lo pega una sola vez: despues este
+    endpoint no lo devuelve, solo la marca de "hay token configurado".
+    """
+    config = await whatsapp_config.guardar_config(
+        sesion,
+        _bid(principal),
+        activo=datos.activo,
+        phone_number_id=datos.phone_number_id,
+        access_token=datos.access_token,
+        reminder_24h_template=datos.reminder_24h_template,
+        reminder_2h_template=datos.reminder_2h_template,
+    )
+    return WhatsappConfigOut(**asdict(config))
 
 
 # --------------------------------------------------------------------------- #

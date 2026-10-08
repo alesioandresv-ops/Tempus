@@ -70,11 +70,14 @@ class WhatsAppConnection(TenantBase, Base):
     )
 
     phone_number_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    waba_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    display_phone: Mapped[str] = mapped_column(String(32), nullable=False)
+    #: `waba_id`, `display_phone` y `app_secret_encrypted` son opcionales a
+    #: proposito (0018): el flujo de "connect" de Meta los trae juntos, pero el
+    #: opt-in simple de Fase D-3 solo pide `phone_number_id` y token.
+    waba_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    display_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # Fernet, no texto. La clave vive en `ENCRYPTION_KEY`, fuera de la base.
     access_token_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
-    app_secret_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    app_secret_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     messaging_limit_tier: Mapped[str | None] = mapped_column(String(64), nullable=True)
     quality_rating: Mapped[str | None] = mapped_column(String(32), nullable=True)
     status: Mapped[WhatsAppConnectionStatus] = mapped_column(
@@ -83,6 +86,10 @@ class WhatsAppConnection(TenantBase, Base):
     is_active: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"))
     connected_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime(), nullable=True)
     token_expires_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    #: Nombre de la plantilla de cada recordatorio, o `NULL` para usar el
+    #: default de la aplicacion (`recordatorio_24h` / `recordatorio_2h`).
+    reminder_24h_template: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reminder_2h_template: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     @property
     def can_send(self) -> bool:

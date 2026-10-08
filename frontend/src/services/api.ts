@@ -34,6 +34,8 @@ import type {
   Estadisticas,
   ClienteDePanel,
   ClientesFiltro,
+  WhatsappConfig,
+  WhatsappConfigSave,
 } from '@/types'
 
 const API_BASE = '/api/v1'
@@ -751,4 +753,23 @@ export const api = {
     if (filtros.estado) params.set('estado', filtros.estado)
     return descargar(`/business/reportes/mensual?${params.toString()}`)
   },
+
+  // --- Configuración WhatsApp (Fase D-3) ---
+
+  /**
+   * Estado de los recordatorios por WhatsApp. Sin configuración
+   * responde `activo: false` con los defaults: todo negocio nace
+   * con los recordatorios apagados.
+   */
+  obtenerConfigWhatsapp: () => fetchApi<WhatsappConfig>('/business/config/whatsapp'),
+
+  /**
+   * Guarda la configuración. `access_token` vacío conserva el token
+   * guardado: se pega solo la primera vez (o para cambiarlo).
+   */
+  guardarConfigWhatsapp: (datos: WhatsappConfigSave) =>
+    fetchApi<WhatsappConfig>('/business/config/whatsapp', {
+      method: 'PUT',
+      body: JSON.stringify(datos),
+    }),
 }

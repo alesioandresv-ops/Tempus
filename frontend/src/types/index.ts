@@ -437,3 +437,35 @@ export interface ClientesFiltro {
   limite?: number
   offset?: number
 }
+
+// --------------------------------------------------------------------------- //
+// Configuración de WhatsApp (Fase D-3)
+// --------------------------------------------------------------------------- //
+
+/**
+ * Estado de los recordatorios por WhatsApp del negocio.
+ *
+ * `token_ultimos` es el token real enmascarado (`••••` + últimos 4),
+ * que basta para reconocer de qué cuenta de Meta se trata sin exponer
+ * el secreto. `null` = no hay token guardado.
+ */
+export interface WhatsappConfig {
+  activo: boolean
+  phone_number_id: string | null
+  token_ultimos: string | null
+  reminder_24h_template: string
+  reminder_2h_template: string
+}
+
+/**
+ * Cuerpo del PUT. Los campos omitidos conservan lo que haya: el token
+ * solo se pega la vez que se configura (o se cambia), y un `activo`
+ * true sin token nuevo reactiva con el que ya está guardado.
+ */
+export interface WhatsappConfigSave {
+  activo: boolean
+  phone_number_id?: string
+  access_token?: string
+  reminder_24h_template?: string
+  reminder_2h_template?: string
+}

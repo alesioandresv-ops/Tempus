@@ -47,15 +47,23 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import text
+import httpx
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.encryption import decrypt_string
 from app.core.logging import get_logger
 from app.core.time import now
 from app.db.session import get_engine, tenant_session
+from app.integrations.whatsapp.client import WhatsAppClient, get_whatsapp_client
 from app.models.enums import NotificationStatus
+from app.modules.notifications.config import plantilla_de
+from app.modules.notifications.models import WhatsAppConnection
 
 logger = get_logger(__name__)
 
@@ -83,6 +91,7 @@ class DrainResult:
     sent: int = 0
     failed: int = 0
     requeued: int = 0
+    skipped: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +103,44 @@ class Notification:
     kind: str
     attempts: int
     max_attempts: int
+
+
+@dataclass(frozen=True, slots=True)
+class Mensaje:
+    """Un mensaje de plantilla listo para transmitir a Meta.
+
+    Lleva la configuracion del negocio (numero y token) adentro a proposito:
+    `_resolver` la lee con el GUC de tenant puesto y `_transmitir` la consume sin
+    sesion, que es la unica forma de no atar una transaccion a la llamada de red.
+    """
+
+    destino: str
+    template_name: str
+    components: list[dict[str, Any]]
+    phone_number_id: str
+    access_token: str
+
+
+@dataclass(frozen=True, slots=True)
+class Resolucion:
+    """Que sale de resolver una notificacion: el mensaje o el motivo de saltarla."""
+
+    mensaje: Mensaje | None = None
+    skip_motivo: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TransmitResult:
+    """Desenlace de un intento de transmision."""
+
+    enviado: bool = False
+    message_id: str | None = None
+    error: str | None = None
+
+
+#: Fabrica del cliente de Meta. Atributo de modulo a proposito: los tests la
+#: reemplazan por un cliente fake que registra las llamadas, sin tocar la red.
+whatsapp_client_factory: Callable[[str, str], WhatsAppClient] = get_whatsapp_client
 
 
 async def businesses_with_work(limit: int = BATCH_LIMIT) -> list[uuid.UUID]:
@@ -142,6 +189,7 @@ async def drain_once(limit: int = BATCH_LIMIT) -> DrainResult:
             sent=total.sent + parcial.sent,
             failed=total.failed + parcial.failed,
             requeued=total.requeued + parcial.requeued,
+            skipped=total.skipped + parcial.skipped,
         )
 
     logger.info(
@@ -151,6 +199,7 @@ async def drain_once(limit: int = BATCH_LIMIT) -> DrainResult:
         enviadas=total.sent,
         fallidas=total.failed,
         reencoladas=total.requeued,
+        omitidas=total.skipped,
     )
     return total
 
@@ -195,7 +244,7 @@ async def _drain_business(business_id: uuid.UUID, limit: int) -> DrainResult:
     if not tomadas:
         return DrainResult()
 
-    enviadas = fallidas = reencoladas = 0
+    enviadas = fallidas = reencoladas = omitidas = 0
     for notificacion in tomadas:
         # Aislar cada notificacion es lo que evita que **una sola fila mala vacie el
         # lote entero**. Sin este `try`, un error en la quinta notificacion salia
@@ -207,17 +256,29 @@ async def _drain_business(business_id: uuid.UUID, limit: int) -> DrainResult:
         # La fila que falla queda con `attempts` incrementado y el lease puesto, asi
         # que se reintenta sola cuando el lease vence. No hace falta deshacer nada.
         try:
-            # 1. Resolver a quien va. Transaccion corta, cerrada antes de ir a la red.
+            # 1. Resolver el mensaje: destinatario, variables de la plantilla y
+            #    configuracion de WhatsApp del negocio. Transaccion corta, cerrada
+            #    antes de ir a la red.
             async with tenant_session(business_id) as session:
-                destino = await _destinatario(session, notificacion)
+                resolucion = await _resolver(session, notificacion)
+
+            if resolucion.mensaje is None:
+                # Sin destinatario elegible, WhatsApp no activo o tipo sin plantilla:
+                # un salto terminal y no un error, porque ningun reintento lo arregla.
+                # El motivo queda en el `error` de la fila, que es donde el panel lo
+                # muestra como diagnostico.
+                async with tenant_session(business_id) as session:
+                    await _settle(session, notificacion, skip_motivo=resolucion.skip_motivo)
+                omitidas += 1
+                continue
 
             # 2. Transmitir. Sin sesion: no se puede atar una transaccion a una
             #    llamada de red que puede tardar 30 segundos.
-            enviado = await _transmitir(destino)
+            resultado = await _transmitir(resolucion.mensaje)
 
             # 3. Asentar el desenlace. Otra transaccion corta y propia.
             async with tenant_session(business_id) as session:
-                await _settle(session, notificacion, destino=destino, enviado=enviado)
+                await _settle(session, notificacion, resultado=resultado)
         except Exception as exc:
             logger.error(
                 "outbox_notificacion_fallo",
@@ -229,11 +290,12 @@ async def _drain_business(business_id: uuid.UUID, limit: int) -> DrainResult:
             fallidas += 1
             continue
 
-        if enviado:
+        if resultado.enviado:
             enviadas += 1
-        elif destino is None or notificacion.attempts >= notificacion.max_attempts:
-            # Sin destinatario no hay nada que reintentar, y agotados los intentos no
-            # quedan mas. En los dos casos el desenlace es terminal.
+        elif notificacion.attempts >= notificacion.max_attempts:
+            # Agotados los intentos no quedan mas: el desenlace es terminal. Sin
+            # destinatario o configuracion ya se fue por el camino `skipped` de
+            # arriba; el camino de aca es el del envio que intento y fallo.
             fallidas += 1
         else:
             reencoladas += 1
@@ -244,6 +306,7 @@ async def _drain_business(business_id: uuid.UUID, limit: int) -> DrainResult:
         sent=enviadas,
         failed=fallidas,
         requeued=reencoladas,
+        skipped=omitidas,
     )
 
 
@@ -315,104 +378,188 @@ async def _reclamar(
     ]
 
 
-async def _transmitir(destino: str | None) -> bool:
-    """Manda el mensaje a `destino`. Devuelve `True` si Meta lo acepto.
+async def _transmitir(mensaje: Mensaje) -> TransmitResult:
+    """Manda la plantilla a Meta. Sin sesion y sin transaccion a proposito: se
+    invoca desde `_drain_business` entre dos `tenant_session` cortas, justamente
+    para no tener un lock abierto mientras se espera a la red.
 
-    Sin sesion y sin transaccion a proposito: se invoca desde
-    `_drain_business` entre dos `tenant_session` cortas, justamente para no tener
-    un lock abierto mientras se espera a la red.
+    Solo un `2xx` de la Graph API cuenta como enviado: en Meta el `2xx` es la
+    aceptacion del mensaje para la cola de entrega, y el `message_id` que
+    devuelve queda en `provider_message_id` de la fila como rastro. Un error
+    transitorio (Meta caido, 4xx/5xx) devuelve `enviado=False` con el motivo, y
+    el `_settle` lo deja en `pending` para reintentar con backoff.
 
-    **Hoy no envia, y no finge que si.** Devolver `True` sin haber mandado nada
-    dejaria las filas en `sent` con `sent_at` puesto y `provider_message_id` vacio:
-    un estado que afirma una entrega que no ocurrio. Esa clase de mentira es la
-    que hace que despues nadie se crea la columna.
-
-    El dia que haya credenciales, este bloque se reemplaza por la llamada a
-    `app.integrations.whatsapp` y el `_settle` de abajo cambia de `failed` a `sent`.
+    El token viaja por parametro y no se registra: `_transmitir` no loguea nada
+    que pueda contenerlo.
     """
-    if destino is None:
-        return False
+    cliente = whatsapp_client_factory(mensaje.phone_number_id, mensaje.access_token)
+    try:
+        enviado = await cliente.send_template(
+            mensaje.destino,
+            mensaje.template_name,
+            language="es_AR",
+            components=mensaje.components,
+        )
+        return TransmitResult(enviado=True, message_id=enviado.message_id)
+    except httpx.HTTPError as exc:
+        return TransmitResult(enviado=False, error=f"Meta rechazo el envio: {str(exc)[:200]}")
+    finally:
+        cerrar = getattr(cliente, "close", None)
+        if cerrar is not None:
+            await cerrar()
 
-    # Aca entra la integracion real de Meta. El cliente de
-    # `app.integrations.whatsapp` necesita un `phone_number_id` y un token de
-    # negocio que solo existen cuando Meta esta configurado; llamarlo sin ellos
-    # devuelve un 401 que no distingue "mal configurado" de "credenciales invalidas",
-    # y lo que hace falta es el error que lo diga claro.
-    logger.info(
-        "outbox_transmitir_pendiente",
-        destino=destino[-4:],
-        detalle="sin integracion de Meta; la notificacion se marca failed",
-    )
-    return False
 
+async def _resolver(session: AsyncSession, notificacion: Notification) -> Resolucion:
+    """Arma el mensaje de plantilla a partir de la notificacion.
 
-async def _destinatario(session: AsyncSession, notificacion: Notification) -> str | None:
-    """Telefono al que mandar, o `None` si no hay a quien.
+    Trae en una sola transaccion corta todo lo que el envio necesita y que solo
+    se puede leer con el GUC de tenant puesto: el telefono del cliente (con el
+    opt-out respetado), los nombres para las variables de la plantilla, la zona
+    horaria del negocio y la configuracion de WhatsApp con su token descifrado.
 
-    `is_opted_out` se respeta: es la unica forma de que un cliente de verdad diga que
-    no quiere recibir mensajes, y mandarle igual es exactamente como se pierde la
-    confianza que hace que el recordatorio funcione.
+    Tres motivos de salto terminal, cada uno con el mensaje que el panel va a
+    mostrar en la fila:
 
-    El filtro es `NOT is_opted_out` y la columna es nullable. Con `NOT` a secas, un
-    `NULL` da `NULL` y no `TRUE`, asi que un cliente sin el dato seteado queda
-    **excluido** y su recordatorio se marca `skipped` como si se hubiera dado de
-    baja. `IS NOT TRUE` incluye a los que no respondieron, que es lo que corresponde:
-    no darse de baja es no darse de baja.
+    - sin destinatario elegible (opt-out o cliente inexistente);
+    - WhatsApp no activo para el negocio (sin fila, desactivado o pendiente);
+    - el tipo de aviso no tiene plantilla configurada.
+
+    Cualquier otro resultado devuelve el `Mensaje` listo para la red.
     """
-    result = await session.execute(
-        text(
-            """
-            SELECT phone_e164
-            FROM customers
-            WHERE id = (
-                SELECT customer_id FROM notification_requests WHERE id = :id
+    fila = (
+        await session.execute(
+            text(
+                """
+                SELECT c.phone_e164,
+                       c.first_name,
+                       bz.name,
+                       bz.timezone,
+                       b.starts_at,
+                       COALESCE(s.name, ''),
+                       COALESCE(p.display_name, '')
+                FROM notification_requests n
+                JOIN bookings b ON b.id = n.booking_id AND b.business_id = n.business_id
+                JOIN customers c ON c.id = n.customer_id AND c.business_id = n.business_id
+                LEFT JOIN services s ON s.id = b.service_id AND s.business_id = b.business_id
+                LEFT JOIN professionals p
+                    ON p.id = b.professional_id AND p.business_id = b.business_id
+                JOIN businesses bz ON bz.id = n.business_id
+                WHERE n.id = :id
+                  AND n.business_id = :business_id
+                  AND c.is_opted_out IS NOT TRUE
+                """
+            ),
+            {"id": str(notificacion.id), "business_id": str(notificacion.business_id)},
+        )
+    ).first()
+    if fila is None:
+        return Resolucion(skip_motivo="Sin destinatario elegible (opt-out o cliente inexistente).")
+
+    conexion = (
+        await session.execute(
+            select(WhatsAppConnection).where(
+                WhatsAppConnection.business_id == notificacion.business_id
             )
-              AND business_id = :business_id
-              AND is_opted_out IS NOT TRUE
-            """
-        ),
-        {"id": str(notificacion.id), "business_id": str(notificacion.business_id)},
+        )
+    ).scalar_one_or_none()
+    if conexion is None or not conexion.can_send:
+        return Resolucion(
+            skip_motivo=(
+                "WhatsApp no activo para este negocio: configurar el Phone Number ID, "
+                "el token y activar los recordatorios."
+            )
+        )
+
+    plantilla = plantilla_de(notificacion.kind, conexion)
+    if plantilla is None:
+        return Resolucion(
+            skip_motivo=f"Tipo de notificacion '{notificacion.kind}' sin plantilla configurada."
+        )
+
+    token = (
+        decrypt_string(conexion.access_token_encrypted) if conexion.access_token_encrypted else ""
     )
-    fila = result.first()
-    return fila[0] if fila else None
+    if not conexion.phone_number_id or not token:
+        return Resolucion(
+            skip_motivo="Faltan el Phone Number ID o el token de la conexion de WhatsApp."
+        )
+
+    (
+        telefono,
+        cliente_nombre,
+        negocio_nombre,
+        tz_name,
+        starts_at,
+        servicio_nombre,
+        profesional_nombre,
+    ) = fila
+    zona = ZoneInfo(tz_name)
+    local = starts_at.astimezone(zona)
+    #: Orden de las variables del cuerpo de la plantilla (Fase D-3): nombre del
+    #: cliente, servicio, fecha, hora, profesional y negocio.
+    variables = [
+        cliente_nombre,
+        servicio_nombre,
+        local.date().isoformat(),
+        local.strftime("%H:%M"),
+        profesional_nombre,
+        negocio_nombre,
+    ]
+    components = [{"type": "body", "parameters": [{"type": "text", "text": v} for v in variables]}]
+    return Resolucion(
+        mensaje=Mensaje(
+            # E.164 sin el `+`, como lo exige el campo `to` de la API de plantillas.
+            destino=telefono.lstrip("+"),
+            template_name=plantilla,
+            components=components,
+            phone_number_id=conexion.phone_number_id,
+            access_token=token,
+        )
+    )
 
 
 async def _settle(
     session: AsyncSession,
     notificacion: Notification,
     *,
-    destino: str | None,
-    enviado: bool,
+    resultado: TransmitResult | None = None,
+    skip_motivo: str | None = None,
 ) -> None:
     """Deja la notificacion en su estado final y programa el proximo intento.
+
+    Tres desenlaces, y los tres son terminales o reintentables segun corresponda:
+
+    - `skip_motivo` (sin destinatario, WhatsApp no activo, tipo sin plantilla):
+      `skipped`, terminal. Ningun reintento lo arregla, y dejarlo para otro
+      intento solo gasta presupuesto de reintentos y tapa el problema real.
+    - `resultado.enviado` (Meta acepto): `sent`, terminal, con el `message_id`
+      de Meta como rastro en `provider_message_id`.
+    - `resultado` con error (Meta caido, 4xx/5xx): `pending` con backoff; si se
+      agotaron los intentos, `failed`.
 
     **Comprueba el `rowcount` y el log solo se escribe si escribio.** El motivo es
     concreto: con RLS, un `UPDATE` sobre la tabla equivocada --o sin GUC de
     tenant-- no da error, actualiza cero filas y devuelve exito. Un log que dice
-    "quedo en failed" cuando no se actualizo nada convierte un bug de aislamiento
+    "quedo en sent" cuando no se actualizo nada convierte un bug de aislamiento
     en un bug invisible, que es la peor forma de fallo que tiene este sistema.
     """
-    if enviado:
+    agotados = notificacion.attempts >= notificacion.max_attempts
+
+    if skip_motivo is not None:
+        estado_final = "skipped"
+        error = skip_motivo
+    elif resultado is not None and resultado.enviado:
         estado_final = "sent"
         error = ""
-    elif destino is None:
-        # Opt-out, cliente borrado, o un cliente que no se pudo leer. `skipped` y no
-        # `failed`: no es un error que un reintento pueda arreglar, asi que dejarlo
-        # para otro intento solo gasta presupuesto de reintentos y tapa el problema
-        # real de la cola.
-        estado_final = "skipped"
-        error = "Sin destinatario elegible (opt-out o cliente inexistente)."
     else:
-        # Habia destinatario pero el envio no salio.
-        estado_final = "pending"
-        error = "Envio por WhatsApp no implementado: faltan credenciales de Meta."
-
-    agotados = notificacion.attempts >= notificacion.max_attempts
-    if estado_final == "pending" and agotados:
-        # Se acabaron los intentos: `pending` con un backoff que nadie va a venir a
-        # ejecutar. Ponerlo en `failed` es lo que hace visible que la cola perdio un
-        # recordatorio, en vez de dejarlo esperando para siempre.
-        estado_final = "failed"
+        # Habia destinatario y configuracion, pero el envio no salio. `pending`
+        # se reintenta con backoff; `failed` si se acabaron los intentos.
+        estado_final = "pending" if not agotados else "failed"
+        # `resultado.error` puede ser `None` en teoria; el texto de
+        # aca es el que sale si pasa, para que `error` sea siempre texto.
+        error = (
+            resultado.error if resultado is not None else None
+        ) or "Error de envio sin detalle."
 
     scheduled_for = (
         now() + dt.timedelta(minutes=2**notificacion.attempts)
@@ -420,14 +567,16 @@ async def _settle(
         else now()
     )
 
-    resultado = await session.execute(
+    resultado_db = await session.execute(
         text(
             """
             UPDATE notification_requests
             SET status = CAST(:estado AS notification_status),
                 error = :error,
                 scheduled_for = :scheduled_for,
-                sent_at = CASE WHEN :exitoso THEN now() ELSE sent_at END
+                sent_at = CASE WHEN :exitoso THEN now() ELSE sent_at END,
+                provider_message_id = CASE WHEN :exitoso THEN :message_id
+                                          ELSE provider_message_id END
             WHERE id = :id
               AND business_id = :business_id
             """
@@ -441,19 +590,22 @@ async def _settle(
             # asignacion y como texto en la comparacion, y de ahi sale
             # "se dedujeron tipos de dato inconsistentes" para un parametro. El
             # `CAST` explicito del `status` mas este flag separado lo evitan.
-            "exitoso": enviado,
+            "exitoso": estado_final == "sent",
+            "message_id": (
+                resultado.message_id if resultado is not None and resultado.enviado else None
+            ),
             "id": str(notificacion.id),
             "business_id": str(notificacion.business_id),
         },
     )
-    if resultado.rowcount != 1:
+    if resultado_db.rowcount != 1:
         # Se loguea como error y no como info porque significa que la invariante
         # "la fila que reclama el worker es la fila que actualiza" se rompio.
         logger.error(
             "outbox_settle_no_escribio",
             notificacion_id=str(notificacion.id),
             business_id=str(notificacion.business_id),
-            filas_afectadas=resultado.rowcount,
+            filas_afectadas=resultado_db.rowcount,
         )
         return
 
@@ -470,7 +622,11 @@ __all__ = [
     "BATCH_LIMIT",
     "LEASE",
     "DrainResult",
+    "Mensaje",
     "Notification",
+    "Resolucion",
+    "TransmitResult",
     "businesses_with_work",
     "drain_once",
+    "whatsapp_client_factory",
 ]

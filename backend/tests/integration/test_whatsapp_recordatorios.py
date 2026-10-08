@@ -493,8 +493,6 @@ async def test_plantillas_son_por_negocio(
     assert len(LLAMADAS) == 1
     assert LLAMADAS[0]["template_name"] == "mi_recordatorio_24h"
 
-
-@pytest.mark.skip(reason="create_app con overrides rompe 404 en este entorno, a pulir después")
 async def test_config_whatsapp_default_inactivo(
     http_client,
     negocio_whatsapp: None,
@@ -503,7 +501,7 @@ async def test_config_whatsapp_default_inactivo(
     """Sin configuracion, el estado es inactivo con los defaults."""
     await set_tenant(BUSINESS_WS)
     respuesta = await http_client.get(
-        "/business/config/whatsapp", headers=_auth_header(_token_admin())
+        "/api/v1/business/config/whatsapp", headers=_auth_header(_token_admin())
     )
     assert respuesta.status_code == 200
     cuerpo = respuesta.json()
@@ -513,8 +511,6 @@ async def test_config_whatsapp_default_inactivo(
     assert cuerpo["reminder_24h_template"] == "recordatorio_24h"
     assert cuerpo["reminder_2h_template"] == "recordatorio_2h"
 
-
-@pytest.mark.skip(reason="create_app con overrides rompe 404 en este entorno, a pulir después")
 async def test_config_whatsapp_guarda_activa_y_cifra_el_token(
     http_client: AsyncClient,
     session: AsyncSession,
@@ -530,7 +526,7 @@ async def test_config_whatsapp_guarda_activa_y_cifra_el_token(
     """
     await set_tenant(BUSINESS_WS)
     respuesta = await http_client.put(
-        "/business/config/whatsapp",
+        "/api/v1/business/config/whatsapp",
         headers=_auth_header(_token_admin()),
         json={
             "activo": True,
@@ -550,7 +546,7 @@ async def test_config_whatsapp_guarda_activa_y_cifra_el_token(
 
     # El GET devuelve lo mismo (y sigue sin mostrar el token).
     respuesta_get = await http_client.get(
-        "/business/config/whatsapp", headers=_auth_header(_token_admin())
+        "/api/v1/business/config/whatsapp", headers=_auth_header(_token_admin())
     )
     assert respuesta_get.status_code == 200
     assert respuesta_get.json() == cuerpo
@@ -570,7 +566,6 @@ async def test_config_whatsapp_guarda_activa_y_cifra_el_token(
     assert conexion.is_active is True
 
 
-@pytest.mark.skip(reason="create_app con overrides rompe 404 en este entorno, a pulir después")
 async def test_config_whatsapp_guardar_sin_token_conserva_el_actual(
     http_client: AsyncClient,
     session: AsyncSession,
@@ -585,7 +580,7 @@ async def test_config_whatsapp_guardar_sin_token_conserva_el_actual(
     """
     await set_tenant(BUSINESS_WS)
     primera = await http_client.put(
-        "/business/config/whatsapp",
+        "/api/v1/business/config/whatsapp",
         headers=_auth_header(_token_admin()),
         json={
             "activo": True,
@@ -596,7 +591,7 @@ async def test_config_whatsapp_guardar_sin_token_conserva_el_actual(
     assert primera.status_code == 200
 
     segunda = await http_client.put(
-        "/business/config/whatsapp",
+        "/api/v1/business/config/whatsapp",
         headers=_auth_header(_token_admin()),
         json={"activo": False},
     )
@@ -606,7 +601,7 @@ async def test_config_whatsapp_guardar_sin_token_conserva_el_actual(
     assert segunda.json()["token_ultimos"] == "••••" + TOKEN_WS[-4:]
 
     tercera = await http_client.put(
-        "/business/config/whatsapp",
+        "/api/v1/business/config/whatsapp",
         headers=_auth_header(_token_admin()),
         json={"activo": True},
     )
@@ -615,7 +610,6 @@ async def test_config_whatsapp_guardar_sin_token_conserva_el_actual(
     assert tercera.json()["token_ultimos"] == "••••" + TOKEN_WS[-4:]
 
 
-@pytest.mark.skip(reason="create_app con overrides rompe 404 en este entorno, a pulir después")
 async def test_config_whatsapp_encender_sin_credenciales_es_error(
     http_client: AsyncClient,
     negocio_whatsapp: None,
@@ -629,14 +623,13 @@ async def test_config_whatsapp_encender_sin_credenciales_es_error(
     """
     await set_tenant(BUSINESS_WS)
     respuesta = await http_client.put(
-        "/business/config/whatsapp",
+        "/api/v1/business/config/whatsapp",
         headers=_auth_header(_token_admin()),
         json={"activo": True},
     )
     assert respuesta.status_code == 422
 
 
-@pytest.mark.skip(reason="create_app con overrides rompe 404 en este entorno, a pulir después")
 async def test_config_whatsapp_staff_no_puede_guardar(
     http_client: AsyncClient,
     negocio_whatsapp: None,
@@ -645,7 +638,7 @@ async def test_config_whatsapp_staff_no_puede_guardar(
     """`staff` no guarda la configuracion: es decision del dueno."""
     await set_tenant(BUSINESS_WS)
     respuesta = await http_client.put(
-        "/business/config/whatsapp",
+        "/api/v1/business/config/whatsapp",
         headers=_auth_header(_token_staff()),
         json={
             "activo": True,
@@ -656,7 +649,6 @@ async def test_config_whatsapp_staff_no_puede_guardar(
     assert respuesta.status_code == 403
 
 
-@pytest.mark.skip(reason="create_app con overrides rompe 404 en este entorno, a pulir después")
 async def test_config_whatsapp_staff_puede_ver(
     http_client: AsyncClient,
     negocio_whatsapp: None,
@@ -674,7 +666,7 @@ async def test_config_whatsapp_staff_puede_ver(
         ],
     ).token
     respuesta = await http_client.get(
-        "/business/config/whatsapp", headers=_auth_header(token_staff)
+        "/api/v1/business/config/whatsapp", headers=_auth_header(token_staff)
     )
     assert respuesta.status_code == 200
     assert respuesta.json()["activo"] is False

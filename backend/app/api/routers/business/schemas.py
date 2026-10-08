@@ -695,6 +695,44 @@ class ClienteListadoOut(ClienteOut):
     profesional_mas_frecuente: str | None
 
 
+# --------------------------------------------------------------------------- #
+# Configuracion de WhatsApp (Fase D-3)
+# --------------------------------------------------------------------------- #
+
+
+class WhatsappConfigIn(BaseModel):
+    """Lo que el admin puede guardar. `None` = conservar lo que haya.
+
+    - `access_token=None` conserva el token guardado (se puede encender sin
+      volver a pegar el secreto).
+    - `phone_number_id=None` conserva el numero.
+    - Las plantillas `None` conservan la eleccion; vacias limpian hacia el
+      default (recordatorio_24h / recordatorio_2h).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    activo: bool
+    phone_number_id: str | None = Field(default=None, min_length=1, max_length=64)
+    access_token: str | None = Field(default=None, min_length=10, max_length=512)
+    reminder_24h_template: str | None = Field(
+        default=None, min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_]+$"
+    )
+    reminder_2h_template: str | None = Field(
+        default=None, min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_]+$"
+    )
+
+
+class WhatsappConfigOut(BaseModel):
+    """Estado que ve el panel. El token nunca viaja en claro."""
+
+    activo: bool
+    phone_number_id: str | None
+    token_ultimos: str | None
+    reminder_24h_template: str
+    reminder_2h_template: str
+
+
 __all__ = [
     "AsignacionServicioIn",
     "AsignacionServicioOut",
@@ -732,4 +770,6 @@ __all__ = [
     "VentanaIn",
     "VentanaOut",
     "WalkinIn",
+    "WhatsappConfigIn",
+    "WhatsappConfigOut",
 ]

@@ -37,6 +37,7 @@ import type {
 } from '@/types'
 import { BloqueosTab } from './admin/BloqueosTab'
 import { ClientesTab } from './admin/ClientesTab'
+import { ConfiguracionTab } from './admin/ConfiguracionTab'
 import { EstadisticasTab } from './admin/EstadisticasTab'
 import { FeriadosTab } from './admin/FeriadosTab'
 import { ReportesTab } from './admin/ReportesTab'
@@ -1278,6 +1279,7 @@ type Pestaña =
   | 'bookings'
   | 'clientes'
   | 'reportes'
+  | 'configuracion'
   | 'professionals'
   | 'services'
   | 'schedules'
@@ -1335,6 +1337,12 @@ export default function AdminPage() {
             Reportes
           </Button>
           <Button
+            variant={activeTab === 'configuracion' ? 'default' : 'outline'}
+            onClick={() => setActiveTab('configuracion')}
+          >
+            Configuración
+          </Button>
+          <Button
             variant={activeTab === 'professionals' ? 'default' : 'outline'}
             onClick={() => setActiveTab('professionals')}
           >
@@ -1381,6 +1389,7 @@ export default function AdminPage() {
         {activeTab === 'bookings' && <ReservasTab />}
         {activeTab === 'clientes' && <ClientesTab />}
         {activeTab === 'reportes' && <ReportesTab />}
+        {activeTab === 'configuracion' && <ConfiguracionTab />}
         {activeTab === 'bloqueos' && <BloqueosTab />}
         {activeTab === 'feriados' && <FeriadosTab />}
         {activeTab === 'vacaciones' && <VacacionesTab />}
