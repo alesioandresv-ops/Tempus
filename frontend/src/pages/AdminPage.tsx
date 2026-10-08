@@ -39,6 +39,7 @@ import { BloqueosTab } from './admin/BloqueosTab'
 import { ClientesTab } from './admin/ClientesTab'
 import { EstadisticasTab } from './admin/EstadisticasTab'
 import { FeriadosTab } from './admin/FeriadosTab'
+import { ReportesTab } from './admin/ReportesTab'
 import { ReservasTab } from './admin/ReservasTab'
 import { VacacionesTab } from './admin/VacacionesTab'
 
@@ -1276,6 +1277,7 @@ function HorariosTab() {
 type Pestaña =
   | 'bookings'
   | 'clientes'
+  | 'reportes'
   | 'professionals'
   | 'services'
   | 'schedules'
@@ -1327,6 +1329,12 @@ export default function AdminPage() {
             Clientes
           </Button>
           <Button
+            variant={activeTab === 'reportes' ? 'default' : 'outline'}
+            onClick={() => setActiveTab('reportes')}
+          >
+            Reportes
+          </Button>
+          <Button
             variant={activeTab === 'professionals' ? 'default' : 'outline'}
             onClick={() => setActiveTab('professionals')}
           >
@@ -1372,6 +1380,7 @@ export default function AdminPage() {
 
         {activeTab === 'bookings' && <ReservasTab />}
         {activeTab === 'clientes' && <ClientesTab />}
+        {activeTab === 'reportes' && <ReportesTab />}
         {activeTab === 'bloqueos' && <BloqueosTab />}
         {activeTab === 'feriados' && <FeriadosTab />}
         {activeTab === 'vacaciones' && <VacacionesTab />}

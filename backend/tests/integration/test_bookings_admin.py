@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import io
 import uuid
 from collections.abc import AsyncIterator
 from zoneinfo import ZoneInfo
@@ -16,6 +17,7 @@ from app.modules.auth.tokens import create_access_token
 from app.modules.bookings.admin import MAX_LIMITE
 from app.modules.notifications.models import NotificationRequest
 from httpx import AsyncClient
+from openpyxl import load_workbook
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
@@ -918,3 +920,209 @@ class TestFaseD:
             headers=_auth_header(admin_token),
         )
         assert ajeno.status_code == 404, ajeno.text
+
+
+class TestReportes:
+    """FASE D (PRIORIDAD 2): reporte mensual CSV/XLSX.
+
+    `GET /business/reportes/mensual` exporta las reservas del mes pedido y, en
+    XLSX, un resumen con lo que entro (`confirmed`/`completed`) y lo que se
+    cayo (`cancelled`). La ventana va por `local_date`, la misma que usa todo el
+    panel: el mes es el del negocio, no el del servidor en UTC.
+    """
+
+    async def _walkin(
+        self,
+        http_client: AsyncClient,
+        admin_token: str,
+        *,
+        starts_at: dt.datetime,
+        telefono: str,
+        nombre: str = "Ana",
+    ) -> uuid.UUID:
+        resp = await http_client.post(
+            "/api/v1/business/reservas/walkin",
+            headers=_auth_header(admin_token),
+            json={
+                "service_id": str(SERVICE),
+                "professional_id": str(PROFESSIONAL),
+                "starts_at": starts_at.isoformat().replace("+00:00", "Z"),
+                "customer_first_name": nombre,
+                "customer_last_name": "Test",
+                "customer_phone_e164": telefono,
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        return uuid.UUID(resp.json()["id"])
+
+    async def test_csv_solo_trae_el_mes_pedido_y_404_sin_datos(
+        self,
+        http_client: AsyncClient,
+        negocio_admin: str,
+        admin_token: str,
+        set_tenant,
+    ) -> None:
+        """El CSV trae solo el mes pedido y el nombre del archivo es el del mes.
+
+        La ventana es `local_date`: una reserva del mes siguiente no aparece en
+        el archivo del mes pedido, y un mes sin reservas responde 404 en vez de
+        dejar descargar un archivo vacio que el usuario veria como "todo bien".
+        """
+        await set_tenant(BUSINESS)
+
+        tz = ZoneInfo(TIMEZONE)
+        lunes = _proximo_lunes(tz)
+        # 5 semanas despues: mismo lunes 09:00, mes garantizado distinto (35
+        # dias siempre pasan de mes) y dentro del horario del negocio.
+        otro_mes = lunes + dt.timedelta(days=35)
+        mes_a = f"{lunes.year:04d}-{lunes.month:02d}"
+        mes_b = f"{otro_mes.year:04d}-{otro_mes.month:02d}"
+        assert mes_a != mes_b
+
+        # Una reserva en cada mes, mismo cliente y mismo profesional.
+        await self._walkin(
+            http_client, admin_token, starts_at=lunes.astimezone(dt.UTC), telefono="+54911999999"
+        )
+        await self._walkin(
+            http_client,
+            admin_token,
+            starts_at=otro_mes.astimezone(dt.UTC),
+            telefono="+54911999999",
+        )
+
+        csv_a = await http_client.get(
+            "/api/v1/business/reportes/mensual",
+            headers=_auth_header(admin_token),
+            params={"mes": mes_a, "formato": "csv"},
+        )
+        assert csv_a.status_code == 200, csv_a.text
+        assert csv_a.headers["content-type"].startswith("text/csv")
+        assert (
+            csv_a.headers["content-disposition"] == f'attachment; filename="reservas_{mes_a}.csv"'
+        )
+
+        lineas = csv_a.text.splitlines()
+        assert lineas[0].lstrip("\ufeff") == (
+            "fecha;hora;cliente_nombre;cliente_telefono;profesional_nombre;"
+            "servicio_nombre;precio;estado"
+        )
+        # Una sola fila de datos: la del mes pedido, y no la del otro mes.
+        assert len(lineas) == 2
+        celdas = lineas[1].split(";")
+        assert celdas[2] == "Ana"
+        assert celdas[3] == "+54911999999"
+        assert celdas[4] == "Profe"
+        assert celdas[5] == "Corte"
+        assert celdas[6] == "1500.00"
+        assert celdas[7] == "confirmed"
+        # Fecha local del negocio (cae en el mes pedido) y hora local 09:00.
+        assert celdas[0].startswith(mes_a)
+        assert celdas[1] == "09:00"
+        assert otro_mes.date().isoformat() not in csv_a.text
+
+        # El otro mes trae su reserva y no la del primero.
+        csv_b = await http_client.get(
+            "/api/v1/business/reportes/mensual",
+            headers=_auth_header(admin_token),
+            params={"mes": mes_b, "formato": "csv"},
+        )
+        assert csv_b.status_code == 200, csv_b.text
+        assert lunes.date().isoformat() not in csv_b.text
+
+        # Un tercer mes sin reservas: 404, nunca un archivo vacio.
+        tercero = lunes + dt.timedelta(days=70)
+        vacio = await http_client.get(
+            "/api/v1/business/reportes/mensual",
+            headers=_auth_header(admin_token),
+            params={"mes": f"{tercero.year:04d}-{tercero.month:02d}", "formato": "csv"},
+        )
+        assert vacio.status_code == 404, vacio.text
+
+    async def test_xlsx_filtros_y_resumen_suman_bien(
+        self,
+        http_client: AsyncClient,
+        negocio_admin: str,
+        admin_token: str,
+        set_tenant,
+    ) -> None:
+        """El XLSX filtra por estado y el resumen separa ingresos de canceladas.
+
+        Tres turnos de Ana el mismo dia (09:00, 09:30, 10:00), el del medio
+        cancelado: `total_reservas` cuenta los tres, `canceladas` el del medio
+        y `total_ingresos` las dos confirmadas -- $1.500 c/u -- con el desglose
+        por profesional y por servicio en la hoja "Resumen".
+        """
+        await set_tenant(BUSINESS)
+
+        tz = ZoneInfo(TIMEZONE)
+        lunes = _proximo_lunes(tz)
+        mes = f"{lunes.year:04d}-{lunes.month:02d}"
+
+        ids = []
+        for hora, minuto in ((9, 0), (9, 30), (10, 0)):
+            starts = lunes.replace(hour=hora, minute=minuto).astimezone(dt.UTC)
+            ids.append(
+                await self._walkin(
+                    http_client, admin_token, starts_at=starts, telefono="+54911888888"
+                )
+            )
+
+        cancel = await http_client.post(
+            f"/api/v1/business/reservas/{ids[1]}/cancelar",
+            headers=_auth_header(admin_token),
+            json={"motivo": "test reporte mensual"},
+        )
+        assert cancel.status_code == 200, cancel.text
+
+        # CSV sin filtros: encabezado + 3 filas.
+        csv = await http_client.get(
+            "/api/v1/business/reportes/mensual",
+            headers=_auth_header(admin_token),
+            params={"mes": mes, "formato": "csv"},
+        )
+        assert csv.status_code == 200, csv.text
+        assert len(csv.text.splitlines()) == 4
+
+        # Filtro por estado: solo la cancelada.
+        canceladas = await http_client.get(
+            "/api/v1/business/reportes/mensual",
+            headers=_auth_header(admin_token),
+            params={"mes": mes, "formato": "csv", "estado": "cancelled"},
+        )
+        assert canceladas.status_code == 200, canceladas.text
+        solo = canceladas.text.splitlines()
+        assert len(solo) == 2
+        assert solo[1].split(";")[7] == "cancelled"
+
+        # XLSX: hoja de filas + hoja de resumen con los totales correctos.
+        xlsx = await http_client.get(
+            "/api/v1/business/reportes/mensual",
+            headers=_auth_header(admin_token),
+            params={"mes": mes, "formato": "xlsx"},
+        )
+        assert xlsx.status_code == 200, xlsx.text
+        assert (
+            xlsx.headers["content-type"]
+            == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        assert xlsx.headers["content-disposition"] == f'attachment; filename="reservas_{mes}.xlsx"'
+
+        libro = load_workbook(io.BytesIO(xlsx.content))
+        assert libro.sheetnames == ["Reservas", "Resumen"]
+
+        reservas = libro["Reservas"]
+        assert reservas.max_row == 4  # encabezado + 3 filas
+        assert reservas.max_column == 8
+        assert reservas.cell(1, 3).value == "cliente_nombre"
+
+        resumen = libro["Resumen"]
+        celdas = {
+            fila[0]: fila[1]
+            for fila in resumen.iter_rows(values_only=True)
+            if fila[0] is not None and fila[1] is not None
+        }
+        assert celdas["total_reservas"] == 3
+        assert float(celdas["total_ingresos"]) == 3000.0
+        assert celdas["canceladas"] == 1
+        assert float(celdas["Profe"]) == 3000.0
+        assert float(celdas["Corte"]) == 3000.0

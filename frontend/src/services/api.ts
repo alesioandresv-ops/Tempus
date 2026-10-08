@@ -372,6 +372,41 @@ async function ejecutar<T>(path: string, options: RequestInit, intentos: number)
   throw new ApiError(respuesta.status, cuerpo, retryAfter)
 }
 
+/**
+ * Versión de `ejecutar` para descargas de archivos: el mismo fetch con token y la
+ * misma renovación ante 401, pero devuelve la `Response` cruda en vez de parsear
+ * el JSON.
+ *
+ * `GET /business/reportes/mensual?formato=csv` responde un archivo y usa el 404
+ * como "no hay datos": tirar un `ApiError` ahí obligaría a la pestaña a adivinar
+ * por el mensaje, cuando el status ya dice todo. Quejarse de los detalles--que
+ * el cuerpo no es JSON--sería parsear una respuesta que no está hecha para eso.
+ */
+async function descargar(path: string, options?: RequestInit, intentos = 0): Promise<Response> {
+  const conToken = !RUTAS_SIN_TOKEN.includes(path)
+  const cabeceras: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...((options?.headers as Record<string, string>) ?? {}),
+  }
+  if (conToken && accessToken) cabeceras['Authorization'] = `Bearer ${accessToken}`
+
+  const respuesta = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: cabeceras,
+    credentials: 'same-origin',
+  })
+
+  // El mismo reintento único del 401 que `ejecutar`: la renovación rota el token,
+  // y repetir el pedido con el nuevo es lo que distingue "venció" de "no sesión".
+  if (respuesta.status === 401 && conToken && intentos < 1) {
+    if (await renovarAccessToken()) {
+      return descargar(path, options, intentos + 1)
+    }
+    terminarSesion()
+  }
+  return respuesta
+}
+
 export const api = {
   // --- Sesion ---
   login: (datos: LoginRequest) =>
@@ -693,5 +728,27 @@ export const api = {
     if (filtros?.offset) params.set('offset', String(filtros.offset))
     const sufijo = params.toString() ? `?${params.toString()}` : ''
     return fetchApi<ReservaPagina>(`/business/clientes/${customerId}/reservas${sufijo}`)
+  },
+
+  // --- Reportes (Fase D-2) ---
+
+  /**
+   * Exporta las reservas de un mes. Devuelve la `Response` cruda a propósito:
+   * el 404 es el "no hay datos" (mostrar "Sin datos", no descargar vacío) y el
+   * resto de la respuesta es el archivo. Quien la usa lee el blob y el nombre
+   * del `Content-Disposition`.
+   */
+  descargarReporteMensual: (filtros: {
+    mes: string
+    formato: 'csv' | 'xlsx'
+    professional_id?: string
+    estado?: string
+  }): Promise<Response> => {
+    const params = new URLSearchParams()
+    params.set('mes', filtros.mes)
+    params.set('formato', filtros.formato)
+    if (filtros.professional_id) params.set('professional_id', filtros.professional_id)
+    if (filtros.estado) params.set('estado', filtros.estado)
+    return descargar(`/business/reportes/mensual?${params.toString()}`)
   },
 }

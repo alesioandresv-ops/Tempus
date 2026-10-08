@@ -46,6 +46,13 @@ dependencies = [
     # confusion de algoritmo ("none" y HS256 con la publica) queda abierto. Un token
     # con `alg: none` ya lo rechaza PyJWT >= 2, pero el otro sentido no.
     "pyjwt[crypto]>=2.9",
+    # --- Fase D-2: reportes mensuales ---
+    # Exporta el mes en XLSX. Sigue siendo la libreria mas liviana de las que
+    # escriben xlsx de verdad: para un workbook de dos hojas con las filas de
+    # un mes sobra, y si el mes fuera gigante tiene modo write_only para no
+    # tener el archivo entero en memoria. Las alternativas tipo xlsxwriter
+    # traen mas superficie de API para lo que aca son dos hojas.
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -58,6 +65,7 @@ dev = [
     "mypy>=1.13",
     "types-python-dateutil>=2.9",
     "types-PyYAML>=6.0",       # el test del pipeline parsea el workflow
+    "types-openpyxl>=3.1",     # stubs para el modulo de reportes (Fase D-2)
     "mutmut>=3.8",             # mutation testing
 ]
 

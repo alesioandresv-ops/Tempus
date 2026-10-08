@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Body, Depends, Query, Response, status
@@ -42,7 +42,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_tenant_session, limit_panel_por_usuario, require_scopes
-from app.api.errors import ConflictError
+from app.api.errors import ConflictError, NotFoundError
 from app.api.routers.business.schemas import (
     AsignacionesIn,
     AsignacionServicioOut,
@@ -86,6 +86,7 @@ from app.models.enums import BookingStatus, BusinessUserRole
 from app.modules.auth.scopes import Scope
 from app.modules.auth.tokens import Principal
 from app.modules.bookings import admin as bookings_admin
+from app.modules.bookings import reportes
 from app.modules.bookings.models import BookingEvent
 from app.modules.businesses import service as negocios
 from app.modules.businesses.models import Business
@@ -1328,6 +1329,74 @@ async def editar_cliente(
         customer_id,
         _bid(principal),
         clientes.CustomerUpdate(**cambios),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Reportes (Fase D-2)
+# --------------------------------------------------------------------------- #
+
+
+@router.get(
+    "/reportes/mensual",
+    summary="Exportar las reservas de un mes en CSV o XLSX",
+)
+async def reporte_mensual(
+    sesion: Sesion,
+    principal: Annotated[Principal, Depends(require_scopes(Scope.BOOKINGS_READ_ANY))],
+    mes: Annotated[
+        str,
+        Query(
+            pattern=r"^\d{4}-(0[1-9]|1[0-2])$",
+            description=(
+                "Mes a exportar en formato YYYY-MM, en el timezone del negocio: "
+                "el turno de las 23:30 del 31 es del mes siguiente en UTC."
+            ),
+        ),
+    ],
+    formato: Annotated[
+        Literal["csv", "xlsx"],
+        Query(description="Formato de la exportacion: CSV plano o XLSX con resumen."),
+    ] = "csv",
+    professional_id: uuid.UUID | None = None,
+    estado: Annotated[
+        BookingStatus | None,
+        Query(description="Filtra la exportacion por estado de reserva."),
+    ] = None,
+) -> Response:
+    """Exporta las reservas del mes como archivo para descargar.
+
+    El archivo viaja como `attachment` (`reservas_2026-10.csv` / `.xlsx`) y
+    trae **solo las reservas del mes pedido**: la ventana es `local_date`, la
+    misma que usa todo el panel. Sin reservas para el mes y los filtros, se
+    responde 404 en vez de un archivo vacio--el panel muestra "Sin datos" y no
+    descarga nada.
+
+    El XLSX agrega una hoja "Resumen": total de reservas, ingresos (solo
+    `confirmed`/`completed`: una cancelada no es dinero que entro), canceladas
+    y el desglose de ingresos por profesional y por servicio.
+    """
+    filas, zona = await reportes.reservas_del_mes(
+        sesion,
+        _bid(principal),
+        mes=mes,
+        professional_id=professional_id,
+        estado=estado,
+    )
+    if not filas:
+        raise NotFoundError("Sin reservas para el mes y los filtros elegidos.")
+
+    if formato == "csv":
+        contenido = reportes.generar_csv(filas, zona)
+        media = "text/csv; charset=utf-8"
+    else:
+        contenido = reportes.generar_xlsx(filas, zona)
+        media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+    return Response(
+        content=contenido,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="reservas_{mes}.{formato}"'},
     )
 
 
