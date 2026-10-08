@@ -230,9 +230,7 @@ class TestPublicTokenFlow:
         assert data["service_name"] == "Corte"
         assert data["professional_name"] == "Profe"
 
-    async def test_cancelar_por_token(
-        self, http_client: AsyncClient, negocio_token: str
-    ) -> None:
+    async def test_cancelar_por_token(self, http_client: AsyncClient, negocio_token: str) -> None:
         creada = await _crear_reserva(http_client, "+54911000002")
         token = creada["secure_token"]
 
@@ -257,9 +255,7 @@ class TestPublicTokenFlow:
             "new_ends_at": (nuevo + dt.timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
             "new_duration_minutes": 30,
         }
-        resp = await http_client.post(
-            f"/api/v1/public/bookings/{token}/reschedule", json=body
-        )
+        resp = await http_client.post(f"/api/v1/public/bookings/{token}/reschedule", json=body)
         assert resp.status_code == 200, resp.text
         data = resp.json()
         assert data["status"] == "confirmed"

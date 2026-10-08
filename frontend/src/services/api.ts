@@ -32,6 +32,8 @@ import type {
   BloqueoCreateRequest,
   AusenciaCreateRequest,
   Estadisticas,
+  ClienteDePanel,
+  ClientesFiltro,
 } from '@/types'
 
 const API_BASE = '/api/v1'
@@ -668,5 +670,28 @@ export const api = {
     if (hasta) params.set('hasta', hasta)
     const sufijo = params.toString() ? `?${params.toString()}` : ''
     return fetchApi<Estadisticas>(`/business/estadisticas${sufijo}`)
+  },
+
+  // --- Panel admin (Fase D) ---
+  //
+  // Historial del cliente: listado con totales (reservas, gasto, última
+  // visita, profesional frecuente) y el detalle por cliente para el modal.
+
+  /** Clientes con sus totales. `busqueda` matchea parcial nombre o teléfono. */
+  listarClientes: (filtros: ClientesFiltro) => {
+    const params = new URLSearchParams()
+    if (filtros.busqueda) params.set('busqueda', filtros.busqueda)
+    if (filtros.limite) params.set('limite', String(filtros.limite))
+    if (filtros.offset) params.set('offset', String(filtros.offset))
+    return fetchApi<ClienteDePanel[]>(`/business/clientes?${params.toString()}`)
+  },
+
+  /** Historial completo de un cliente: fecha, profesional, servicio, precio, estado. */
+  historialCliente: (customerId: string, filtros?: { limite?: number; offset?: number }) => {
+    const params = new URLSearchParams()
+    if (filtros?.limite) params.set('limite', String(filtros.limite))
+    if (filtros?.offset) params.set('offset', String(filtros.offset))
+    const sufijo = params.toString() ? `?${params.toString()}` : ''
+    return fetchApi<ReservaPagina>(`/business/clientes/${customerId}/reservas${sufijo}`)
   },
 }

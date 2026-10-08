@@ -88,6 +88,7 @@ from app.modules.auth.tokens import Principal
 from app.modules.bookings import admin as bookings_admin
 from app.modules.bookings.models import BookingEvent
 from app.modules.businesses import service as negocios
+from app.modules.businesses.models import Business
 from app.modules.customers import service as clientes
 from app.modules.notifications.models import NotificationRequest
 from app.modules.professionals import service as profesionales
@@ -144,11 +145,17 @@ async def mi_perfil(principal: Annotated[Principal, Depends(require_scopes())], 
 
     Devuelve los scopes ordenados porque van directo a la lista de checks del
     frontend, y un `set` de Python no tiene orden estable entre corridas.
+
+    `business_name` es el nombre real del negocio de la sesion. Sale de una lectura
+    a `businesses` y es `None` si el negocio ya no existe: el perfil no debe 404 por
+    eso. Lo muestra el header del panel para que un admin logueado en el negocio
+    equivocado lo note, y el frontend lo oculta si llega `None`.
     """
-    del sesion  # la sesion no se usa, pero la dependencia fija el tenant
+    nombre = await sesion.scalar(select(Business.name).where(Business.id == principal.business_id))
     return {
         "user_id": str(principal.user_id),
         "business_id": str(principal.business_id),
+        "business_name": nombre,
         "role": str(principal.role),
         "scopes": sorted(principal.scopes),
         "is_admin": _es_admin(principal),
@@ -1243,9 +1250,49 @@ async def listar_clientes(
             **ClienteOut.model_validate(item.customer).model_dump(),
             total_reservas=item.booking_count,
             ultima_reserva=item.last_booking_at,
+            total_gastado=item.total_gastado,
+            profesional_mas_frecuente=item.profesional_mas_frecuente,
         )
         for item in filas
     ]
+
+
+@router.get(
+    "/clientes/{customer_id}/reservas",
+    response_model=ReservaPagina,
+    summary="Historial de reservas de un cliente",
+)
+async def historial_reservas_cliente(
+    customer_id: uuid.UUID,
+    sesion: Sesion,
+    principal: Annotated[Principal, Depends(require_scopes(Scope.CLIENTS_READ))],
+    limite: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+) -> Any:
+    """Todas las reservas de un cliente, para el historial del modal del panel.
+
+    Reutiliza el listado de reservas con el filtro `customer_id`: la fila trae
+    servicio, profesional, precio y estado, que es exactamente lo que pinta el
+    historial. El cliente se valida primero con `obtener_cliente` para que un
+    `customer_id` de otro tenant sea un 404 y no una lista vacia--la misma regla
+    que ya aplica `GET /clientes/{id}`.
+    """
+    await clientes.obtener_cliente(sesion, customer_id, business_id=_bid(principal))
+    filas, total = await bookings_admin.listar_reservas(
+        sesion,
+        _bid(principal),
+        bookings_admin.ReservaFiltros(
+            customer_id=customer_id,
+            limite=limite,
+            offset=offset,
+        ),
+    )
+    return ReservaPagina(
+        items=[_a_reserva_out(f) for f in filas],
+        total=total,
+        limite=limite,
+        offset=offset,
+    )
 
 
 @router.get("/clientes/{customer_id}", response_model=ClienteOut, summary="Ver un cliente")

@@ -135,6 +135,7 @@ export interface LoginResponse {
 export interface SessionProfile {
   user_id: string
   business_id: string
+  business_name: string | null
   role: string
   scopes: string[]
   is_admin: boolean
@@ -404,4 +405,35 @@ export interface Estadisticas {
   ingresos: string
   tasa_cancelacion: number
   por_profesional: OcupacionProfesional[]
+}
+
+// --------------------------------------------------------------------------- //
+// Panel admin (Fase D)
+//
+// Historial del cliente: listado con totales agregados sobre `bookings` y
+// detalle por cliente. Todo bajo `/business` con el token del admin.
+// --------------------------------------------------------------------------- //
+
+/** Un cliente del listado, con sus totales agregados sobre `bookings`. */
+export interface ClienteDePanel {
+  id: string
+  first_name: string
+  last_name: string | null
+  phone_e164: string
+  notes: string | null
+  is_opted_out: boolean
+  marketing_opt_in: boolean
+  created_at: string
+  total_reservas: number
+  ultima_reserva: string | null
+  /** Suma de `price_snapshot` de reservas confirmadas/completadas (string, viaja en JSON). */
+  total_gastado: string
+  profesional_mas_frecuente: string | null
+}
+
+/** Filtros del listado de clientes: búsqueda parcial por nombre o teléfono. */
+export interface ClientesFiltro {
+  busqueda?: string
+  limite?: number
+  offset?: number
 }

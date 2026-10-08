@@ -251,6 +251,7 @@ async def admin_token(negocio_admin: str) -> str:
             Scope.BOOKINGS_WALKIN,
             Scope.BUSINESS_CONFIG_READ,
             Scope.BUSINESS_CONFIG_WRITE,
+            Scope.CLIENTS_READ,
         ],
     )
     return token.token
@@ -710,3 +711,210 @@ class TestFaseC:
         assert profesional is not None
         assert profesional["turnos"] == 1
         assert profesional["cancelados"] == 0
+
+    async def test_listado_sin_filtros_trae_la_reserva_publica(
+        self,
+        http_client: AsyncClient,
+        negocio_admin: str,
+        admin_token: str,
+        booking_futuro: uuid.UUID,
+        set_tenant,
+    ) -> None:
+        """Regresion FASE C: el listado sin filtros ve la reserva publica del mismo negocio.
+
+        El sintoma reportado era `/admin` con `items: []` mientras el panel del
+        profesional del mismo negocio si mostraba turnos. La causa era la sesion
+        del navegador (otro negocio), no el endpoint; este test fija la regresion
+        explicita que esa sesion enmascaraba: una reserva creada por la ruta
+        publica aparece en el listado del admin del mismo negocio (total >= 1)
+        y el primer item trae el nombre real del cliente.
+        """
+        await set_tenant(BUSINESS)
+
+        resp = await http_client.get(
+            "/api/v1/business/reservas",
+            headers=_auth_header(admin_token),
+            params={"limite": MAX_LIMITE},
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["total"] >= 1
+        assert data["items"], "el listado sin filtros tiene que devolver la reserva publica"
+        primero = data["items"][0]
+        assert "Ana" in primero["cliente_nombre"], (
+            "el item trae el nombre real del cliente y no un placeholder"
+        )
+
+    async def test_me_trae_el_nombre_del_negocio(
+        self,
+        http_client: AsyncClient,
+        negocio_admin: str,
+        admin_token: str,
+    ) -> None:
+        """`business_name` sale de la base y es el nombre real del negocio.
+
+        El header del panel lo muestra para que un admin en el negocio
+        equivocado lo note: la sesion la decide el `tid` del token, y el
+        nombre hace visible esa eleccion. Tiene que salir de `businesses`,
+        no de un claim del token--los claims son una cache de 15 minutos.
+        """
+        resp = await http_client.get(
+            "/api/v1/business/me",
+            headers=_auth_header(admin_token),
+        )
+        assert resp.status_code == 200, resp.text
+        perfil = resp.json()
+        assert perfil["business_id"] == str(BUSINESS)
+        assert perfil["business_name"] == "Negocio Admin Bookings"
+
+
+class TestFaseD:
+    """FASE D (PRIORIDAD 1): historial del cliente.
+
+    `GET /business/clientes` agrega los totales del cliente sobre sus reservas
+    (count, ultima visita, gasto de confirmadas/completadas, profesional mas
+    frecuente) y ordena por ultima visita real; `GET /business/clientes/{id}/
+    reservas` es el historial completo para el modal del panel. Todo sale de
+    agregados sobre `bookings`, sin columnas de contador en `customers`.
+    """
+
+    async def _walkin(
+        self,
+        http_client: AsyncClient,
+        admin_token: str,
+        *,
+        starts_at: dt.datetime,
+        telefono: str,
+        nombre: str,
+    ) -> uuid.UUID:
+        resp = await http_client.post(
+            "/api/v1/business/reservas/walkin",
+            headers=_auth_header(admin_token),
+            json={
+                "service_id": str(SERVICE),
+                "professional_id": str(PROFESSIONAL),
+                "starts_at": starts_at.isoformat().replace("+00:00", "Z"),
+                "customer_first_name": nombre,
+                "customer_last_name": "Test",
+                "customer_phone_e164": telefono,
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        return uuid.UUID(resp.json()["id"])
+
+    async def test_clientes_agrega_totales_y_ordena_por_ultima_visita(
+        self,
+        http_client: AsyncClient,
+        negocio_admin: str,
+        admin_token: str,
+        set_tenant,
+    ) -> None:
+        """3 reservas del mismo cliente: total, gasto y profesional frecuente.
+
+        La cancelada cuenta en `total_reservas` pero no en `total_gastado`
+        (solo `confirmed`/`completed`); el orden es por ultima visita real, no
+        por la columna `customers.last_booking_at`, que nadie mantiene.
+        """
+        await set_tenant(BUSINESS)
+
+        tz = ZoneInfo(TIMEZONE)
+        lunes = _proximo_lunes(tz)
+
+        # Ana: tres turnos el mismo lunes (09:00, 09:30, 10:00), a $1.500 c/u.
+        ids = []
+        for hora, minuto in ((9, 0), (9, 30), (10, 0)):
+            starts = lunes.replace(hour=hora, minute=minuto).astimezone(dt.UTC)
+            ids.append(
+                await self._walkin(
+                    http_client,
+                    admin_token,
+                    starts_at=starts,
+                    telefono="+54911000000",
+                    nombre="Ana",
+                )
+            )
+
+        # Zoe: un turno mas tarde (16:00) -> queda primera en el orden.
+        zoe_starts = lunes.replace(hour=16).astimezone(dt.UTC)
+        await self._walkin(
+            http_client, admin_token, starts_at=zoe_starts, telefono="+54911777777", nombre="Zoe"
+        )
+
+        # Cancelar el del medio de Ana: cuenta como reserva, no como gasto.
+        cancel = await http_client.post(
+            f"/api/v1/business/reservas/{ids[1]}/cancelar",
+            headers=_auth_header(admin_token),
+            json={"motivo": "test fase d"},
+        )
+        assert cancel.status_code == 200, cancel.text
+
+        lista = await http_client.get(
+            "/api/v1/business/clientes",
+            headers=_auth_header(admin_token),
+        )
+        assert lista.status_code == 200, lista.text
+        clientes = lista.json()
+
+        # Zoe vino a las 16:00, Ana a las 10:00: el que vino despues arriba.
+        assert [c["first_name"] for c in clientes] == ["Zoe", "Ana"]
+
+        ana = clientes[1]
+        assert ana["first_name"] == "Ana"
+        assert ana["phone_e164"] == "+54911000000"
+        assert ana["total_reservas"] == 3  # incluye la cancelada
+        assert ana["total_gastado"] == "3000.00"  # solo confirmed/completed
+        assert ana["profesional_mas_frecuente"] == "Profe"
+        esperada = lunes.replace(hour=10).astimezone(dt.UTC)
+        assert dt.datetime.fromisoformat(ana["ultima_reserva"].replace("Z", "+00:00")) == esperada
+
+        zoe = clientes[0]
+        assert zoe["phone_e164"] == "+54911777777"
+        assert zoe["total_reservas"] == 1
+        assert zoe["total_gastado"] == "1500.00"
+        assert zoe["profesional_mas_frecuente"] == "Profe"
+
+    async def test_historial_de_un_cliente_trae_sus_reservas(
+        self,
+        http_client: AsyncClient,
+        negocio_admin: str,
+        admin_token: str,
+        set_tenant,
+    ) -> None:
+        """El modal del panel: reservas del cliente, nuevas primero, con nombres.
+
+        La fila del historial trae servicio, profesional, precio y estado, que
+        es lo que pinta el drawer. Un `customer_id` de otro tenant es un 404 y
+        no una lista vacia.
+        """
+        await set_tenant(BUSINESS)
+
+        tz = ZoneInfo(TIMEZONE)
+        lunes = _proximo_lunes(tz)
+        for hora, minuto in ((9, 0), (9, 30), (10, 0)):
+            starts = lunes.replace(hour=hora, minute=minuto).astimezone(dt.UTC)
+            await self._walkin(
+                http_client, admin_token, starts_at=starts, telefono="+54911000000", nombre="Ana"
+            )
+
+        historial = await http_client.get(
+            f"/api/v1/business/clientes/{CUSTOMER}/reservas",
+            headers=_auth_header(admin_token),
+        )
+        assert historial.status_code == 200, historial.text
+        data = historial.json()
+        assert data["total"] == 3
+        orden = [
+            dt.datetime.fromisoformat(i["starts_at"].replace("Z", "+00:00")) for i in data["items"]
+        ]
+        assert orden == sorted(orden, reverse=True), "las nuevas primero"
+        for item in data["items"]:
+            assert item["servicio_nombre"] == "Corte"
+            assert item["profesional_nombre"] == "Profe"
+            assert item["price_snapshot"] == "1500.00"
+            assert item["status"] == "confirmed"
+
+        ajeno = await http_client.get(
+            f"/api/v1/business/clientes/{uuid.uuid4()}/reservas",
+            headers=_auth_header(admin_token),
+        )
+        assert ajeno.status_code == 404, ajeno.text

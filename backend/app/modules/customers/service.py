@@ -17,16 +17,23 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass
+from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import NotFoundError, ValidationError
+from app.models.enums import BookingStatus
 from app.modules.bookings.models import Booking
 from app.modules.customers.models import Customer
+from app.modules.professionals.models import Professional
 
 MAX_NAME_LENGTH = 160
 MAX_NOTES_LENGTH = 4096
+
+#: Estados que cuentan como "gasto realizado" para `total_gastado`. Un turno
+#: cancelado o `no_show` no es dinero que entro aunque la reserva exista.
+ESTADOS_PAGADOS = (BookingStatus.CONFIRMED, BookingStatus.COMPLETED)
 
 #: Un telefono E.164 empieza siempre por mas y tiene entre 8 y 15 digitos. Se valida
 #: la forma porque el envio a WhatsApp depende de eso, y un numero con espacios o
@@ -61,15 +68,17 @@ class CustomerUpdate:
 class CustomerListItem:
     """Cliente resumido para el listado del panel.
 
-    `booking_count` y `last_booking_at` salen de un agregado sobre `bookings` en la
-    misma consulta. Se traen aca y no como columna de `customers` para no
-    mantener un contador que cada cancelacion o reprogramacion tiene que mantener
-    al dia.
+    `booking_count`, `last_booking_at`, `total_gastado` y
+    `profesional_mas_frecuente` salen de agregados sobre `bookings` en la misma
+    consulta. Se traen aca y no como columnas de `customers` para no mantener un
+    contador que cada cancelacion o reprogramacion tiene que mantener al dia.
     """
 
     customer: Customer
     booking_count: int
     last_booking_at: object | None
+    total_gastado: Decimal | None
+    profesional_mas_frecuente: str | None
 
 
 async def listar_clientes(
@@ -80,22 +89,27 @@ async def listar_clientes(
     solo_optout: bool = False,
     limite: int = 50,
     offset: int = 0,
-) -> list[Customer]:
+) -> list[CustomerListItem]:
     """Clientes del negocio, con el total de reservas de cada uno.
 
     `busqueda` filtra por nombre o telefono. La busqueda es por coincidencia
     parcial y sin distincion de mayusculas, que es lo que espera alguien que
     escribe "juan" esperando encontrar a "Juan Perez". Sin `ILIKE` el admin
     tendria que escribir el nombre exacto, y eso no lo hace nadie.
-    `total` y `ultima` son **dos subconsultas escalares correlacionadas**, no una sola con
-    dos columnas. La version anterior armaba una subconsulta de dos columnas y la
-    declaraba `scalar_subquery()`, que le dice a SQLAlchemy "esto trae una columna":
-    PostgreSQL rechaza la consulta entera con `la subconsulta debe retornar solo una
-    columna` y `GET /business/clientes` devuelve 500 para todos los tenants. Dos
-    subconsultas escalares de una columna cada una es la forma que corresponde; la
-    alternativa--una subconsulta derivada con `.subquery()`-- evita ese error pero
-    introduce un producto cartesiano entre la tabla derivada y `customers`, que
-    SQLAlchemy marca como `SAWarning` y el proyecto trata como error.
+    El orden es por ultima visita (**agregado** sobre `bookings`, no la columna
+    `customers.last_booking_at`, que nadie mantiene y por lo tanto es siempre
+    `NULL`): el cliente que vino hace un rato arriba, el que no vino nunca abajo.
+    `total`, `ultima`, `gastado` y `prof` son **subconsultas escalares
+    correlacionadas**, no una sola con varias columnas. La version anterior
+    armaba una subconsulta de dos columnas y la declaraba `scalar_subquery()`,
+    que le dice a SQLAlchemy "esto trae una columna": PostgreSQL rechaza la
+    consulta entera con `la subconsulta debe retornar solo una columna` y
+    `GET /business/clientes` devuelve 500 para todos los tenants. Subconsultas
+    escalares de una columna cada una es la forma que corresponde; la
+    alternativa--una subconsulta derivada con `.subquery()`-- evita ese error
+    pero introduce un producto cartesiano entre la tabla derivada y
+    `customers`, que SQLAlchemy marca como `SAWarning` y el proyecto trata como
+    error.
     """
     total_reservas = (
         select(func.count(Booking.id))
@@ -111,11 +125,42 @@ async def listar_clientes(
         .scalar_subquery()
         .label("ultima")
     )
+    #: Solo los estados pagados cuentan como gasto: una cancelada no es dinero
+    #: que entro, aunque el turno haya existido.
+    total_gastado = (
+        select(func.coalesce(func.sum(Booking.price_snapshot), 0))
+        .where(
+            Booking.customer_id == Customer.id,
+            Booking.status.in_(ESTADOS_PAGADOS),
+        )
+        .correlate(Customer)
+        .scalar_subquery()
+        .label("gastado")
+    )
+    #: El profesional con mas reservas del cliente. Desempata por nombre para
+    #: que el resultado sea determinista y no dependa del plan de ejecucion.
+    profesional_frecuente = (
+        select(Professional.display_name)
+        .join(Booking, Booking.professional_id == Professional.id)
+        .where(Booking.customer_id == Customer.id)
+        .group_by(Professional.id, Professional.display_name)
+        .order_by(func.count(Booking.id).desc(), Professional.display_name)
+        .limit(1)
+        .correlate(Customer)
+        .scalar_subquery()
+        .label("prof")
+    )
 
     consulta = (
-        select(Customer, total_reservas, ultima_reserva)
+        select(
+            Customer,
+            total_reservas,
+            ultima_reserva,
+            total_gastado,
+            profesional_frecuente,
+        )
         .where(Customer.business_id == business_id)
-        .order_by(Customer.last_booking_at.desc().nulls_last(), Customer.first_name)
+        .order_by(ultima_reserva.desc().nulls_last(), Customer.first_name)
         .limit(limite)
         .offset(offset)
     )
@@ -132,12 +177,14 @@ async def listar_clientes(
 
     result = await session.execute(consulta)
     filas = []
-    for customer, total, ultima in result.all():
+    for customer, total, ultima, gastado, prof in result.all():
         filas.append(
             CustomerListItem(
                 customer=customer,
                 booking_count=int(total or 0),
                 last_booking_at=ultima,
+                total_gastado=gastado,
+                profesional_mas_frecuente=prof,
             )
         )
     return filas

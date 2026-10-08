@@ -681,13 +681,18 @@ class ClienteOut(BaseModel):
 class ClienteListadoOut(ClienteOut):
     """Cliente con su historial agregado.
 
-    `total_reservas` y `ultima_reserva` son agregados sobre `bookings` hechos en la
-    misma consulta, no columnas: duplicarlos en `customers` seria una segunda fuente
-    de verdad que se desincroniza en la primera cancelacion.
+    `total_reservas`, `ultima_reserva`, `total_gastado` y
+    `profesional_mas_frecuente` son agregados sobre `bookings` hechos en la
+    misma consulta, no columnas: duplicarlos en `customers` seria una segunda
+    fuente de verdad que se desincroniza en la primera cancelacion.
     """
 
     total_reservas: int
     ultima_reserva: dt.datetime | None
+    #: Suma de `price_snapshot` de reservas `confirmed`/`completed`. Los turnos
+    #: cancelados o `no_show` no son gasto realizado.
+    total_gastado: Decimal
+    profesional_mas_frecuente: str | None
 
 
 __all__ = [

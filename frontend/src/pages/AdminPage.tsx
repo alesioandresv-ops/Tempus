@@ -36,6 +36,7 @@ import type {
   Ventana,
 } from '@/types'
 import { BloqueosTab } from './admin/BloqueosTab'
+import { ClientesTab } from './admin/ClientesTab'
 import { EstadisticasTab } from './admin/EstadisticasTab'
 import { FeriadosTab } from './admin/FeriadosTab'
 import { ReservasTab } from './admin/ReservasTab'
@@ -1274,6 +1275,7 @@ function HorariosTab() {
 
 type Pestaña =
   | 'bookings'
+  | 'clientes'
   | 'professionals'
   | 'services'
   | 'schedules'
@@ -1285,10 +1287,31 @@ type Pestaña =
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<Pestaña>('bookings')
 
+  /*
+   * El nombre del negocio va en el header para que un admin logueado en el
+   * negocio equivocado lo note de una: la sesion es la del token, y no hay
+   * nada mas en la pagina que diga de que negocio es el panel. Si el perfil
+   * falla--red cortada, sesion rota--no se muestra nada: el panel no se
+   * rompe por una decoracion.
+   */
+  const { data: perfil } = useQuery({
+    queryKey: ['perfil'],
+    queryFn: api.me,
+    staleTime: 2 * 60 * 1000,
+    retry: false,
+  })
+
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
       <div className="max-w-6xl mx-auto">
-        <h1 className="text-2xl font-bold mb-6">Panel de Administración</h1>
+        <h1 className="text-2xl font-bold mb-6">
+          Panel de Administración
+          {perfil?.business_name ? (
+            <span className="ml-3 align-middle text-lg font-semibold text-gray-500">
+              · {perfil.business_name}
+            </span>
+          ) : null}
+        </h1>
 
         <div className="flex flex-wrap gap-2 mb-6" role="tablist">
           <Button
@@ -1296,6 +1319,12 @@ export default function AdminPage() {
             onClick={() => setActiveTab('bookings')}
           >
             Reservas
+          </Button>
+          <Button
+            variant={activeTab === 'clientes' ? 'default' : 'outline'}
+            onClick={() => setActiveTab('clientes')}
+          >
+            Clientes
           </Button>
           <Button
             variant={activeTab === 'professionals' ? 'default' : 'outline'}
@@ -1342,6 +1371,7 @@ export default function AdminPage() {
         </div>
 
         {activeTab === 'bookings' && <ReservasTab />}
+        {activeTab === 'clientes' && <ClientesTab />}
         {activeTab === 'bloqueos' && <BloqueosTab />}
         {activeTab === 'feriados' && <FeriadosTab />}
         {activeTab === 'vacaciones' && <VacacionesTab />}
