@@ -3,13 +3,13 @@
 SaaS multi-tenant de gestión de turnos con recordatorios automáticos por WhatsApp.
 Mercado inicial: Latinoamérica, en español.
 
-> **Estado actual: Fase 0 terminada.** El backend existe, corre y está verificado
-> contra PostgreSQL real. Lo que **no** existe todavía es el producto: no hay
-> onboarding, ni reservas, ni frontend, ni nada de la Fase 1 en adelante.
+> **Estado actual: v1.0.0-rc1.** El backend, el frontend y la base están
+> verificados contra PostgreSQL real; la suite completa y el checklist de la
+> entrega viven en [`ENTREGA.md`](ENTREGA.md#entrega--tempus-v100-rc1).
 >
-> Lo que hay y está probado: esquema de 27 tablas con RLS, migraciones, logging
-> estructurado con `request_id`, errores RFC 9457, health checks, y 274 tests.
-> Lo que hay escrito y no construido: todo lo demás de este documento.
+> En curso: la **Fase 0.5 — Meta** (WhatsApp Business Platform). El arranque sin
+> chip (Embedded Signup, webhook) está implementado; el registro del número y la
+> validación viva dependen del chip. Runbook: [`docs/fase-05-meta.md`](docs/fase-05-meta.md).
 
 ## Arrancar
 
@@ -123,21 +123,23 @@ Dos cosas que este `README` dejaba insinuadas como correctas y no lo son:
   las dos capas es el camino completo por HTTP.
 
 El orden de las fases está en
-[ARCHITECTURE.md §19](ARCHITECTURE.md#19-roadmap-por-fases). La siguiente es la
-**Fase 0.5 — Meta**: alta de la app, WABA de plataforma, plantillas aprobadas y el flujo
-de Embedded Signup. Es una dependencia externa y arranca temprano porque implica esperas
-de aprobación de Meta que no dependen de nadie del equipo.
+[ARCHITECTURE.md §19](ARCHITECTURE.md#19-roadmap-por-fases). En curso: la
+**Fase 0.5 — Meta** (alta de la app, WABA de plataforma, plantillas aprobadas y el
+flujo de Embedded Signup). Es una dependencia externa que arranca temprano porque
+implica esperas de aprobación de Meta que no dependen de nadie del equipo; el
+arranque sin chip ya está entregado (ver [`docs/fase-05-meta.md`](docs/fase-05-meta.md)).
 
 ## Verificación final
 
 Los tres comandos que tienen que dar verde antes de cualquier despliegue. Son los
-mismos que corre el CI, y el orden importa: el primero no toca la base, el segundo
-tarda media hora y el tercero necesita un servidor arriba.
+mismos que corre el CI, y el orden importa: el primero (la suite) tarda ~25 minutos
+y no toca la base de producción, el segundo es rápido y el tercero necesita un
+servidor arriba.
 
 ```bash
 cd backend
 
-# 1. La suite completa. ~16 minutos, 1337 tests.
+# 1. La suite completa. ~25 minutos, 1249 tests.
 python -m pytest
 
 # 2. Los tipos de lo critico: seguridad y auth limpios.

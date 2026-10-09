@@ -12,10 +12,10 @@ importa: un checklist que solo lista lo que funciona no sirve para decidir.
 
 | Qué | Resultado | Cómo se comprueba |
 |---|---|---|
-| Suite completa | **1184 passed, 0 failed, 0 skipped** (766 s) | `cd backend; python -m pytest` |
-| Formato | 143 archivos, sin diferencias | `python -m ruff format --check .` |
+| Suite completa | **1249 passed, 0 failed, 0 skipped** (1489 s) | `cd backend; python -m pytest` |
+| Formato | 152 archivos, sin diferencias | `python -m ruff format --check .` |
 | Lint | sin errores en todo el repo | `python -m ruff check .` |
-| Tipos (crítico) | 0 errores en 11 archivos | `python -m mypy app/core app/modules/auth` |
+| Tipos (crítico) | 0 errores en 12 archivos | `python -m mypy app/core app/modules/auth` |
 | Rate limiting §10.5 | 5/5 clases, contra uvicorn real | `python verificar_limites.py` |
 | Flujo público E2E | 42 comprobaciones | `python diagnostico_bugs.py` |
 | Endurecimiento de producción | 12/12, leyendo `pg_proc` | `python verificar_produccion.py` |
@@ -43,11 +43,17 @@ notificaciones) agregaron tests y hoy la suite es **1184 passed, 0 failed, 0 ski
 (`python -m pytest`, 766 s), incluidos los 2 tests de concurrencia sobre los cubos de
 rate limit de §7.6 y las comprobaciones de higiene sobre los archivos actuales.
 
+**Actualizado 2026-10-09:** con la Fase 0.5 (Embedded Signup) la suite es
+**1249 passed, 0 failed, 0 skipped** (`python -m pytest`, 1489 s ≈ 25 min): 6 tests
+nuevos de `test_whatsapp_connect.py` + 8 comprobaciones de higiene por los dos `.py`
+nuevos (`meta_signup.py`, el propio test). Corrió completa contra `tempus_test` en
+PostgreSQL, con cero omitidos.
+
 ---
 
 ## 2. Migraciones
 
-- **Head único:** `0016_fase4_whatsapp_avatar`. No hay ramas.
+- **Head único:** `0018_whatsapp_reminders`. No hay ramas.
 - **Idempotencia verificada:** tres `alembic upgrade head` seguidos → código de
   salida `0 0 0`, versión sin cambios, ninguna migración aplicada.
 - `docker-entrypoint.sh` corre `alembic upgrade head` en cada arranque, así que no
@@ -74,6 +80,7 @@ Además, para que funcionen las funciones de Meta/WhatsApp (todas opcionales en
 
 ```bash
 META_APP_ID, META_APP_SECRET, META_WEBHOOK_VERIFY_TOKEN
+META_EMBEDDED_SIGNUP_APP_ID, META_EMBEDDED_SIGNUP_CONFIG_ID   # Fase 0.5 (Embedded Signup)
 TURNSTILE_SECRET, TURNSTILE_SITE_KEY      # bot de calendario público
 FORWARDED_ALLOW_IPS                       # ver §6
 ```
@@ -170,6 +177,35 @@ entrega:
 **Pendiente:** `docker compose up` (levantar el stack completo) no se probó; no es el
 gate del checklist §10, pero conviene correrlo antes de publicar.
 
+**Actualizado 2026-10-09:** `docker compose up` **verificado end-to-end** en esta
+máquina: Postgres publica en :5433, frontend (Vite) en :5173 y backend en :8000 con
+`/healthz` → `{"status":"ok"}`. El entrypoint corrió `alembic upgrade head` hasta
+`0018_whatsapp_reminders` antes de levantar uvicorn (los logs confirman las tres
+etapas: migración → arranque del scheduler/outbox → healthz 200).
+
+La verificación destapó **dos problemas reales**, ambos corregidos:
+
+1. **Faltaban dependencias de producción en la imagen.** `outbox.py` e
+   `integrations/whatsapp/client.py` importan `httpx` y `app/core/encryption.py`
+   importa `cryptography` (Fase D-3), pero `pyproject.toml` los tenía solo en el
+   extra `dev`. El contenedor (instalado sin `dev`) moría al importar `app.main`
+   con `ModuleNotFoundError`. Pasaron a `dependencies` con su bloque de comentario.
+   Es la clase de bug que no ven los tests locales (que instalan `.[dev]`) y que
+   tumba el deploy.
+2. **El Postgres del compose local tenía un volumen viejo** (creado antes de
+   `02-login-definer.sql`): faltaba el rol puente `tempus_migrator` y las
+   migraciones fallaban con `SET ROLE`. Se aplicó el script idempotente de init a
+   mano y quedó el puente `tempus_owner → tempus_migrator → tempus_login_definer`
+   como lo esperan las migraciones 0005/0008/0009/0010. En un despliegue nuevo no
+   aparece, porque el init lo crea en la primera inicialización.
+
+> Nota de infraestructura: en esta máquina el build de la imagen `backend` vía
+> `docker compose build` es inestable (el file-sharing de Docker Desktop corta la
+> transferencia del contexto a los ~2 minutos). Se construyó por stdin (`docker
+> build - < tar`), con un `.dockerignore` nuevo en `backend/` que excluye `.venv` y
+> caches (el contexto pasó de ~6 MB + walker lento a ~420 KB). `frontend/` también
+> sumó su `.dockerignore`.
+
 ### 7.2 Deuda de tipos: 122 errores de mypy
 
 `mypy app tests` **no pasa**. El desglose:
@@ -220,6 +256,29 @@ el cubo de `POST /public/bookings` con `asyncio.gather` de N requests paralelos
 (12 contra límite 5, y 5 contra límite 1) y exige que pasen exactamente L con el resto
 en 429. Los dos tests corren verdes de forma repetida (3/3 corridas), sobre la base
 real con la sesión propia de `enforce_rate_limit`.
+
+### 7.7 Fase 0.5 — Meta (Embedded Signup): implementado, validación viva pendiente
+
+**Estado 2026-10-09:** el arranque de la fase —lo que no necesita el chip— está
+implementado y testeado; la validación viva con Meta real y el registro del número
+**sí** están pendientes (dependen de la cuenta de Meta del equipo y del chip).
+
+Implementado en esta entrega:
+
+- `POST /api/v1/business/config/whatsapp/connect`: intercambia el `code` de Facebook
+  Login por credenciales server-side (`backend/app/modules/notifications/meta_signup.py`)
+  y guarda la conexión cifrada (Fernet) en `whatsapp_connections` como `pending`.
+- Botón "Conectar WhatsApp" en el panel (`ConfiguracionTab.tsx`): popup del SDK de
+  Facebook con scope `whatsapp_business_management` y `response_type: code`. La API
+  expone `meta_app_id` y `connect_config_id` (públicos) para que el frontend no lleve
+  variables VITE nuevas.
+- Webhook de Meta ya existente, solo documentado (`/api/v1/webhooks/whatsapp`).
+- `tests/integration/test_whatsapp_connect.py`: 6 escenarios con Meta mockeada.
+
+Pendiente (runbook completo en `docs/fase-05-meta.md`): crear la app Business en Meta
+for Developers, el WABA de plataforma sin número, las plantillas `recordatorio_24h` /
+`recordatorio_2h` (UTILITY, es_AR, **6 variables** en el orden de la outbox), y —cuando
+llegue el chip— registrar el número, aprobar plantillas y probar un envío real.
 
 ---
 
@@ -280,7 +339,8 @@ cd ../frontend && npm run dev
 ## 10. Checklist de publicación
 
 - [x] `docker compose build` funciona (§7.1) — hecho (2026-10-06)
-- [x] `python -m pytest` → 1184 passed (§1) — hecho
+- [x] `docker compose up` end-to-end (§7.1) — hecho (2026-10-09): entrada de migración + `/healthz` 200 en :8000
+- [x] `python -m pytest` → 1249 passed (§1) — hecho
 - [ ] `python -m mypy app/core app/modules/auth` → 0 errores — hecho
 - [ ] `python verificar_limites.py` → 5/5 — hecho
 - [ ] `python verificar_produccion.py` → 12/12 — hecho
