@@ -378,4 +378,28 @@ cd ../frontend && npm run dev
 - [x] `TEST_DATABASE_URL` del CI apunta a `tempus_test` (§7.5) — hecho (el workflow declara `/tempus_test`)
 - [x] `FORWARDED_ALLOW_IPS` documentado para el despliegue (§6) — el valor real se declara en infra, junto a las 5 variables
 - [x] Prueba de concurrencia sobre los cubos de rate limit (§7.6) — hecho (`tests/concurrency/test_rate_limit_concurrency.py`, 3/3 corridas verdes)
+- [x] Tag y release `v1.0.0-rc1` (2026-10-09) — hecho: tag anotado movido de `64766f5` → `23ba504`, release publicada
 - [ ] Las 5 variables obligatorias con valores reales de producción — **pendiente**
+
+---
+
+## Cierre — Release v1.0.0-rc1
+
+**Release: v1.0.0-rc1 — tag anotado creado y pusheado (2026-10-09).**
+
+El tag `v1.0.0-rc1` apuntaba originalmente a `64766f5` (2026-10-03, `fix(ci): check piso
+0003 irreversible sin downgrade base`), un hito **intermedio** del ciclo: se creó en la
+fecha de la primera ENTREGA, antes de D-3, la Fase 0.5 y la verificación final. Era
+lightweight, sin release ni referencias detrás. Se movió con `git tag -f -a` al estado
+verificado **`23ba504`** (tag anotado, objeto `76f5c70`) y se pusheó con
+`git push --force origin v1.0.0-rc1`.
+
+Release publicada (prerelease) desde el tag:
+
+- URL de la release: <https://github.com/alesioandresv-ops/Tempus/releases/tag/v1.0.0-rc1>
+- Commit del tag: `23ba504` (= HEAD verificado, `9ab2ab4..23ba504` pusheado)
+
+El contenido de la release resume `ENTREGA.md` §1/§10: D-3 (recordatorios WhatsApp 24h/2h),
+Fase 0.5 Meta parcial (Embedded Signup, sin chip), verificación final 13/13 + 15/15 y los
+gates de cierre. Pendiente para la v1.0.0 final: registrar el número del chip en el WABA y
+probar un envío real (runbook en `docs/fase-05-meta.md`).

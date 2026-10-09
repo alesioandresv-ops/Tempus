@@ -3,7 +3,8 @@
 SaaS multi-tenant de gestión de turnos con recordatorios automáticos por WhatsApp.
 Mercado inicial: Latinoamérica, en español.
 
-> **Estado actual: v1.0.0-rc1.** El backend, el frontend y la base están
+> **Estado actual: v1.0.0-rc1** — [release publicada](https://github.com/alesioandresv-ops/Tempus/releases/tag/v1.0.0-rc1).
+> El backend, el frontend y la base están
 > verificados contra PostgreSQL real; la suite completa y el checklist de la
 > entrega viven en [`ENTREGA.md`](ENTREGA.md#entrega--tempus-v100-rc1).
 >
