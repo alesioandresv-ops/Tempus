@@ -147,7 +147,7 @@ async def guardar_config(
             reminder_2h_template=reminder_2h_template or None,
             is_active=activo,
             status=WhatsAppConnectionStatus.ACTIVE,
-            )
+        )
         session.add(conexion)
     else:
         if phone_number_id is not None:

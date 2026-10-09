@@ -48,8 +48,12 @@ from app.models.enums import NotificationStatus, WhatsAppConnectionStatus
 from app.modules.auth.scopes import Scope
 from app.modules.auth.tokens import create_access_token
 from app.modules.bookings.service import BookingResult, create_booking
+
+# Se importa por su efecto secundario: sin `Business` en el metadata, la FK
+# `Service.business_id` no tiene contra que resolverse y el mapper falla al armar
+# la sesion. Quitarlo parece una limpieza y rompe los tests.
+from app.modules.businesses.models import Business  # noqa: F401
 from app.modules.notifications.models import WhatsAppConnection
-from app.modules.businesses.models import Business 
 from app.workers import outbox
 from httpx import AsyncClient
 from sqlalchemy import select, text
@@ -112,7 +116,6 @@ class _ClienteWhatsAppFake:
 
     async def close(self) -> None:
         pass
-
 
 
 @pytest_asyncio.fixture
@@ -493,6 +496,7 @@ async def test_plantillas_son_por_negocio(
     assert len(LLAMADAS) == 1
     assert LLAMADAS[0]["template_name"] == "mi_recordatorio_24h"
 
+
 async def test_config_whatsapp_default_inactivo(
     http_client,
     negocio_whatsapp: None,
@@ -510,6 +514,7 @@ async def test_config_whatsapp_default_inactivo(
     assert cuerpo["token_ultimos"] is None
     assert cuerpo["reminder_24h_template"] == "recordatorio_24h"
     assert cuerpo["reminder_2h_template"] == "recordatorio_2h"
+
 
 async def test_config_whatsapp_guarda_activa_y_cifra_el_token(
     http_client: AsyncClient,
