@@ -167,6 +167,13 @@ $env:DATABASE_MIGRATION_URL = 'postgresql+asyncpg://tempus_owner:<pw>@localhost:
 python verificar_produccion.py
 ```
 
+**Resultado 2026-10-09 (v1.0.0-rc1):** ambos scripts pasaron contra el entorno real.
+`verificar_limites.py` → 13/13 PASS contra uvicorn real en :8002 (login `[401×5, 429]`,
+reservas por IP `[404×10, 429]`, por teléfono `[404×5, 429]`, panel 200, tick 401).
+`verificar_produccion.py` → 15/15 PASS, exit 0, sin warnings, contra la base del
+compose y la local (ambas en head `0018_whatsapp_reminders`). Los 6 tests de
+`test_whatsapp_connect.py` (Fase 0.5) corren dentro de la suite.
+
 Los dos scripts de arriba tardan: cada uno espera a que expiren las ventanas de las
 corridas anteriores.
 

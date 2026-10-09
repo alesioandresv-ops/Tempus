@@ -16,9 +16,9 @@ importa: un checklist que solo lista lo que funciona no sirve para decidir.
 | Formato | 152 archivos, sin diferencias | `python -m ruff format --check .` |
 | Lint | sin errores en todo el repo | `python -m ruff check .` |
 | Tipos (crítico) | 0 errores en 12 archivos | `python -m mypy app/core app/modules/auth` |
-| Rate limiting §10.5 | 5/5 clases, contra uvicorn real | `python verificar_limites.py` |
+| Rate limiting §10.5 | 5/5 límites, 13 checks PASS (uvicorn real :8002) | ver «Verificación final» en §1 |
 | Flujo público E2E | 42 comprobaciones | `python diagnostico_bugs.py` |
-| Endurecimiento de producción | 12/12, leyendo `pg_proc` | `python verificar_produccion.py` |
+| Endurecimiento de producción | 15/15 PASS, exit 0, compose + local (head 0018) | ver «Verificación final» en §1 |
 | Migraciones | 1 head, `upgrade head` idempotente ×3 | ver abajo |
 | Higiene de archivos | sin BOM, sin mojibake, YAML válido | ver abajo |
 
@@ -48,6 +48,30 @@ rate limit de §7.6 y las comprobaciones de higiene sobre los archivos actuales.
 nuevos de `test_whatsapp_connect.py` + 8 comprobaciones de higiene por los dos `.py`
 nuevos (`meta_signup.py`, el propio test). Corrió completa contra `tempus_test` en
 PostgreSQL, con cero omitidos.
+
+### Verificación final (2026-10-09, v1.0.0-rc1, HEAD `9ab2ab4`)
+
+Los dos scripts de verificación corrieron contra el entorno real —no en memoria— y
+pasaron sin corregir nada:
+
+**`verificar_limites.py` → 13/13 PASS** contra un uvicorn real en `127.0.0.1:8002`
+(base local :5432, rol `tempus_app`), con el negocio `pelu-demo` (activo):
+
+| Límite (§10.5) | Medición |
+|---|---|
+| Login por IP — 5/min | `[401, 401, 401, 401, 401, 429]`, `Retry-After=51` — los fallidos cuentan |
+| Login de negocio | 200, token con `tid`, cookie de refresh `HttpOnly` |
+| Reserva pública por IP — 10/min | `[404×10, 429, 429]` — el intento 11 rebota |
+| Reserva pública por teléfono — 5/h | `[404×5, 429, 429]`; otro teléfono no rebota (404) |
+| El techo público no alcanza al panel | pública 200 y `/business/me` 200 con el mismo token |
+| Tick del scheduler | `[401×4]` — el secreto interno va antes que el límite |
+
+**`verificar_produccion.py` → 15/15 PASS, exit 0, sin warnings** contra las dos bases
+en head `0018_whatsapp_reminders`: la del compose (PostgreSQL 18.6, la del despliegue
+provisionado) y la local (PostgreSQL 18.0). Detalle por bloque en §8.
+
+Los pasajes quedaron registrados en el log del servidor: cada 401/429/200 con
+timestamp y `request_id`.
 
 ---
 
@@ -306,6 +330,11 @@ EXECUTE para poder escribir en cualquier tabla.
 
 `verificar_produccion.py` necesita `DATABASE_MIGRATION_URL` apuntando a la base real.
 
+Verificado el 2026-10-09 contra la base del compose y la base local (ambas en head
+`0018_whatsapp_reminders`): **15/15 comprobaciones PASS, exit 0**, sin warnings. La
+única línea INFO es `rate_limit_hit no existe como tabla`, que es correcta a propósito:
+`rate_limit_hit` es una **función**, no una tabla.
+
 ---
 
 ## 9. Instalación desde cero
@@ -341,9 +370,9 @@ cd ../frontend && npm run dev
 - [x] `docker compose build` funciona (§7.1) — hecho (2026-10-06)
 - [x] `docker compose up` end-to-end (§7.1) — hecho (2026-10-09): entrada de migración + `/healthz` 200 en :8000
 - [x] `python -m pytest` → 1249 passed (§1) — hecho
-- [ ] `python -m mypy app/core app/modules/auth` → 0 errores — hecho
-- [ ] `python verificar_limites.py` → 5/5 — hecho
-- [ ] `python verificar_produccion.py` → 12/12 — hecho
+- [x] `python -m mypy app/core app/modules/auth` → 0 errores — hecho
+- [x] `python verificar_limites.py` → 5/5 límites, 13/13 PASS (§1) — hecho (2026-10-09)
+- [x] `python verificar_produccion.py` → 15/15 PASS, exit 0, compose + local (§8) — hecho (2026-10-09)
 - [ ] `alembic upgrade head` idempotente (§2) — hecho
 - [x] Rama coherente con los triggers del CI (§7.3) — hecho (rama `master`, triggers `[master, main]`)
 - [x] `TEST_DATABASE_URL` del CI apunta a `tempus_test` (§7.5) — hecho (el workflow declara `/tempus_test`)
