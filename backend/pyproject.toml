@@ -10,7 +10,6 @@ requires-python = ">=3.13"
 #
 # Lo que todavia NO esta aca y por que (cada dependencia entra con la fase que la
 # necesita, no antes, para no pagar dependencias que nadie usa):
-#   cryptography           Fase 7 (WhatsApp). Cifrado en reposo de los tokens de Meta.
 #   fastapi-slim           no se usa: shadcn/ui es frontend, el slim de FastAPI solo
 #                          economiza en despliegue y con las 27 tablas aqui no
 #                          cambia nada.
@@ -53,6 +52,18 @@ dependencies = [
     # tener el archivo entero en memoria. Las alternativas tipo xlsxwriter
     # traen mas superficie de API para lo que aca son dos hojas.
     "openpyxl>=3.1",
+    # --- Fase D-3: recordatorios por WhatsApp (Cloud API) ---
+    # `outbox.py` y `integrations/whatsapp/client.py` hablan con la Graph API
+    # con un `httpx.AsyncClient` (no aiohttp: mas liviano y sin transport
+    # propio que mantener). Es dependencia de **produccion**, no de pruebas:
+    # la imagen de Docker se instala sin el extra `dev` y `app.main` importa
+    # la outbox al arrancar. Sin esto el contenedor muere con
+    # `ModuleNotFoundError: No module named 'httpx'`.
+    "httpx>=0.27",
+    # Fernet (cifrado simetrico en reposo de los tokens de WhatsApp de cada
+    # negocio, `app/core/encryption.py`). El mismo motivo que httpx: es codigo
+    # que corre en la API, no en el dev.
+    "cryptography>=42.0",
 ]
 
 [project.optional-dependencies]
@@ -60,7 +71,6 @@ dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "pytest-cov>=6.0",
-    "httpx>=0.27",            # cliente de pruebas para TestClient
     "ruff>=0.8",
     "mypy>=1.13",
     "types-python-dateutil>=2.9",

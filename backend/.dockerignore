@@ -1,0 +1,19 @@
+# Caches y entorno local que no deben entrar al contexto de build.
+#
+# Sin este archivo el contexto de `docker compose build backend` incluye `.venv`
+# (~175 MB y decenas de miles de archivos pequenos): el walker de BuildKit pasa
+# minutos y puede cancelarse. Lo que la imagen necesita es el codigo de la app,
+# `pyproject.toml` y `migrations/` + `alembic.ini` (el entrypoint corre
+# `alembic upgrade head` en cada arranque).
+.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.env
+.env.testing
+.env.*
+*.log

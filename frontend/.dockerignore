@@ -1,0 +1,9 @@
+# Caches y entorno local fuera del contexto de build.
+# `node_modules` se instala dentro de la imagen (Dockerfile: RUN npm install) y
+# el compose lo monta como volumen anonimo, asi que la copia del host no aporta
+# nada y hace el walker de BuildKit lento. `dist/` es salida de build.
+node_modules/
+dist/
+.env
+.env.*
+*.log
