@@ -36,6 +36,7 @@ import type {
   ClientesFiltro,
   WhatsappConfig,
   WhatsappConfigSave,
+  WhatsappConnectResult,
 } from '@/types'
 
 const API_BASE = '/api/v1'
@@ -771,5 +772,17 @@ export const api = {
     fetchApi<WhatsappConfig>('/business/config/whatsapp', {
       method: 'PUT',
       body: JSON.stringify(datos),
+    }),
+
+  /**
+   * Conectar WhatsApp (Embedded Signup, Fase 0.5). Intercambia el `code`
+   * de un solo uso que devuelve el login de Facebook por las credenciales
+   * del negocio; el intercambio ocurre del lado del servidor, el token
+   * nunca atraviesa el navegador.
+   */
+  conectarWhatsapp: (code: string, redirectUri?: string) =>
+    fetchApi<WhatsappConnectResult>('/business/config/whatsapp/connect', {
+      method: 'POST',
+      body: JSON.stringify({ code, redirect_uri: redirectUri }),
     }),
 }

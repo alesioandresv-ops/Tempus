@@ -448,6 +448,11 @@ export interface ClientesFiltro {
  * `token_ultimos` es el token real enmascarado (`••••` + últimos 4),
  * que basta para reconocer de qué cuenta de Meta se trata sin exponer
  * el secreto. `null` = no hay token guardado.
+ *
+ * `meta_app_id` y `connect_config_id` son los identificadores **públicos**
+ * de la app de Meta de la plataforma: el frontend los usa para abrir el
+ * flujo de "Conectar WhatsApp" (Fase 0.5). `null` = la plataforma no
+ * configuró la app y no se muestra el botón.
  */
 export interface WhatsappConfig {
   activo: boolean
@@ -455,6 +460,24 @@ export interface WhatsappConfig {
   token_ultimos: string | null
   reminder_24h_template: string
   reminder_2h_template: string
+  meta_app_id: string | null
+  connect_config_id: string | null
+}
+
+/**
+ * Resultado del endpoint Conectar WhatsApp. Nunca contiene el token.
+ *
+ * - `connected`: WABA encontrado y conexión guardada como pendiente
+ *   (o ya activa si el negocio tenía número). Falta registrar el número.
+ * - `sin_waba`: el usuario de Meta no tiene ningún WABA.
+ */
+export interface WhatsappConnectResult {
+  status: 'connected' | 'sin_waba'
+  mensaje: string
+  waba_id: string | null
+  waba_display_phone: string | null
+  phone_number_id: string | null
+  activo: boolean
 }
 
 /**

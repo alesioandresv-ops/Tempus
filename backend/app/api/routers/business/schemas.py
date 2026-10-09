@@ -724,13 +724,58 @@ class WhatsappConfigIn(BaseModel):
 
 
 class WhatsappConfigOut(BaseModel):
-    """Estado que ve el panel. El token nunca viaja en claro."""
+    """Estado que ve el panel. El token nunca viaja en claro.
+
+    `meta_app_id` y `connect_config_id` son datos **publicos** de la app de
+    Meta de la plataforma (un app id de Facebook es publico por definicion):
+    el frontend los usa para abrir el flujo de Conectar WhatsApp (Fase 0.5)
+    con el SDK de Facebook. `None` = la plataforma no configuro la app y el
+    boton no se muestra.
+    """
 
     activo: bool
     phone_number_id: str | None
     token_ultimos: str | None
     reminder_24h_template: str
     reminder_2h_template: str
+    meta_app_id: str | None = None
+    connect_config_id: str | None = None
+
+
+class WhatsappConnectIn(BaseModel):
+    """El `code` de un solo uso que el navegador recibio del login de Facebook.
+
+    `extra="forbid"` por la regla del archivo: un campo inventado seria un typo
+    ignorado en silencio. El exchange server-side es el unico camino aceptado
+    (el `client_secret` nunca viaja al navegador); el token resultante se guarda
+    cifrado en `whatsapp_connections`, nunca se devuelve.
+
+    `redirect_uri` tiene que coincidir con el redirect URI registrado en la app
+    de Meta para el login que emitio el code; los flujos basados en el SDK de
+    Facebook lo derivan de la pagina y no hace falta mandarlo.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=10, max_length=2048)
+    redirect_uri: str | None = Field(default=None, max_length=2048)
+
+
+class WhatsappConnectOut(BaseModel):
+    """Resultado del connect. Nunca contiene el token.
+
+    - `connected`: WABA encontrado y conexion guardada como `pending` (o ya
+      activa si el negocio tenia numero registrado). Falta registrar el numero.
+    - `sin_waba`: el usuario de Meta no tiene ningun WABA; hay que crearlo en
+      la consola de Meta y volver a conectar.
+    """
+
+    status: str
+    mensaje: str
+    waba_id: str | None = None
+    waba_display_phone: str | None = None
+    phone_number_id: str | None = None
+    activo: bool = False
 
 
 __all__ = [
@@ -772,4 +817,6 @@ __all__ = [
     "WalkinIn",
     "WhatsappConfigIn",
     "WhatsappConfigOut",
+    "WhatsappConnectIn",
+    "WhatsappConnectOut",
 ]

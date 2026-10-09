@@ -40,10 +40,11 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Body, Depends, Query, Response, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_tenant_session, limit_panel_por_usuario, require_scopes
-from app.api.errors import ConflictError, NotFoundError
+from app.api.errors import ConflictError, NotFoundError, ValidationError
 from app.api.routers.business.schemas import (
     AsignacionesIn,
     AsignacionServicioOut,
@@ -83,7 +84,10 @@ from app.api.routers.business.schemas import (
     WalkinIn,
     WhatsappConfigIn,
     WhatsappConfigOut,
+    WhatsappConnectIn,
+    WhatsappConnectOut,
 )
+from app.core.config import get_settings
 from app.core.time import now
 from app.models.enums import BookingStatus, BusinessUserRole
 from app.modules.auth.scopes import Scope
@@ -95,6 +99,7 @@ from app.modules.businesses import service as negocios
 from app.modules.businesses.models import Business
 from app.modules.customers import service as clientes
 from app.modules.notifications import config as whatsapp_config
+from app.modules.notifications import meta_signup
 from app.modules.notifications.models import NotificationRequest
 from app.modules.professionals import service as profesionales
 from app.modules.professionals.models import Professional
@@ -1462,6 +1467,98 @@ async def guardar_config_whatsapp(
         reminder_2h_template=datos.reminder_2h_template,
     )
     return WhatsappConfigOut(**asdict(config))
+
+
+@router.post(
+    "/config/whatsapp/connect",
+    response_model=WhatsappConnectOut,
+    summary="Conectar la cuenta de WhatsApp del negocio (Embedded Signup)",
+)
+async def conectar_whatsapp(
+    datos: WhatsappConnectIn,
+    sesion: Sesion,
+    principal: Annotated[Principal, Depends(require_scopes(Scope.BUSINESS_CONFIG_WRITE))],
+) -> WhatsappConnectOut:
+    """Intercambia el `code` de Facebook Login por credenciales de Meta.
+
+    El flujo de Conectar WhatsApp (Fase 0.5): el admin autoriza con su cuenta
+    de Facebook en un popup (`whatsapp_business_management`), el navegador
+    recibe un `code` de un solo uso y este endpoint lo cambia por un token de
+    acceso **del lado del servidor** --el `client_secret` nunca viaja al
+    navegador--, lee el WABA del negocio y guarda la conexion cifrada con
+    Fernet en `whatsapp_connections`.
+
+    El registro del numero queda **pendiente** a proposito: requiere el chip
+    con el SMS de verificacion de Meta, que no esta disponible en esta etapa.
+    La conexion se guarda como `pending` e inactiva (la outbox la saltea) y se
+    completa cuando el negocio registra el numero y activa el switch. Si el
+    negocio ya tenia numero y la conexion estaba activa, refrescar el token no
+    la apaga.
+    """
+    settings = get_settings()
+    if not settings.meta_app_id or not settings.meta_app_secret.get_secret_value():
+        raise ValidationError(
+            "Conectar WhatsApp no esta disponible: la plataforma no configuro la "
+            "app de Meta (META_APP_ID y META_APP_SECRET)."
+        )
+
+    try:
+        token = await meta_signup.intercambiar_code(
+            datos.code, datos.redirect_uri, settings=settings
+        )
+    except meta_signup.MetaSignupError as exc:
+        raise ValidationError(str(exc)) from exc
+
+    try:
+        wabas = await meta_signup.listar_wabas(token.access_token, settings=settings)
+    except meta_signup.MetaSignupError as exc:
+        raise ValidationError(str(exc)) from exc
+
+    if not wabas:
+        return WhatsappConnectOut(
+            status="sin_waba",
+            mensaje=(
+                "El usuario de Meta no tiene un WABA (cuenta de WhatsApp Business). "
+                "Crealo en la consola de Meta for Developers y volve a conectar."
+            ),
+        )
+
+    waba = wabas[0]
+    try:
+        config = await whatsapp_config.guardar_conexion_pendiente(
+            sesion,
+            _bid(principal),
+            access_token=token.access_token,
+            expires_in=token.expires_in,
+            waba_id=waba.waba_id,
+            display_phone=waba.display_phone,
+            phone_number_id=waba.phone_number_id,
+            quality_rating=waba.quality_rating,
+            messaging_limit_tier=waba.messaging_limit_tier,
+        )
+    except IntegrityError as exc:
+        # Unica conexion por WABA: si ya pertenece a otro negocio, el guardado
+        # choca con `uq_whatsapp_connections_waba_id`. Chequeo previo no hay a
+        # proposito --el dato que importa es el mismo que el constraint, y un
+        # guardado optimista con 409 al choque es mas simple que un SELECT +
+        # un race que igual habria que atrapar.
+        raise ConflictError("Esa cuenta de WhatsApp ya esta conectada a otro negocio.") from exc
+
+    mensaje = (
+        "Cuenta de WhatsApp conectada. Falta registrar el numero del WABA "
+        f"{waba.waba_id} (requiere el chip con el SMS de Meta) y activar el "
+        "switch de recordatorios."
+        if not config.activo
+        else "Conexion actualizada: el negocio ya tenia numero y sigue activo."
+    )
+    return WhatsappConnectOut(
+        status="connected",
+        mensaje=mensaje,
+        waba_id=waba.waba_id,
+        waba_display_phone=waba.display_phone,
+        phone_number_id=waba.phone_number_id,
+        activo=config.activo,
+    )
 
 
 # --------------------------------------------------------------------------- #

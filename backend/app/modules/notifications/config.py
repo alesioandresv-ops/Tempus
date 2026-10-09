@@ -29,8 +29,10 @@ conexion guarda solo los dos nombres de plantilla que la fase configura.
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from dataclasses import dataclass
+from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.errors import ValidationError
 from app.core.config import get_settings
 from app.core.encryption import decrypt_string, encrypt_string, mask_secret
+from app.core.time import now
 from app.models.enums import NotificationKind, WhatsAppConnectionStatus
 from app.modules.notifications.models import WhatsAppConnection
 
@@ -56,6 +59,11 @@ class WhatsappConfig:
     token_ultimos: str | None
     reminder_24h_template: str
     reminder_2h_template: str
+    #: Datos publicos de la app de Meta de la plataforma, para que el frontend
+    #: pueda abrir el flujo de Conectar WhatsApp (Fase 0.5). Vacios = el flujo
+    #: no esta disponible porque la plataforma no configuro la app.
+    meta_app_id: str | None = None
+    connect_config_id: str | None = None
 
 
 def plantilla_de(kind: str, conexion: WhatsAppConnection | None) -> str | None:
@@ -88,6 +96,7 @@ async def _conexion(session: AsyncSession, business_id: uuid.UUID) -> WhatsAppCo
 
 async def obtener_config(session: AsyncSession, business_id: uuid.UUID) -> WhatsappConfig:
     """El estado actual. Sin fila en la tabla, responde el default inactivo."""
+    settings = get_settings()
     conexion = await _conexion(session, business_id)
     if conexion is None:
         return WhatsappConfig(
@@ -96,6 +105,8 @@ async def obtener_config(session: AsyncSession, business_id: uuid.UUID) -> Whats
             token_ultimos=None,
             reminder_24h_template=TEMPLATE_24H_DEFAULT,
             reminder_2h_template=TEMPLATE_2H_DEFAULT,
+            meta_app_id=settings.meta_app_id or None,
+            connect_config_id=settings.meta_embedded_signup_config_id or None,
         )
 
     token = (
@@ -107,6 +118,8 @@ async def obtener_config(session: AsyncSession, business_id: uuid.UUID) -> Whats
         token_ultimos=mask_secret(token) if token else None,
         reminder_24h_template=conexion.reminder_24h_template or TEMPLATE_24H_DEFAULT,
         reminder_2h_template=conexion.reminder_2h_template or TEMPLATE_2H_DEFAULT,
+        meta_app_id=settings.meta_app_id or None,
+        connect_config_id=settings.meta_embedded_signup_config_id or None,
     )
 
 
@@ -175,10 +188,81 @@ async def guardar_config(
     return await obtener_config(session, business_id)
 
 
+async def guardar_conexion_pendiente(
+    session: AsyncSession,
+    business_id: uuid.UUID,
+    *,
+    access_token: str,
+    expires_in: int | None,
+    waba_id: str,
+    display_phone: str | None = None,
+    phone_number_id: str | None = None,
+    quality_rating: str | None = None,
+    messaging_limit_tier: str | None = None,
+) -> WhatsappConfig:
+    """Persiste el resultado del connect de Meta (Fase 0.5) como `pending`.
+
+    El connect trae el WABA y el token, y **todavia no** el numero: registrar el
+    telefono exige el chip con el SMS de verificacion de Meta. Se guarda la
+    conexion desactivada y `pending` con el token cifrado --la outbox la saltea,
+    y el dia que llega el chip el negocio repite el connect (o pega el Phone
+    Number ID en el PUT de configuracion y activa el switch) y pasa a `active`.
+
+    Idempotente: repetir el connect sobre el mismo WABA actualiza la fila en
+    vez de duplicarla. Si el WABA ya pertenece a **otro** negocio, el
+    `UniqueConstraint("waba_id")` falla con `IntegrityError`, que el router
+    traduce a un conflicto (409).
+
+    Si la conexion estaba **activa** (re-autenticacion de un negocio con numero
+    registrado, por ejemplo porque el token expiro), refrescar el token no la
+    apaga: conserva `is_active` y `status`. Si estaba inactiva o pendiente,
+    vuelve a `pending` hasta que se active con el switch.
+    """
+    conexion = await _conexion(session, business_id)
+    ahora = now()
+    expira = ahora.replace(tzinfo=dt.UTC) + timedelta(seconds=expires_in) if expires_in else None
+
+    if conexion is None:
+        conexion = WhatsAppConnection(
+            business_id=business_id,
+            phone_number_id=phone_number_id or "",
+            waba_id=waba_id,
+            display_phone=display_phone,
+            access_token_encrypted=encrypt_string(access_token),
+            quality_rating=quality_rating,
+            messaging_limit_tier=messaging_limit_tier,
+            is_active=False,
+            status=WhatsAppConnectionStatus.PENDING,
+            connected_at=ahora,
+            token_expires_at=expira,
+        )
+        session.add(conexion)
+    else:
+        conexion.waba_id = waba_id
+        conexion.access_token_encrypted = encrypt_string(access_token)
+        if display_phone is not None:
+            conexion.display_phone = display_phone
+        if phone_number_id:
+            conexion.phone_number_id = phone_number_id
+        if quality_rating is not None:
+            conexion.quality_rating = quality_rating
+        if messaging_limit_tier is not None:
+            conexion.messaging_limit_tier = messaging_limit_tier
+        if not conexion.can_send:
+            conexion.is_active = False
+            conexion.status = WhatsAppConnectionStatus.PENDING
+        conexion.connected_at = ahora
+        conexion.token_expires_at = expira
+
+    await session.flush()
+    return await obtener_config(session, business_id)
+
+
 __all__ = [
     "TEMPLATE_2H_DEFAULT",
     "TEMPLATE_24H_DEFAULT",
     "WhatsappConfig",
+    "guardar_conexion_pendiente",
     "guardar_config",
     "obtener_config",
     "plantilla_de",
