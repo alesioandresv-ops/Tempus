@@ -152,6 +152,29 @@ class RescheduleRequest(BaseModel):
     )
 
 
+class BookingPaymentOut(BaseModel):
+    """Estado del pago de una reserva (Fase 9.1).
+
+    Es `None` cuando el negocio no cobra por adelantado: la
+    reserva se confirmo en el acto y no hay pago que mostrar.
+    Mientras el pago esta pendiente, `init_point` es la URL de
+    checkout de Mercado Pago que el cliente tiene que abrir;
+    solo la respuesta de creacion la trae (caduca, no se
+    relee del historial).
+    """
+
+    status: str  # pending, in_process, approved, rejected, refunded
+    policy: str  # "deposit" o "full"
+    deposit_mode: str | None = None  # "fixed" o "percent"
+    deposit_amount: float = Field(description="Lo que se cobra ahora")
+    remaining: float = Field(description="Lo que se abona en el local")
+    preference_id: str | None = None
+    init_point: str | None = Field(
+        default=None,
+        description="URL de checkout de MP (solo la devuelve la creacion)",
+    )
+
+
 class BookingResponse(BaseModel):
     """Response con información de una reserva.
 
@@ -181,6 +204,7 @@ class BookingResponse(BaseModel):
     price: Decimal | None = None
     currency: str | None = None
     cancelled_at: dt.datetime | None = None
+    pago: BookingPaymentOut | None = None
 
 
 __all__ = [
@@ -190,6 +214,7 @@ __all__ = [
     "AvailabilitySlot",
     "AvailabilitySlotCandidatos",
     "BookingCreateRequest",
+    "BookingPaymentOut",
     "BookingResponse",
     "BusinessPublicInfo",
     "ProfessionalPublicInfo",

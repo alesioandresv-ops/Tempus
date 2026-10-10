@@ -485,6 +485,7 @@ async def create_booking(
     source: BookingSource = BookingSource.PUBLIC,
     notificar: bool = True,
     actor_user_id: uuid.UUID | None = None,
+    awaiting_payment: bool = False,
 ) -> BookingResult:
     """Crea una reserva de forma transaccional.
 
@@ -521,6 +522,12 @@ async def create_booking(
         actor_user_id: Usuario del panel que la registro, si la registro alguien.
             Va al evento de auditoria para que la historia diga *quien* agrego el
             turno a mano, y no solo que existe.
+        awaiting_payment: Reserva creada a la espera del pago (Fase 9.1).
+            Nace `pending_payment` en vez de `confirmed`: el horario **sigue
+            ocupado** (esta en `OCCUPYING_STATUSES`) pero no es turno
+            atendido hasta que el webhook de Mercado Pago confirme el pago.
+            Solo la usa el endpoint publico: el walk-in y el panel cobran
+            en el local y confirman en el acto.
 
     Returns:
         BookingResult con el ID de la reserva, el secure token y la fila creada.
@@ -618,10 +625,10 @@ async def create_booking(
         # aca se escribe `"confirmed"`, el objeto en memoria tiene un `str` y el
         # mismo objeto recien leido de la base tiene un `BookingStatus`. No es
         # cosmético--`Booking.occupies_calendar` hace `self.status.value` y revienta
-        # con `AttributeError: 'str' object has no attribute 'value'` sobre una fila
-        # recien creada, que es justo cuando se consulta. `cancel_booking` y el
-        # panel ya usaban el enum; este era el unico que no.
-        status=BookingStatus.CONFIRMED,
+        # `pending_payment` (Fase 9.1) ocupa la agenda igual: el
+        # horario queda reservado mientras el cliente paga, y el
+        # webhook lo confirma (o lo libera) segun el pago.
+        status=(BookingStatus.PENDING_PAYMENT if awaiting_payment else BookingStatus.CONFIRMED),
         source=source,
         created_by_user_id=actor_user_id,
         starts_at=starts_at,
@@ -707,7 +714,9 @@ async def create_booking(
         starts_at=starts_at,
         ends_at=ends_at,
         professional_id=professional.id,
-        status=BookingStatus.CONFIRMED,
+        # `booking.status`: con `awaiting_payment` es `pending_payment`,
+        # y el resultado tiene que decir lo que la fila dice.
+        status=booking.status,
         booking=booking,
     )
 

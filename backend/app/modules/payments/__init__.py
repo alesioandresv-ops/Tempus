@@ -23,6 +23,7 @@ from app.modules.payments.mercadopago import (
 )
 from app.modules.payments.models import BookingPayment, MpPaymentAccount, MpSubscription
 from app.modules.payments.pagos import aplicar_webhook_pago
+from app.modules.payments.reservas import calcular_pago_reserva, crear_pago_reserva
 from app.modules.payments.subscriptions import (
     activar_plan_pro,
     aplicar_webhook_suscripcion,
@@ -42,7 +43,9 @@ __all__ = [
     "aplicar_webhook_pago",
     "aplicar_webhook_suscripcion",
     "calcular_monto_servicio",
+    "calcular_pago_reserva",
     "cancelar_suscripcion",
+    "crear_pago_reserva",
     "estado_suscripcion",
     "guardar_cuenta",
     "guardar_politica_pago",

@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.time import now
 from app.models.enums import BookingStatus, MpPaymentStatus
 from app.modules.bookings.models import Booking
+from app.modules.notifications.scheduler import schedule_for_booking
 from app.modules.payments.models import BookingPayment
 
 #: Traduccion de los estados de pago de MP a los propios. Lo que no este aca se
@@ -108,6 +109,14 @@ async def aplicar_webhook_pago(
             reserva.cancelled_at = now()
             reserva.cancel_reason = "Pago rechazado por Mercado Pago"
             transicion = "cancelada"
+
+    if transicion == "confirmada" and reserva is not None:
+        # La reserva nacio `pending_payment` y sin recordatorios: no se
+        # le aviso al cliente nada porque el turno no estaba confirmado.
+        # El pago aprobado es el momento de la confirmacion, y aca se
+        # programan la confirmacion y los recordatorios. Es idempotente
+        # (no duplica filas si ya estaban programadas).
+        await schedule_for_booking(session, reserva)
 
     await session.flush()
     return {"aplicado": True, "pago_status": str(nuevo), "reserva": transicion}

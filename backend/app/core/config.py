@@ -230,6 +230,14 @@ class Settings(BaseSettings):
 
     # --- Frontend ----------------------------------------------------------
     vite_api_base_url: str = Field(default="http://localhost:8000/api/v1")
+    public_site_base_url: str = Field(
+        default="http://localhost:5173",
+        description=(
+            "URL publica del sitio (sin slash final). Es la base de los "
+            "back_urls del checkout de Mercado Pago: a donde vuelve el "
+            "cliente despues de pagar."
+        ),
+    )
     vite_turnstile_site_key: str = Field(default="")
     turnstile_secret: SecretStr = SecretStr("")
     turnstile_verify_url: str = Field(

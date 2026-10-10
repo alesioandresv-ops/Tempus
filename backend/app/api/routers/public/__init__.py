@@ -31,6 +31,7 @@ from app.api.routers.public.schemas import (
     AvailabilitySlot,
     AvailabilitySlotCandidatos,
     BookingCreateRequest,
+    BookingPaymentOut,
     BookingResponse,
     BusinessPublicInfo,
     ProfessionalPublicInfo,
@@ -58,6 +59,12 @@ from app.modules.bookings.service import (
 )
 from app.modules.businesses.models import Business
 from app.modules.customers.models import Customer
+from app.modules.payments.mercadopago import MercadoPagoError
+from app.modules.payments.models import BookingPayment
+from app.modules.payments.reservas import (
+    calcular_pago_reserva,
+    crear_pago_reserva,
+)
 from app.modules.professionals.models import Professional
 from app.modules.services.models import ProfessionalService, Service
 
@@ -547,6 +554,19 @@ async def create_booking_endpoint(
         # confiar en que el horario venga de una pantalla que el backend genero.
         agenda = ReglasAgenda.de_negocio(business)
 
+        # Politica de pago (Fase 9.1): si el negocio cobra seña o el
+        # total por adelantado, la reserva nace `pending_payment`--el
+        # horario queda ocupado pero no es turno atendido hasta que el
+        # webhook confirme el pago--y se crea la preference de checkout.
+        # Sin politica (o con monto en 0), la reserva se confirma en el
+        # acto, como siempre.
+        pago = await calcular_pago_reserva(
+            session,
+            business_id=business.id,
+            service_price=service.price,
+        )
+        requiere_pago = pago is not None
+
         # El profesional viene del slot que el cliente eligio. En "cualquier
         # profesional" llega `None` y el service elige entre los que pueden.
         try:
@@ -566,6 +586,11 @@ async def create_booking_endpoint(
                 local_date=request.local_date,
                 agenda=agenda,
                 idempotency_key=effective_key,
+                # Una reserva que espera el pago no confirma nada todavia:
+                # el aviso de "turno confirmado" es del webhook, cuando el
+                # pago sea aprobado, no de aca.
+                notificar=not requiere_pago,
+                awaiting_payment=requiere_pago,
             )
         except ValueError as e:
             # Todo `ValueError` de este camino --horario tomado, profesional que no
@@ -595,11 +620,43 @@ async def create_booking_endpoint(
                 ),
             )
 
-        return await _booking_response(
+        # El pago es el paso que sigue a tener la reserva: el
+        # `external_reference` de MP es el id de la reserva y la
+        # FK compuesta necesita la fila. Si MP esta caido, la
+        # excepcion deshace todo (no quedan turnos `pending_payment`
+        # sin forma de pagar) y el cliente reintenta.
+        vista_pago: dict[str, str] | None = None
+        if requiere_pago:
+            try:
+                vista_pago = await crear_pago_reserva(
+                    session,
+                    business=business,
+                    service=service,
+                    booking_id=booking_result.booking.id,
+                    secure_token=booking_result.secure_token,
+                    currency=booking_result.booking.currency,
+                    pago=pago,
+                )
+            except ValueError as exc:
+                # Sin cuenta de MP activa es un error de configuracion
+                # del negocio, no un fallo del cliente: 422 con el motivo.
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            except MercadoPagoError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=("No se pudo crear el checkout de pago. Reintentá en un momento."),
+                ) from exc
+
+        respuesta = await _booking_response(
             session,
             booking_result.booking,
             booking_result.secure_token,
         )
+        if requiere_pago and respuesta.pago is not None and vista_pago is not None:
+            # El `init_point` caduca y no se guarda: solo la respuesta
+            # de creacion lo trae. El GET por token muestra el estado.
+            respuesta.pago.init_point = vista_pago["init_point"]
+        return respuesta
 
 
 @asynccontextmanager
@@ -709,6 +766,14 @@ async def _booking_response(session: AsyncSession, booking: Booking, token: str)
     cust_result = await session.execute(select(Customer).where(Customer.id == booking.customer_id))
     customer = cust_result.scalar_one_or_none()
 
+    # El pago de la reserva, si la politica del negocio la cobra por
+    # adelantado. Sin fila de `booking_payments` no hubo cobro: la
+    # reserva se confirmo en el acto.
+    pago_fila = await session.scalar(
+        select(BookingPayment).where(BookingPayment.booking_id == booking.id)
+    )
+    pago = _pago_desde_fila(pago_fila, booking) if pago_fila else None
+
     return BookingResponse(
         booking_id=booking.id,
         secure_token=token,
@@ -728,6 +793,26 @@ async def _booking_response(session: AsyncSession, booking: Booking, token: str)
         business_name=business.name if business else None,
         business_phone=business.phone_e164 if business else None,
         business_slug=business.slug if business else None,
+        pago=pago,
+    )
+
+
+def _pago_desde_fila(fila: BookingPayment, booking: Booking) -> BookingPaymentOut:
+    """Proyecta el registro de pago a lo que ve el cliente.
+
+    El `remaining` sale del precio con que nacio la reserva
+    (`price_snapshot`) menos lo que se cobra ahora: es lo que el
+    cliente abona en el local, y es lo unico que le falta por pagar.
+    """
+    total = float(booking.price_snapshot)
+    depositado = float(fila.amount)
+    return BookingPaymentOut(
+        status=str(fila.status),
+        policy=str(fila.policy),
+        deposit_mode=str(fila.deposit_mode) if fila.deposit_mode else None,
+        deposit_amount=round(depositado, 2),
+        remaining=round(total - depositado, 2),
+        preference_id=fila.preference_id,
     )
 
 
