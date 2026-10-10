@@ -801,6 +801,10 @@ __all__ = [
     "HorarioProfesionalOut",
     "NegocioOut",
     "NegocioPatch",
+    "PaymentConfigIn",
+    "PaymentConfigOut",
+    "PaymentPolicyIn",
+    "PaymentPolicyOut",
     "ProfesionalCreate",
     "ProfesionalOut",
     "ProfesionalPatch",
@@ -812,6 +816,11 @@ __all__ = [
     "ServicioOut",
     "ServicioPatch",
     "SlugDisponibleOut",
+    "SubscriptionActivateIn",
+    "SubscriptionActivateOut",
+    "SubscriptionCancelIn",
+    "SubscriptionCancelOut",
+    "SubscriptionStatusOut",
     "VentanaIn",
     "VentanaOut",
     "WalkinIn",
@@ -820,3 +829,135 @@ __all__ = [
     "WhatsappConnectIn",
     "WhatsappConnectOut",
 ]
+
+
+# --------------------------------------------------------------------------- #
+# Configuracion de Pagos (Fase 9.1)
+# --------------------------------------------------------------------------- #
+
+
+class PaymentConfigIn(BaseModel):
+    """Lo que el admin puede guardar en la configuracion de pagos.
+
+    - `access_token=None` conserva el token guardado (se puede encender sin
+      volver a pegar el secreto).
+    - `public_key=None` conserva la key guardada.
+    - `sandbox=None` conserva el modo sandbox.
+    - `activo=None` enciende o apaga la cuenta (guardar cuenta inactiva es
+      valido: vuelve a encender es un click, no volver a pegar credenciales).
+    - Las politicas `None` conservan lo que haya.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    activo: bool
+    access_token: str | None = Field(default=None, min_length=10, max_length=512)
+    public_key: str | None = Field(default=None, min_length=10, max_length=512)
+    sandbox: bool | None = Field(default=None)
+
+
+class PaymentConfigOut(BaseModel):
+    """Estado que ve el panel. El token nunca viaja en claro.
+
+    `token_masked` muestra solo los ultimos 4 caracteres.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    activo: bool
+    token_masked: str | None
+    has_token: bool
+    created_at: str | None
+    updated_at: str | None
+
+
+class PaymentPolicyIn(BaseModel):
+    """Politica de pago que exige el negocio al crear una reserva.
+
+    - `none`: no se exige pago.
+    - `deposit`: exige seña (monto fijo o %).
+    - `full`: exige pago completo.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    policy: str  # "none", "deposit", "full"
+    deposit_mode: str | None = Field(
+        default=None, pattern=r"^(fixed|percent)$"
+    )  # "fixed" o "percent"
+    deposit_value: float | None = Field(default=None, ge=0)  # porcentaje (0-100) o monto fijo
+    deposit_non_refundable: bool = Field(default=False)  # si la seña no es reembolsable
+
+
+class PaymentPolicyOut(BaseModel):
+    """Estado visible de la politica de pago."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    policy: str
+    deposit_mode: str | None
+    deposit_value: float | None
+    deposit_non_refundable: bool
+
+
+class SubscriptionStatusOut(BaseModel):
+    """Estado de la suscripcion vista por el negocio."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    plan: str  # "free" o "pro"
+    status: str  # segun MpSubscriptionStatus: pending, active, paused, in_arrears, cancelled
+    preapproval_id: str | None
+    next_billing_at: str | None  # ISO format
+    activated_at: str | None
+    cancelled_at: str | None
+
+
+class SubscriptionActivateIn(BaseModel):
+    """Entrada para activar plan Pro."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    back_url: str
+    reason: str | None = Field(default="Suscripcion de plan Pro")
+    #: Unidad de la recurrencia de MP. El monto y el conteo los fija la
+    #: plataforma; el admin solo elige a donde vuelve tras autorizar.
+    frequency_type: str | None = Field(default="months", pattern=r"^(months|days)$")
+
+
+class SubscriptionActivateOut(BaseModel):
+    """Salida de activar plan Pro.
+
+    `init_point` es la URL de autorizacion del preapproval (sandbox o produccion
+    segun el flag de la cuenta). No hay `preference`: una suscripcion es un
+    preapproval, y el `init_point` sale de ahi.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    subscription_id: str  # preapproval_id de MP
+    preapproval_id: str
+    status: str
+    init_point: str
+    next_billing_at: str | None
+    transaction_amount: float
+    currency: str
+
+
+class SubscriptionCancelIn(BaseModel):
+    """Entrada para cancelar suscripcion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    motivo: str = "cancelado por admin"
+
+
+class SubscriptionCancelOut(BaseModel):
+    """Salida de cancelar suscripcion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    subscription_id: str
+    status: str
+    cancelled_at: str
+    plan: str  # ahora "free"

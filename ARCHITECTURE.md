@@ -67,19 +67,21 @@ whatsapp_connections(business_id UNIQUE, phone_number_id, token_encrypted)
 whatsapp_templates, notification_requests[booking_confirmed,professional_new,reminder_2h,reminder_1h], webhook_events
 jobs(business_id NULL), refresh_tokens(user_id NULL, platform_user_id NULL, token_hash, family_id), audit_log, media, slug_reservations(slug UNIQUE), rate_limit_buckets
 
-RLS: 20 con RLS FORCE (bookings, business_hours, etc) y 7 sin RLS: businesses, platform_users, slug_reservations, rate_limit_buckets, webhook_events, refresh_tokens, jobs.
+RLS: 23 con RLS FORCE (bookings, business_hours, etc) y 7 sin RLS: businesses, platform_users, slug_reservations, rate_limit_buckets, webhook_events, refresh_tokens, jobs. Los detalles de cuáles son globales y con qué permiso en §5.8.
 
 ### 5.8 Qué tablas llevan RLS y cuáles no
 
-De las 27 tablas, **20 llevan `ROW LEVEL SECURITY` y `FORCE ROW LEVEL SECURITY`**, y
+De las 30 tablas, **23 llevan `ROW LEVEL SECURITY` y `FORCE ROW LEVEL SECURITY`**, y
 7 no llevan ninguna de las dos. La lista no es una convención: está escrita en
-`app/models/__init__.py` como `GLOBAL_TABLES`, la aplica la migración `0002`, y
-`tests/unit/test_orm_metadata.py` falla si el modelo y la base se separan.
+`app/models/__init__.py` como `GLOBAL_TABLES`, la aplica la migración `0002` (y `0019`
+para las tablas de Mercado Pago), y `tests/unit/test_orm_metadata.py` falla si el
+modelo y la base se separan.
 
-**Las 20 con RLS**, todas de tenant:
-`audit_log`, `blocks`, `booking_events`, `bookings`, `business_exception_windows`,
-`business_exceptions`, `business_hours`, `business_users`, `customers`, `holidays`,
-`idempotency_keys`, `media`, `notification_requests`, `professional_schedules`,
+**Las 23 con RLS**, todas de tenant:
+`audit_log`, `blocks`, `booking_events`, `bookings`, `booking_payments`,
+`business_exception_windows`, `business_exceptions`, `business_hours`, `business_users`,
+`customers`, `holidays`, `idempotency_keys`, `media`, `mp_payment_accounts`,
+`mp_subscriptions`, `notification_requests`, `professional_schedules`,
 `professional_services`, `professionals`, `services`, `time_off`,
 `whatsapp_connections`, `whatsapp_templates`.
 
@@ -115,7 +117,7 @@ dejarlo implícito:
   para proteger metadatos, y el costo no está justificado mientras el hash impida
   el uso del token. **Es una decisión, no un olvido**, y por eso está escrita acá.
 
-**Total: de las 27 tablas, 20 con RLS y 7 sin ella.**
+**Total: de las 30 tablas, 23 con RLS y 7 sin ella.**
 
 ## 6. Relaciones
 Business 1--N Professional, Service, Customer, Booking

@@ -115,6 +115,24 @@ class Settings(BaseSettings):
     argon2_memory_cost: int = Field(default=65536, ge=1024)
     argon2_parallelism: int = Field(default=4, ge=1)
 
+    # --- Mercado Pago (Fase 9.1) -----------------------------------------
+    mercadopago_api_base_url: str = Field(
+        default="https://api.mercadopago.com",
+        description="Base URL de la API de Mercado Pago (sandbox o prod segun el token).",
+    )
+    mercadopago_webhook_secret: SecretStr = Field(
+        default=SecretStr(""),
+        description="Firma HMAC-SHA256 del webhook (opcional; si se deja vacio se aceptan todos en local).",
+    )
+    mercadopago_pro_plan_price: float = Field(
+        default=0.0,
+        ge=0,
+        description=(
+            "Precio mensual del plan Pro en la moneda del negocio. 0 desactiva la "
+            "activacion autoservicio (el endpoint responde 422 con el motivo)."
+        ),
+    )
+
     # --- Rate limiting -----------------------------------------------------
     rate_limit_enabled: bool = Field(default=True)
     rate_limit_login_per_ip: int = Field(default=5, ge=1)

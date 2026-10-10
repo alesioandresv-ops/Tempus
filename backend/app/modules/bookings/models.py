@@ -59,7 +59,11 @@ from app.models.sql_types import (
 
 # Estados que ocupan la agenda. Cancelar y completar sacan la fila del predicado
 # de la restriccion, que es lo que libera el horario sin borrar nada.
-OCCUPYING_STATUSES = ("confirmed", "pending_hold")
+#
+# `pending_payment` (Fase 9.1) tambien ocupa: un turno esperando el pago de la
+# seña reserva el horario igual que uno confirmado, para no ofrecer el hueco dos
+# veces mientras el cliente paga.
+OCCUPYING_STATUSES = ("confirmed", "pending_hold", "pending_payment")
 
 #: La columna de version la resuelve `__mapper_args__` pasando **el nombre del
 #: atributo**, no un string.

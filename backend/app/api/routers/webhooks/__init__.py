@@ -1,28 +1,39 @@
-"""Router de webhooks: recepción de eventos de Meta WhatsApp.
+"""Router de webhooks: recepción de eventos de Meta WhatsApp y Mercado Pago.
 
-Meta envía webhooks cuando:
-- Un cliente responde un mensaje
-- Un mensaje es entregado
-- Un mensaje es leído
-- Cambia el estado de una plantilla
+Meta envía webhooks cuando un cliente responde, un mensaje se entrega o se lee,
+o cambia el estado de una plantilla. Mercado Pago envía webhooks cuando cambia el
+estado de un preapproval (suscripción) o de un pago de reserva.
 
-Estos webhooks se procesan de forma asíncrona (se encolan como jobs).
+El webhook de Meta se guarda y se encola; el de Mercado Pago se aplica en el acto
+porque es el único camino por el que el plan `pro` y las reservas pagas cambian
+de estado. Los dos comparten `webhook_events` como registro idempotente.
 """
 
 from __future__ import annotations
 
 import hashlib
 import hmac
+import json
+import uuid
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
-from sqlalchemy import select
+from fastapi.responses import JSONResponse
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_settings_dep
 from app.core.config import Settings
 from app.core.logging import get_logger
-from app.db.session import session_scope
+from app.core.time import now
+from app.db.session import session_scope, tenant_session
 from app.models.enums import WebhookProvider, WebhookStatus
 from app.modules.notifications.models import WebhookEvent
+from app.modules.payments.config import decrypt_access_token
+from app.modules.payments.mercadopago import get_payment, get_preapproval
+from app.modules.payments.models import MpPaymentAccount
+from app.modules.payments.pagos import aplicar_webhook_pago
+from app.modules.payments.subscriptions import aplicar_webhook_suscripcion
 
 #: Unico provider aceptado. El enum `webhook_provider` tiene **solo** `meta`, asi
 #: que pasar `"whatsapp"` --que era lo que hacia este codigo-- no era un valor
@@ -30,6 +41,9 @@ from app.modules.notifications.models import WebhookEvent
 #: es un enum de PostgreSQL y no acepta un string fuera del conjunto. El sintoma era
 #: Meta reintentando el webhook para siempre y nunca guardando el evento.
 PROVIDER = WebhookProvider.META
+
+#: Provider de Mercado Pago (valor agregado al enum por `0019`).
+MP_PROVIDER = WebhookProvider.MERCADOPAGO
 
 logger = get_logger(__name__)
 
@@ -182,6 +196,217 @@ def _compute_signature(payload: bytes, app_secret: str) -> str:
         payload,
         hashlib.sha256,
     ).hexdigest()
+
+
+# --------------------------------------------------------------------------- #
+# Mercado Pago (Fase 9.1)
+# --------------------------------------------------------------------------- #
+
+#: Tipos de evento de MP que este endpoint sabe procesar. `subscription_preapproval`
+#: es el nombre nuevo del topico de preapproval; los dos caen en lo mismo.
+_PREAPPROVAL_TIPOS = frozenset({"preapproval", "subscription_preapproval"})
+_PAGO_TIPOS = frozenset({"payment"})
+
+
+def _mp_manifest(data_id: str, request_id: str | None, ts: str) -> str:
+    """Cadena que firma MP: `id:{data.id};request-id:{header};ts:{ts};`."""
+    return f"id:{data_id};request-id:{(request_id or '').lower()};ts:{ts};"
+
+
+def _verificar_firma_mp(
+    payload: dict[str, Any],
+    x_signature: str | None,
+    x_request_id: str | None,
+    secret: str,
+) -> bool:
+    """Valida el header `x-signature` (`ts=...,v1=...`) de Mercado Pago.
+
+    La firma cubre un manifest con el `data.id` del cuerpo, el `x-request-id` y el
+    `ts` del propio header. Se compara con `compare_digest` para no filtrar por
+    tiempo. Sin `v1` o sin `ts` no hay nada que comparar y se rechaza.
+    """
+    if not x_signature:
+        return False
+    partes: dict[str, str] = {}
+    for trozo in x_signature.split(","):
+        if "=" in trozo:
+            clave, valor = trozo.split("=", 1)
+            partes[clave.strip()] = valor.strip()
+    ts = partes.get("ts")
+    v1 = partes.get("v1")
+    if not ts or not v1:
+        return False
+    data = payload.get("data") or {}
+    manifest = _mp_manifest(str(data.get("id", "")), x_request_id, ts)
+    esperado = hmac.new(secret.encode(), manifest.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(esperado, v1)
+
+
+def _clasificar_mp_event(payload: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Devuelve `(kind, external_id)` segun el tipo de evento de MP.
+
+    `kind` es `preapproval` o `payment`; cualquier otro topico se ignora (devuelve
+    `(None, None)`). El `id` sale de `data.id`, con el formato viejo
+    (`topic`/`resource`) como respaldo.
+    """
+    tipo = str(payload.get("type") or payload.get("topic") or "").lower()
+    data = payload.get("data") or {}
+    externo = data.get("id") or payload.get("id") or payload.get("resource")
+    if not externo:
+        return (None, None)
+    external_id = str(externo)
+    if tipo in _PREAPPROVAL_TIPOS:
+        return ("preapproval", external_id)
+    if tipo in _PAGO_TIPOS:
+        return ("payment", external_id)
+    return (None, None)
+
+
+async def _resolver_negocio(kind: str, *candidatos: str | None) -> uuid.UUID | None:
+    """Resuelve el negocio de un evento de MP con la funcion de pre-tenant.
+
+    Prueba cada candidato (el id del recurso y, si vino, el `external_reference`)
+    contra `mercadopago_business_for_event`, que corre como el rol BYPASSRLS: es la
+    unica forma de saber de que negocio es un pago antes de tener el GUC.
+    """
+    for candidato in candidatos:
+        if not candidato:
+            continue
+        async with session_scope() as session:
+            encontrado = await session.scalar(
+                text("SELECT mercadopago_business_for_event(:kind, :ext)"),
+                {"kind": kind, "ext": candidato},
+            )
+        if encontrado is not None:
+            return encontrado if isinstance(encontrado, uuid.UUID) else uuid.UUID(str(encontrado))
+    return None
+
+
+async def _token_cuenta(session: AsyncSession, business_id: uuid.UUID) -> str | None:
+    """Access token descifrado de la cuenta activa del negocio, o `None`."""
+    cifrado = await session.scalar(
+        select(MpPaymentAccount.access_token_encrypted).where(
+            MpPaymentAccount.business_id == business_id,
+            MpPaymentAccount.is_active.is_(True),
+        )
+    )
+    return decrypt_access_token(cifrado) if cifrado else None
+
+
+async def _aplicar_evento(business_id: uuid.UUID, kind: str, external_id: str) -> dict[str, object]:
+    """Consulta el recurso en MP y lo aplica dentro de la sesion del tenant."""
+    async with tenant_session(business_id) as session:
+        token = await _token_cuenta(session, business_id)
+        if token is None:
+            return {"aplicado": False, "razon": "sin_cuenta"}
+        if kind == "preapproval":
+            info = await get_preapproval(token, external_id)
+            return await aplicar_webhook_suscripcion(
+                session,
+                business_id,
+                mp_status=info.status,
+                mp_next_billing_at=info.next_billing_at,
+            )
+        pago = await get_payment(token, external_id)
+        return await aplicar_webhook_pago(
+            session,
+            business_id,
+            payment_id=pago.payment_id,
+            external_reference=pago.external_reference,
+            mp_status=pago.status,
+        )
+
+
+@router.post(
+    "/mercadopago",
+    status_code=status.HTTP_200_OK,
+    summary="Recibir webhook de Mercado Pago",
+    responses={
+        200: {"description": "Webhook recibido y aplicado"},
+        400: {"description": "Firma o JSON invalidos"},
+        500: {"description": "Error transitorio; MP reintenta"},
+    },
+)
+async def receive_mercadopago_webhook(
+    request: Request,
+    x_signature: Annotated[str | None, Header(alias="x-signature")] = None,
+    x_request_id: Annotated[str | None, Header(alias="x-request-id")] = None,
+    settings: Settings = Depends(get_settings_dep),
+) -> Any:
+    """Recibe y aplica un webhook de Mercado Pago.
+
+    1. Verifica la firma HMAC-SHA256 **si** hay `MERCADOPAGO_WEBHOOK_SECRET`
+       configurado (en local puede ir vacio y se acepta sin verificar).
+    2. Registra el evento en `webhook_events` para idempotencia.
+    3. Resuelve el negocio con la funcion de pre-tenant y aplica el cambio con la
+       sesion del tenant: el plan `pro` y la confirmacion de reservas pasan por aca.
+
+    Devuelve 500 ante un error de procesamiento **a proposito**: MP reintenta, y el
+    reintento reusa la fila `FAILED` (no esta `PROCESSED`) para volver a aplicar. Un
+    evento ya `PROCESSED` se responde 200 sin tocar nada.
+    """
+    body = await request.body()
+    try:
+        payload = json.loads(body)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail="JSON inválido") from exc
+
+    secret = settings.mercadopago_webhook_secret.get_secret_value()
+    if secret and not _verificar_firma_mp(payload, x_signature, x_request_id, secret):
+        logger.warning("mp_webhook_firma_invalida")
+        raise HTTPException(status_code=400, detail="Firma inválida")
+
+    kind, external_id = _clasificar_mp_event(payload)
+    if kind is None or external_id is None:
+        logger.info("mp_webhook_ignorado")
+        return {"status": "ok"}
+
+    data = payload.get("data") or {}
+    external_reference = data.get("external_reference") or payload.get("external_reference")
+    # El hash del cuerpo distingue un reintento exacto de un cambio de estado: dos
+    # webhooks del mismo pago con estados distintos (pending y approved) no pueden
+    # compartir external_id, y un reintento identico si.
+    firma = hashlib.sha256(body).hexdigest()[:32]
+    event_external_id = f"{kind}:{external_id}:{firma}"
+
+    async with session_scope() as session:
+        evento = await session.scalar(
+            select(WebhookEvent).where(
+                WebhookEvent.provider == MP_PROVIDER,
+                WebhookEvent.external_id == event_external_id,
+            )
+        )
+        if evento is not None and evento.status == WebhookStatus.PROCESSED:
+            logger.info("mp_webhook_duplicado", external_id=event_external_id)
+            return {"status": "ok"}
+        if evento is None:
+            evento = WebhookEvent(
+                provider=MP_PROVIDER,
+                external_id=event_external_id,
+                event_type=kind,
+                payload=payload,
+                status=WebhookStatus.RECEIVED,
+            )
+            session.add(evento)
+
+        business_id = await _resolver_negocio(kind, external_id, external_reference)
+        if business_id is None:
+            logger.info("mp_webhook_sin_negocio", kind=kind, external_id=external_id)
+            evento.status = WebhookStatus.IGNORED
+            return {"status": "ok"}
+
+        try:
+            resultado = await _aplicar_evento(business_id, kind, external_id)
+        except Exception as exc:
+            logger.exception("mp_webhook_error", external_id=event_external_id)
+            evento.status = WebhookStatus.FAILED
+            evento.error = str(exc)[:2000]
+            return JSONResponse(status_code=500, content={"status": "error"})
+
+        evento.status = WebhookStatus.PROCESSED
+        evento.processed_at = now()
+        logger.info("mp_webhook_procesado", kind=kind, external_id=external_id)
+        return {"status": "ok", "resultado": {k: str(v) for k, v in resultado.items()}}
 
 
 __all__ = ["router"]

@@ -20,36 +20,40 @@ from sqlalchemy.types import Uuid
 
 #: Numero de tablas de §7. La arquitectura decia 26; el numero real es 27, porque
 #: el conteo original de la lista se saltó `webhook_events` (la unica tabla global
-#: que no es de plataforma). El desvio se documenta en `ARCHITECTURE.md`; aca se
-#: fija el valor que el codigo implementa, para que el desync falle en un test y
-#: no en una review.
-EXPECTED_TABLE_COUNT = 27
+#: que no es de plataforma). La Fase 9.1 sumo las tres de Mercado Pago
+#: (`mp_payment_accounts`, `mp_subscriptions`, `booking_payments`), asi que ahora son
+#: 30. El desvio se documenta en `ARCHITECTURE.md`; aca se fija el valor que el
+#: codigo implementa, para que el desync falle en un test y no en una review.
+EXPECTED_TABLE_COUNT = 30
 
 #: Las tablas que §7 nombra una por una. Comparar contra la lista en vez de
 #: contar es lo que hace util el test: al agregar una tabla sin updating la
 #: arquitectura, el nombre falta y el error dice cual.
 EXPECTED_TABLES = {
     # Globales (7)
-    "idempotency_keys",
     "businesses",
-    "platform_users",
-    "refresh_tokens",
-    "webhook_events",
-    "slug_reservations",
-    "rate_limit_buckets",
     "jobs",
-    # De tenant (20)
+    "platform_users",
+    "rate_limit_buckets",
+    "refresh_tokens",
+    "slug_reservations",
+    "webhook_events",
+    # De tenant (23)
     "audit_log",
     "blocks",
     "booking_events",
     "bookings",
+    "booking_payments",
     "business_exception_windows",
     "business_exceptions",
     "business_hours",
     "business_users",
     "customers",
     "holidays",
+    "idempotency_keys",
     "media",
+    "mp_payment_accounts",
+    "mp_subscriptions",
     "notification_requests",
     "professional_schedules",
     "professional_services",
@@ -256,7 +260,7 @@ class TestBookingExclusion:
         assert "professional_id" in ddl
 
     def test_solo_bloquea_los_estados_ocupantes(self) -> None:
-        """La predicado incluye `confirmed` y `pending_hold`, no los demas.
+        """La predicado incluye `confirmed`, `pending_hold` y `pending_payment`.
 
         Una reserva `cancelled` libera el horario: si `cancelled` no estuviera
         fuera del predicado, un turno cancelado seguiria bloqueando la agenda para
@@ -265,6 +269,7 @@ class TestBookingExclusion:
         ddl = _table_ddl("bookings")
         assert "confirmed" in ddl
         assert "pending_hold" in ddl
+        assert "pending_payment" in ddl
         # Los estados que no ocupan no pueden aparecer.
         assert "cancelled'" not in ddl.split("EXCLUDE USING gist")[1].split(")")[0]
 

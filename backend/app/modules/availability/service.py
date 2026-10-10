@@ -196,7 +196,7 @@ async def _load_occupied_intervals(
         select(Booking).where(
             Booking.professional_id == professional_id,
             Booking.local_date == local_date,
-            Booking.status.in_(["confirmed", "pending_hold"]),
+            Booking.status.in_(OCCUPYING_STATUSES),
         )
     )
     intervals = []

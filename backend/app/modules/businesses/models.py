@@ -15,12 +15,15 @@ Por eso el §5 lo dice explicitamente: no se usa como clave foranea en ningun la
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
     text,
@@ -29,11 +32,21 @@ from sqlalchemy.dialects.postgresql import CITEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, GlobalBase, TenantBase, tenant_unique_key
-from app.models.enums import BusinessStatus, MediaKind, MediaStatus
+from app.models.enums import (
+    BusinessPlan,
+    BusinessStatus,
+    DepositMode,
+    MediaKind,
+    MediaStatus,
+    PaymentPolicy,
+)
 from app.models.sql_types import (
+    business_plan_enum,
     business_status_enum,
+    deposit_mode_enum,
     media_kind_enum,
     media_status_enum,
+    payment_policy_enum,
 )
 
 
@@ -66,6 +79,21 @@ class Business(GlobalBase, Base):
     )
     status: Mapped[BusinessStatus] = mapped_column(
         business_status_enum, nullable=False, server_default=text("'trial'")
+    )
+    # Estado del plan (Fase 9.1). Es columna y no una tabla aparte: el downgrade
+    # a `free` por mora o cancelacion es un UPDATE de esta misma columna.
+    plan: Mapped[BusinessPlan] = mapped_column(
+        business_plan_enum, nullable=False, server_default=text("'free'")
+    )
+    # Politica de pago que el negocio exige al reservar online. El default
+    # `none` mantiene el comportamiento previo a la Fase 9.1: reservar no paga.
+    payment_policy: Mapped[PaymentPolicy] = mapped_column(
+        payment_policy_enum, nullable=False, server_default=text("'none'")
+    )
+    deposit_mode: Mapped[DepositMode | None] = mapped_column(deposit_mode_enum, nullable=True)
+    deposit_value: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    deposit_non_refundable: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
     )
     phone_e164: Mapped[str | None] = mapped_column(Text, nullable=True)
     address_text: Mapped[str | None] = mapped_column(Text, nullable=True)

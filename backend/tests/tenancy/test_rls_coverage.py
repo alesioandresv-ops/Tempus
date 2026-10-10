@@ -29,31 +29,52 @@ import pytest
 
 BACKEND = Path(__file__).resolve().parents[2]
 MIGRATION = BACKEND / "migrations" / "versions" / "0002_rls_triggers_grants.py"
+#: La migracion de Mercado Pago crea tres tablas de tenant y declara su RLS,
+#: triggers y grants ahi mismo, sin tocar las listas congeladas de 0002 (una
+#: migracion vieja no se edita para tablas que no existian cuando corrio). Este
+#: test une las dos declaraciones para que el invariante "el modelo y las
+#: migraciones de RLS dicen lo mismo" siga cubriendo las tablas nuevas.
+MIGRATION_MP = BACKEND / "migrations" / "versions" / "0019_mercado_pago.py"
 
 pytestmark = pytest.mark.tenancy
 
 
-def _load_migration() -> ModuleType:
-    """Carga 0002 como modulo sin pisar el registro de `sys.modules`.
+def _load_migration(path: Path) -> ModuleType:
+    """Carga una migracion como modulo sin pisar el registro de `sys.modules`.
 
-    Alembic importa el archivo con su propio loader de migraciones, asi que un
+    Alembic importa los archivos con su propio loader de migraciones, asi que un
     import normal puede devolver la copia cacheada o chocar con el modulo que creo
     Alembic. El `importlib` explicito con nombre propio evita las dos cosas.
     """
-    if MIGRATION.name in sys.modules:
-        return sys.modules[MIGRATION.name]
+    if path.name in sys.modules:
+        return sys.modules[path.name]
 
-    spec = importlib.util.spec_from_file_location(MIGRATION.stem, MIGRATION)
-    assert spec is not None and spec.loader is not None, f"no se pudo cargar {MIGRATION}"
+    spec = importlib.util.spec_from_file_location(path.stem, path)
+    assert spec is not None and spec.loader is not None, f"no se pudo cargar {path}"
     modulo = importlib.util.module_from_spec(spec)
-    sys.modules[MIGRATION.name] = modulo
+    sys.modules[path.name] = modulo
     spec.loader.exec_module(modulo)
     return modulo
 
 
 @pytest.fixture(scope="module")
 def migracion() -> ModuleType:
-    return _load_migration()
+    return _load_migration(MIGRATION)
+
+
+@pytest.fixture(scope="module")
+def migracion_mp() -> ModuleType:
+    return _load_migration(MIGRATION_MP)
+
+
+def _tenant_congeladas(migracion: ModuleType, migracion_mp: ModuleType) -> set[str]:
+    """Tablas de tenant declaradas sumando 0002 y las post-0002 que traen su RLS."""
+    return set(migracion.TENANT_TABLES) | set(migracion_mp.NUEVAS_TABLAS)
+
+
+def _timestamps_congeladas(migracion: ModuleType, migracion_mp: ModuleType) -> set[str]:
+    """Tablas con trigger de `updated_at`, sumando 0002 y las tablas nuevas."""
+    return set(migracion._TABLES_WITH_TIMESTAMPS) | set(migracion_mp.NUEVAS_TABLAS)
 
 
 def _tablas_del_modelo() -> set[str]:
@@ -71,8 +92,10 @@ def _tablas_del_modelo() -> set[str]:
 
 
 class TestTablasDeTenant:
-    def test_la_lista_congelada_iguala_las_tablas_del_modelo(self, migracion: ModuleType) -> None:
-        """Cada tabla con `business_id` en el modelo tiene su politica en 0002.
+    def test_la_lista_congelada_iguala_las_tablas_del_modelo(
+        self, migracion: ModuleType, migracion_mp: ModuleType
+    ) -> None:
+        """Cada tabla con `business_id` en el modelo tiene su politica en una migracion.
 
         La comparacion va en los dos sentidos a proposito. Solo "modelo ->
         migracion" detectaria una tabla nueva sin politica, que es el agujero de
@@ -82,17 +105,20 @@ class TestTablasDeTenant:
         """
         from app.models import TENANT_TABLES
 
-        congeladas = set(migracion.TENANT_TABLES)
+        congeladas = _tenant_congeladas(migracion, migracion_mp)
         modelo = set(TENANT_TABLES)
 
         assert congeladas - modelo == set(), (
-            f"0002 maneja tablas que el modelo ya no declara: {sorted(congeladas - modelo)}"
+            f"las migraciones manejan tablas que el modelo ya no declara: "
+            f"{sorted(congeladas - modelo)}"
         )
         assert modelo - congeladas == set(), (
-            f"tablas de tenant del modelo sin politica en 0002: {sorted(modelo - congeladas)}"
+            f"tablas de tenant del modelo sin politica: {sorted(modelo - congeladas)}"
         )
 
-    def test_jobs_no_esta_en_las_tablas_de_tenant(self, migracion: ModuleType) -> None:
+    def test_jobs_no_esta_en_las_tablas_de_tenant(
+        self, migracion: ModuleType, migracion_mp: ModuleType
+    ) -> None:
         """`jobs` es global con `business_id` nullable, y por eso no lleva RLS.
 
         Es la excepcion que hace que el invariante "toda tabla con `business_id`
@@ -102,7 +128,7 @@ class TestTablasDeTenant:
         """
         from app.models import GLOBAL_TABLES
 
-        assert "jobs" not in migracion.TENANT_TABLES
+        assert "jobs" not in _tenant_congeladas(migracion, migracion_mp)
         assert "jobs" in set(GLOBAL_TABLES)
 
     def test_whatsapp_templates_si_lleva_rls_pese_a_su_business_id_nullable(
@@ -121,14 +147,18 @@ class TestTablasDeTenant:
         assert "whatsapp_templates" in migracion.TENANT_TABLES
         assert Base.metadata.tables["whatsapp_templates"].c["business_id"].nullable is True
 
-    def test_las_tablas_de_tenant_existen_todas_en_la_metadata(self, migracion: ModuleType) -> None:
+    def test_las_tablas_de_tenant_existen_todas_en_la_metadata(
+        self, migracion: ModuleType, migracion_mp: ModuleType
+    ) -> None:
         conocidas = _tablas_del_modelo()
-        for tabla in migracion.TENANT_TABLES:
+        for tabla in _tenant_congeladas(migracion, migracion_mp):
             assert tabla in conocidas, f"{tabla} no existe en la metadata"
 
 
 class TestTimestamps:
-    def test_todas_las_tablas_del_modelo_estan_en_la_lista(self, migracion: ModuleType) -> None:
+    def test_todas_las_tablas_del_modelo_estan_en_la_lista(
+        self, migracion: ModuleType, migracion_mp: ModuleType
+    ) -> None:
         """El trigger de `updated_at` alcanza cada tabla que declara el mixin.
 
         Verificado de los dos lados. Si falta una tabla, nadie actualiza su
@@ -143,26 +173,30 @@ class TestTimestamps:
             for nombre, tabla in Base.metadata.tables.items()
             if {"created_at", "updated_at"} <= set(tabla.c.keys())
         }
-        congeladas = set(migracion._TABLES_WITH_TIMESTAMPS)
+        congeladas = _timestamps_congeladas(migracion, migracion_mp)
 
         assert congeladas - modelo == set(), (
-            f"0002 pone trigger en tablas sin timestamps: {sorted(congeladas - modelo)}"
+            f"las migraciones ponen trigger en tablas sin timestamps: {sorted(congeladas - modelo)}"
         )
         assert modelo - congeladas == set(), (
-            f"tablas con timestamps sin trigger en 0002: {sorted(modelo - congeladas)}"
+            f"tablas con timestamps sin trigger: {sorted(modelo - congeladas)}"
         )
 
     def test_la_lista_no_contiene_alembic_version(self, migracion: ModuleType) -> None:
         """Alembic gestiona su propia tabla y no debe llevar trigger de negocio."""
         assert "alembic_version" not in migracion._TABLES_WITH_TIMESTAMPS
 
-    def test_todas_las_tablas_de_tenant_tienen_trigger(self, migracion: ModuleType) -> None:
+    def test_todas_las_tablas_de_tenant_tienen_trigger(
+        self, migracion: ModuleType, migracion_mp: ModuleType
+    ) -> None:
         """Ninguna tabla filtrada se queda sin `updated_at`.
 
         El log de auditoria y la agenda del profesional se investigan por fecha de
         modificacion, asi que este cruce entre las dos listas no es decorativo.
         """
-        sin_trigger = set(migracion.TENANT_TABLES) - set(migracion._TABLES_WITH_TIMESTAMPS)
+        sin_trigger = _tenant_congeladas(migracion, migracion_mp) - _timestamps_congeladas(
+            migracion, migracion_mp
+        )
         assert sin_trigger == set(), f"tablas de tenant sin trigger: {sorted(sin_trigger)}"
 
 
@@ -200,20 +234,22 @@ class TestTablasProhibidas:
 
 
 class TestCoherenciaInterna:
-    def test_las_colecciones_no_se_solapan(self, migracion: ModuleType) -> None:
+    def test_las_colecciones_no_se_solapan(
+        self, migracion: ModuleType, migracion_mp: ModuleType
+    ) -> None:
         """Tenant y prohibidas no pueden compartir tablas.
 
         El solapamiento no rompe la migracion, porque el revoke corre despues del
         grant, pero vuelve ilegible la politica de permisos: nadie podria responder
         si una tabla prohibida tiene o no UPDATE.
         """
-        tenant = set(migracion.TENANT_TABLES)
+        tenant = _tenant_congeladas(migracion, migracion_mp)
         prohibidas = set(migracion.FORBIDDEN_FOR_APP_ROLE)
 
         assert tenant & prohibidas == set(), f"tenant y prohibida: {tenant & prohibidas}"
 
     def test_todas_las_tablas_de_la_migracion_existen_en_la_metadata(
-        self, migracion: ModuleType
+        self, migracion: ModuleType, migracion_mp: ModuleType
     ) -> None:
         """Ninguna lista nombra una tabla que no exista.
 
@@ -223,8 +259,8 @@ class TestCoherenciaInterna:
         """
         conocidas = _tablas_del_modelo()
         for nombre in (
-            migracion.TENANT_TABLES,
-            migracion._TABLES_WITH_TIMESTAMPS,
+            _tenant_congeladas(migracion, migracion_mp),
+            _timestamps_congeladas(migracion, migracion_mp),
             migracion.FORBIDDEN_FOR_APP_ROLE,
         ):
             assert set(nombre) <= conocidas, f"tablas inexistentes: {set(nombre) - conocidas}"

@@ -76,6 +76,7 @@ if TYPE_CHECKING:  # pragma: no cover - solo para el chequeo de tipos
         WhatsAppConnection,
         WhatsAppTemplate,
     )
+    from app.modules.payments.models import BookingPayment, MpPaymentAccount, MpSubscription
     from app.modules.professionals.models import Professional
     from app.modules.schedules.models import (
         Block,
@@ -137,6 +138,9 @@ _EXPORTS: dict[str, str] = {
     "WebhookEvent": "app.modules.notifications.models",
     "WhatsAppConnection": "app.modules.notifications.models",
     "WhatsAppTemplate": "app.modules.notifications.models",
+    "BookingPayment": "app.modules.payments.models",
+    "MpPaymentAccount": "app.modules.payments.models",
+    "MpSubscription": "app.modules.payments.models",
     "Professional": "app.modules.professionals.models",
     "Block": "app.modules.schedules.models",
     "BusinessException": "app.modules.schedules.models",
@@ -228,7 +232,7 @@ def _tablas() -> frozenset[str]:
 
 
 #: Modulos ya importados por `_importar_todos`. Es lo que evita que un acceso a
-#: `TABLE_COUNT` reimporte los 27 modelos en cada llamada.
+#: `TABLE_COUNT` reimporte los 30 modelos en cada llamada.
 _importados: set[str] = set()
 
 
@@ -258,7 +262,7 @@ def registrar_modelos() -> None:
     arriba-- y `target_metadata` queda vacio.
 
     Con la metadata vacia, `alembic check` y `--autogenerate` proponen **borrar las
-    27 tablas**: el diff es exactamente "remove_table" para cada una. El sintoma es
+    30 tablas**: el diff es exactamente "remove_table" para cada una. El sintoma es
     especialmente traicionero porque el grafo de migraciones esta impecable y
     `alembic heads` coincide; lo unico que cambia es el modelo, y este modulo--que
     "reexporta los modelos"-- es el que lo deja sin registrar.
@@ -281,7 +285,7 @@ def _constants() -> dict[str, Any]:
     se importo primero, y el fallo aparece en un test que compara `TABLE_COUNT`
     contra la documentacion sin senalar que la causa es el orden de importacion.
 
-    Recorrer 27 tablas y mirar sus columnas cuesta microsegundos, y a estos
+    Recorrer 30 tablas y mirar sus columnas cuesta microsegundos, y a estos
     niveles se lee una vez por proceso. El tradeoff es asimetrico y obvio: no
     cachear cuesta nanosegundos por arranque, cachear mal cuesta un bug que
     aparece sin relacion con su causa.
@@ -343,6 +347,7 @@ __all__ = [
     "Booking",
     "BookingEvent",
     "BookingEventType",
+    "BookingPayment",
     "BookingSource",
     "BookingStatus",
     "Business",
@@ -363,6 +368,8 @@ __all__ = [
     "MediaKind",
     "MediaStatus",
     "MembershipStatus",
+    "MpPaymentAccount",
+    "MpSubscription",
     "NotificationChannel",
     "NotificationKind",
     "NotificationRequest",

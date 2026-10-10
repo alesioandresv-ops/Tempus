@@ -20,16 +20,21 @@ from app.models.enums import (
     BookingEventType,
     BookingSource,
     BookingStatus,
+    BusinessPlan,
     BusinessStatus,
     BusinessUserRole,
+    DepositMode,
     JobKind,
     JobStatus,
     MediaKind,
     MediaStatus,
     MembershipStatus,
+    MpPaymentStatus,
+    MpSubscriptionStatus,
     NotificationChannel,
     NotificationKind,
     NotificationStatus,
+    PaymentPolicy,
     PlatformRole,
     TemplateStatus,
     TimeOffKind,
@@ -66,6 +71,11 @@ template_status_enum = _enum(TemplateStatus, "template_status")
 whatsapp_status_enum = _enum(WhatsAppConnectionStatus, "whatsapp_connection_status")
 job_status_enum = _enum(JobStatus, "job_status")
 job_kind_enum = _enum(JobKind, "job_kind")
+business_plan_enum = _enum(BusinessPlan, "business_plan")
+mp_subscription_status_enum = _enum(MpSubscriptionStatus, "mp_subscription_status")
+mp_payment_status_enum = _enum(MpPaymentStatus, "mp_payment_status")
+payment_policy_enum = _enum(PaymentPolicy, "payment_policy")
+deposit_mode_enum = _enum(DepositMode, "deposit_mode")
 
 __all__ = [
     "audit_actor_type_enum",
@@ -73,16 +83,21 @@ __all__ = [
     "booking_event_type_enum",
     "booking_source_enum",
     "booking_status_enum",
+    "business_plan_enum",
     "business_status_enum",
     "business_user_role_enum",
+    "deposit_mode_enum",
     "job_kind_enum",
     "job_status_enum",
     "media_kind_enum",
     "media_status_enum",
     "membership_status_enum",
+    "mp_payment_status_enum",
+    "mp_subscription_status_enum",
     "notification_channel_enum",
     "notification_kind_enum",
     "notification_status_enum",
+    "payment_policy_enum",
     "platform_role_enum",
     "template_status_enum",
     "time_off_kind_enum",

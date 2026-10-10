@@ -69,6 +69,10 @@ class PlatformRole(StrEnum):
 
 class BookingStatus(StrEnum):
     PENDING_HOLD = "pending_hold"
+    #: Nacida del flujo publico con pago exigido: el horario esta
+    #: reservado (ocupa la agenda) pero el servicio no se confirma hasta
+    #: que el pago sea aprobado (Fase 9.1).
+    PENDING_PAYMENT = "pending_payment"
     CONFIRMED = "confirmed"
     CANCELLED = "cancelled"
     COMPLETED = "completed"
@@ -146,6 +150,7 @@ class WebhookStatus(StrEnum):
 
 class WebhookProvider(StrEnum):
     META = "meta"
+    MERCADOPAGO = "mercadopago"
 
 
 class TemplateStatus(StrEnum):
@@ -196,22 +201,83 @@ class AuditActorType(StrEnum):
     SYSTEM = "system"
 
 
+class BusinessPlan(StrEnum):
+    """Plan del negocio (Fase 9.1).
+
+    `free` es el plan sin cobro (el unico que existia antes de la
+    Fase 9.1) y `pro` el de cobro recurrente via preapproval de
+    Mercado Pago. Es columna de `businesses` y no una tabla aparte
+    porque es un estado del negocio, no una entidad: el downgrade
+    por mora o cancelacion es un UPDATE de esta columna.
+    """
+
+    FREE = "free"
+    PRO = "pro"
+
+
+class MpSubscriptionStatus(StrEnum):
+    """Estado del preapproval de Mercado Pago.
+
+    Valores propios, no los de MP: `authorized` de MP es `active`
+    aca, y `suspended` se achica a `paused`, porque lo que importa
+    para la plataforma es la decision (cobra / no cobra / se fue),
+    no el vocabulario de MP.
+    """
+
+    PENDING = "pending"
+    ACTIVE = "active"
+    PAUSED = "paused"
+    IN_ARREARS = "in_arrears"
+    CANCELLED = "cancelled"
+
+
+class MpPaymentStatus(StrEnum):
+    """Estado del pago de una reserva, segun Mercado Pago."""
+
+    PENDING = "pending"
+    IN_PROCESS = "in_process"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    REFUNDED = "refunded"
+    PARTIALLY_REFUNDED = "partially_refunded"
+
+
+class PaymentPolicy(StrEnum):
+    """Que exige el negocio al reservar (Fase 9.1)."""
+
+    NONE = "none"
+    DEPOSIT = "deposit"
+    FULL = "full"
+
+
+class DepositMode(StrEnum):
+    """Como se calcula la seña cuando la politica es `deposit`."""
+
+    FIXED = "fixed"
+    PERCENT = "percent"
+
+
 __all__ = [
     "AuditActorType",
     "BlockKind",
     "BookingEventType",
     "BookingSource",
     "BookingStatus",
+    "BusinessPlan",
     "BusinessStatus",
     "BusinessUserRole",
+    "DepositMode",
     "JobKind",
     "JobStatus",
     "MediaKind",
     "MediaStatus",
     "MembershipStatus",
+    "MpPaymentStatus",
+    "MpSubscriptionStatus",
     "NotificationChannel",
     "NotificationKind",
     "NotificationStatus",
+    "PaymentPolicy",
     "PlatformRole",
     "StrEnum",
     "TemplateStatus",

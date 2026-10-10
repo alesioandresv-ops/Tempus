@@ -68,6 +68,10 @@ from app.api.routers.business.schemas import (
     NegocioOut,
     NegocioPatch,
     OcupacionProfesionalOut,
+    PaymentConfigIn,
+    PaymentConfigOut,
+    PaymentPolicyIn,
+    PaymentPolicyOut,
     ProfesionalCreate,
     ProfesionalOut,
     ProfesionalPatch,
@@ -80,6 +84,11 @@ from app.api.routers.business.schemas import (
     ServicioOut,
     ServicioPatch,
     SlugDisponibleOut,
+    SubscriptionActivateIn,
+    SubscriptionActivateOut,
+    SubscriptionCancelIn,
+    SubscriptionCancelOut,
+    SubscriptionStatusOut,
     VentanaOut,
     WalkinIn,
     WhatsappConfigIn,
@@ -88,6 +97,7 @@ from app.api.routers.business.schemas import (
     WhatsappConnectOut,
 )
 from app.core.config import get_settings
+from app.core.logging import get_logger
 from app.core.time import now
 from app.models.enums import BookingStatus, BusinessUserRole
 from app.modules.auth.scopes import Scope
@@ -101,6 +111,8 @@ from app.modules.customers import service as clientes
 from app.modules.notifications import config as whatsapp_config
 from app.modules.notifications import meta_signup
 from app.modules.notifications.models import NotificationRequest
+from app.modules.payments import config as pagos_config
+from app.modules.payments import subscriptions as suscripciones
 from app.modules.professionals import service as profesionales
 from app.modules.professionals.models import Professional
 from app.modules.schedules import service as horarios
@@ -113,6 +125,8 @@ router = APIRouter(
     tags=["Panel del negocio"],
     dependencies=[Depends(limit_panel_por_usuario)],
 )
+
+logger = get_logger(__name__)
 
 #: Sesion con el tenant del principal. Es la unica sesion que usan estos handlers:
 #: todas las tablas que tocan tienen RLS.
@@ -1613,6 +1627,222 @@ async def listar_notificaciones(
         }
         for n in result.scalars()
     ]
+
+
+# --------------------------------------------------------------------------- #
+# Configuracion de Pagos (Fase 9.1)
+# --------------------------------------------------------------------------- #
+
+
+@router.get(
+    "/config/payments",
+    response_model=PaymentConfigOut,
+    summary="Ver la configuracion de Mercado Pago",
+)
+async def ver_config_pagos(
+    sesion: Sesion,
+    principal: Annotated[Principal, Depends(require_scopes(Scope.BUSINESS_CONFIG_READ))],
+) -> PaymentConfigOut:
+    """Estado de la cuenta de Mercado Pago del negocio.
+
+    Sin fila en `mp_payment_accounts` responde el default inactivo. El access
+    token nunca vuelve: se muestra solo enmascarado (`****1234`) y una marca de
+    "hay token guardado", suficiente para reconocer la cuenta.
+    """
+    vista = await pagos_config.obtener_cuenta(sesion, _bid(principal))
+    if vista is None:
+        return PaymentConfigOut(
+            activo=False,
+            token_masked=None,
+            has_token=False,
+            created_at=None,
+            updated_at=None,
+        )
+    return _payment_config_out(vista)
+
+
+@router.put(
+    "/config/payments",
+    response_model=PaymentConfigOut,
+    summary="Guardar credenciales de Mercado Pago",
+)
+async def guardar_config_pagos(
+    datos: PaymentConfigIn,
+    sesion: Sesion,
+    principal: Annotated[Principal, Depends(require_scopes(Scope.BUSINESS_CONFIG_WRITE))],
+) -> PaymentConfigOut:
+    """Crea o actualiza la cuenta de Mercado Pago del negocio.
+
+    `access_token` viaja una sola vez y se guarda cifrado con Fernet
+    (`ENCRYPTION_KEY`); despues el panel solo ve la mascara. Guardar con
+    `access_token=None` y `activo=false` apaga la cuenta sin borrar el secreto:
+    volver a encender es un click, no volver a pegar el token.
+    """
+    try:
+        vista = await pagos_config.guardar_cuenta(
+            sesion,
+            _bid(principal),
+            access_token=datos.access_token,
+            public_key=datos.public_key,
+            sandbox=datos.sandbox,
+            is_active=datos.activo,
+        )
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    return _payment_config_out(vista)
+
+
+@router.get(
+    "/config/payments/policy",
+    response_model=PaymentPolicyOut,
+    summary="Ver la politica de pago de reservas",
+)
+async def ver_politica_pago(
+    sesion: Sesion,
+    principal: Annotated[Principal, Depends(require_scopes(Scope.BUSINESS_CONFIG_READ))],
+) -> PaymentPolicyOut:
+    """Que se exige al reservar online: nada, seña o pago completo.
+
+    El default es `none`: ningun negocio cambia su flujo de reserva hasta que
+    configura una politica a proposito.
+    """
+    politica = await pagos_config.obtener_politica_pago(sesion, _bid(principal))
+    if politica is None:
+        raise NotFoundError("El negocio no existe.")
+    return PaymentPolicyOut(**politica)
+
+
+@router.put(
+    "/config/payments/policy",
+    response_model=PaymentPolicyOut,
+    summary="Guardar la politica de pago de reservas",
+)
+async def guardar_politica_pago(
+    datos: PaymentPolicyIn,
+    sesion: Sesion,
+    principal: Annotated[Principal, Depends(require_scopes(Scope.BUSINESS_CONFIG_WRITE))],
+) -> PaymentPolicyOut:
+    """Guarda la politica de pago, validando la coherencia seña/porcentaje.
+
+    `deposit` exige `deposit_mode` y `deposit_value`; un porcentaje no puede pasar
+    de 100. La validacion vive en el servicio, que es quien conoce la regla, y el
+    router solo traduce el `ValueError` a un 422 con el motivo.
+    """
+    try:
+        politica = await pagos_config.guardar_politica_pago(
+            sesion,
+            _bid(principal),
+            policy=datos.policy,
+            deposit_mode=datos.deposit_mode,
+            deposit_value=datos.deposit_value,
+            deposit_non_refundable=datos.deposit_non_refundable,
+        )
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    return PaymentPolicyOut(**politica)
+
+
+@router.get(
+    "/suscripcion",
+    response_model=SubscriptionStatusOut,
+    summary="Ver el estado de la suscripcion del negocio",
+)
+async def ver_suscripcion(
+    sesion: Sesion,
+    principal: Annotated[Principal, Depends(require_scopes(Scope.BUSINESS_CONFIG_READ))],
+) -> SubscriptionStatusOut:
+    """Plan actual y estado del preapproval de Mercado Pago.
+
+    `status="none"` cuando nunca se activo Pro. El plan sale de `businesses.plan`
+    y el estado del registro de `mp_subscriptions`: son dos datos y pueden no
+    coincidir, que es justamente lo que el panel necesita ver.
+    """
+    estado = await suscripciones.estado_suscripcion(sesion, _bid(principal))
+    return SubscriptionStatusOut(**estado)
+
+
+@router.post(
+    "/suscripcion/activar",
+    response_model=SubscriptionActivateOut,
+    summary="Activar el plan Pro (suscripcion Mercado Pago)",
+)
+async def activar_suscripcion(
+    datos: SubscriptionActivateIn,
+    sesion: Sesion,
+    principal: Annotated[Principal, Depends(require_scopes(Scope.BUSINESS_CONFIG_WRITE))],
+) -> SubscriptionActivateOut:
+    """Crea el preapproval y devuelve la URL de autorizacion de MP.
+
+    El plan **no** cambia aca: pasa a `pro` cuando MP confirma por webhook. Esta
+    respuesta es solo el `init_point` al que el admin tiene que ir a autorizar el
+    cobro recurrente.
+    """
+    settings = get_settings()
+    precio = settings.mercadopago_pro_plan_price
+    if precio <= 0:
+        raise ValidationError(
+            "El plan Pro no tiene precio configurado: la plataforma debe definir "
+            "MERCADOPAGO_PRO_PLAN_PRICE."
+        )
+    try:
+        resultado = await suscripciones.activar_plan_pro(
+            sesion,
+            _bid(principal),
+            back_url=datos.back_url,
+            transaction_amount=precio,
+            reason=datos.reason or "Suscripcion de plan Pro",
+            frequency_type=datos.frequency_type or "months",
+        )
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    return SubscriptionActivateOut(
+        subscription_id=resultado["subscription_id"],
+        preapproval_id=resultado["preapproval_id"],
+        status=resultado["status"],
+        init_point=resultado["init_point"],
+        next_billing_at=resultado["next_billing_at"],
+        transaction_amount=resultado["amount"],
+        currency=resultado["currency"],
+    )
+
+
+@router.post(
+    "/suscripcion/cancelar",
+    response_model=SubscriptionCancelOut,
+    summary="Cancelar la suscripcion Pro",
+)
+async def cancelar_suscripcion(
+    datos: SubscriptionCancelIn,
+    sesion: Sesion,
+    principal: Annotated[Principal, Depends(require_scopes(Scope.BUSINESS_CONFIG_WRITE))],
+) -> SubscriptionCancelOut:
+    """Da de baja el preapproval y devuelve el negocio al plan `free`.
+
+    Aun si MP falla, el corte local se hace igual: es peor seguir mostrando una
+    suscripcion que ya no se va a poder cancelar. `motivo` se registra en el log.
+    """
+    try:
+        resultado = await suscripciones.cancelar_suscripcion(sesion, _bid(principal))
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    logger.info("suscripcion_cancelada", motivo=datos.motivo)
+    return SubscriptionCancelOut(**resultado)
+
+
+def _payment_config_out(vista: dict[str, Any]) -> PaymentConfigOut:
+    """Proyecta la vista del servicio al schema del panel.
+
+    `PaymentConfigOut` tiene `extra="forbid"`, asi que no se puede volcar la vista
+    entera (trae `business_id` y `sandbox`, que el panel no usa): se arma campo por
+    campo.
+    """
+    return PaymentConfigOut(
+        activo=vista["activo"],
+        token_masked=vista["token_masked"],
+        has_token=vista["has_token"],
+        created_at=vista["created_at"],
+        updated_at=vista["updated_at"],
+    )
 
 
 __all__ = ["router"]
