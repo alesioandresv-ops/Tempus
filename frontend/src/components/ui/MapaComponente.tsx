@@ -49,6 +49,7 @@ export const MapaComponente: React.FC<{
 }> = ({ latInicial, lngInicial, onCoordenadasCambio }) => {
   const mapaContenedorRef = useRef<HTMLDivElement>(null)
   const mapaRef = useRef<MapaGL | null>(null)
+  const markerRef = useRef<MarkerGL | null>(null)
   const [lat, setLat] = useState<number>(
     coordenadasValidas(latInicial) ? latInicial : CENTRO_DEFECTO.lat,
   )
@@ -83,6 +84,7 @@ export const MapaComponente: React.FC<{
     const marker = new MarkerGL({ color: 'red' })
       .setLngLat([lng, lat])
       .addTo(mapa)
+    markerRef.current = marker
 
     // Hacer el marker arrastrable
     marker.setDraggable(true)
@@ -98,6 +100,7 @@ export const MapaComponente: React.FC<{
     return () => {
       clearTimeout(temporizadorResize)
       marker.remove()
+      markerRef.current = null
       mapa.remove()
       mapaRef.current = null
     }
@@ -117,11 +120,21 @@ export const MapaComponente: React.FC<{
         setUbicacionValida(true)
         setObteniendoUbicacion(false)
         onCoordenadasCambio(coords.latitude, coords.longitude)
+
+        // Llevar el mapa y el marker hasta la ubicacion encontrada: sin esto
+        // las coordenadas cambian pero el mapa se queda donde estaba.
+        mapaRef.current?.flyTo({
+          center: [coords.longitude, coords.latitude],
+          zoom: 16,
+          essential: true,
+        })
+        markerRef.current?.setLngLat([coords.longitude, coords.latitude])
       },
       (error) => {
         console.error('Error al obtener ubicación:', error)
         setObteniendoUbicacion(false)
       },
+      { enableHighAccuracy: true },
     )
   }
 
