@@ -21,6 +21,23 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 //: mar abierto. Paso de los Libres (Corrientes) es el default util.
 const CENTRO_DEFECTO = { lat: -29.6868, lng: -57.0976 } as const
 
+//: Estilo raster inline con los tiles de OSM. No depende de
+//: `demotiles.maplibre.org` (bloqueado en la red de la escuela, el mapa
+//: quedaba en blanco) ni de una API key. Un tile template suelto no es un
+//: style: MapLibre espera este JSON con `sources` y `layers`.
+const OSM_STYLE = {
+  version: 8,
+  sources: {
+    osm: {
+      type: 'raster' as const,
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '© OpenStreetMap contributors',
+    },
+  },
+  layers: [{ id: 'osm', type: 'raster' as const, source: 'osm' }],
+}
+
 function coordenadasValidas(v: unknown): v is number {
   return typeof v === 'number' && !Number.isNaN(v) && v !== 0
 }
@@ -51,11 +68,17 @@ export const MapaComponente: React.FC<{
 
     const mapa = new MapaGL({
       container: mapaContenedorRef.current,
-      style: 'https://demotiles.maplibre.org/style.json',
+      style: OSM_STYLE as any,
       center: [lng, lat],
       zoom: 15,
     })
     mapaRef.current = mapa
+
+    // El mapa puede montarse dentro de una pestaña oculta: el canvas no sabe
+    // su tamaño hasta que recibe un resize. Se fuerza al cargar y una vez mas
+    // cuando el layout ya asento.
+    mapa.on('load', () => mapa.resize())
+    const temporizadorResize = setTimeout(() => mapa.resize(), 300)
 
     const marker = new MarkerGL({ color: 'red' })
       .setLngLat([lng, lat])
@@ -73,6 +96,7 @@ export const MapaComponente: React.FC<{
     })
 
     return () => {
+      clearTimeout(temporizadorResize)
       marker.remove()
       mapa.remove()
       mapaRef.current = null
