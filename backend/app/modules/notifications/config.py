@@ -42,6 +42,7 @@ from app.core.config import get_settings
 from app.core.encryption import decrypt_string, encrypt_string, mask_secret
 from app.core.time import now
 from app.models.enums import NotificationKind, WhatsAppConnectionStatus
+from app.modules.businesses.models import Business
 from app.modules.notifications.models import WhatsAppConnection
 
 #: Nombres de plantilla por defecto (Fase D-3). Meta las aprueba por nombre;
@@ -59,6 +60,10 @@ class WhatsappConfig:
     token_ultimos: str | None
     reminder_24h_template: str
     reminder_2h_template: str
+    #: Coordenadas del negocio (Fase 9.2). Viven en `businesses`, no en la
+    #: conexion: el mapa del panel las setea y las devuelve tal cual.
+    latitude: float | None = None
+    longitude: float | None = None
     #: Datos publicos de la app de Meta de la plataforma, para que el frontend
     #: pueda abrir el flujo de Conectar WhatsApp (Fase 0.5). Vacios = el flujo
     #: no esta disponible porque la plataforma no configuro la app.
@@ -97,6 +102,9 @@ async def _conexion(session: AsyncSession, business_id: uuid.UUID) -> WhatsAppCo
 async def obtener_config(session: AsyncSession, business_id: uuid.UUID) -> WhatsappConfig:
     """El estado actual. Sin fila en la tabla, responde el default inactivo."""
     settings = get_settings()
+    negocio = await session.get(Business, business_id)
+    latitude = negocio.latitude if negocio is not None else None
+    longitude = negocio.longitude if negocio is not None else None
     conexion = await _conexion(session, business_id)
     if conexion is None:
         return WhatsappConfig(
@@ -105,6 +113,8 @@ async def obtener_config(session: AsyncSession, business_id: uuid.UUID) -> Whats
             token_ultimos=None,
             reminder_24h_template=TEMPLATE_24H_DEFAULT,
             reminder_2h_template=TEMPLATE_2H_DEFAULT,
+            latitude=latitude,
+            longitude=longitude,
             meta_app_id=settings.meta_app_id or None,
             connect_config_id=settings.meta_embedded_signup_config_id or None,
         )
@@ -118,6 +128,8 @@ async def obtener_config(session: AsyncSession, business_id: uuid.UUID) -> Whats
         token_ultimos=mask_secret(token) if token else None,
         reminder_24h_template=conexion.reminder_24h_template or TEMPLATE_24H_DEFAULT,
         reminder_2h_template=conexion.reminder_2h_template or TEMPLATE_2H_DEFAULT,
+        latitude=latitude,
+        longitude=longitude,
         meta_app_id=settings.meta_app_id or None,
         connect_config_id=settings.meta_embedded_signup_config_id or None,
     )
@@ -132,6 +144,8 @@ async def guardar_config(
     access_token: str | None,
     reminder_24h_template: str | None,
     reminder_2h_template: str | None,
+    latitude: float | None = None,
+    longitude: float | None = None,
 ) -> WhatsappConfig:
     """Crea o actualiza la conexion del negocio. Idempotente.
 
@@ -139,19 +153,30 @@ async def guardar_config(
     se puede encender sin volver a pegar el secreto. `phone_number_id=None` y
     las plantillas `None` conservan lo que haya. Desactivar (`activo=false`)
     conserva las credenciales para reactivar con un click.
+
+    Las coordenadas del negocio (Fase 9.2) viven en `businesses`: escribir
+    `latitude`/`longitude` por separado de la conexion, y `None` conserva la
+    posicion actual del mapa.
     """
+    # Las coordenadas se persisten primero y fuera de la conexion: aunque el
+    # resto de la config no tenga nada que guardar (early return abajo), el
+    # mapa ya dejo una posicion nueva.
+    if latitude is not None or longitude is not None:
+        negocio = await session.get(Business, business_id)
+        if negocio is None:
+            raise ValidationError("El negocio no existe.")
+        if latitude is not None:
+            negocio.latitude = latitude
+        if longitude is not None:
+            negocio.longitude = longitude
+
     conexion = await _conexion(session, business_id)
 
     if conexion is None:
         if not activo and not phone_number_id and not access_token:
-            # Nada que persistir: piden el estado por defecto.
-            return WhatsappConfig(
-                activo=False,
-                phone_number_id=None,
-                token_ultimos=None,
-                reminder_24h_template=TEMPLATE_24H_DEFAULT,
-                reminder_2h_template=TEMPLATE_2H_DEFAULT,
-            )
+            # Nada que persistir en la conexion: respondo el estado por
+            # defecto (con las coordenadas que acabo de escribir).
+            return await obtener_config(session, business_id)
         conexion = WhatsAppConnection(
             business_id=business_id,
             phone_number_id=phone_number_id or "",

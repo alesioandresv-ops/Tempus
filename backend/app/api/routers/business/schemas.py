@@ -721,6 +721,10 @@ class WhatsappConfigIn(BaseModel):
     reminder_2h_template: str | None = Field(
         default=None, min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_]+$"
     )
+    #: Coordenadas del negocio (Fase 9.2): se guardan en `businesses`, no en
+    #: la conexion. `None` = conservar lo que haya.
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
 
 
 class WhatsappConfigOut(BaseModel):
@@ -740,6 +744,8 @@ class WhatsappConfigOut(BaseModel):
     reminder_2h_template: str
     meta_app_id: str | None = None
     connect_config_id: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 class WhatsappConnectIn(BaseModel):

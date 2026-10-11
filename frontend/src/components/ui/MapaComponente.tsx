@@ -56,7 +56,7 @@ export const MapaComponente: React.FC<{
     }, []);
 
     const initMapa = () => {
-        const mapa = new (window as any).MaplibreGL.map({
+        const mapa = new (window as any).maplibregl.map({
             container: mapaRef.current,
             style: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
             center: [lng, lat],
@@ -64,7 +64,7 @@ export const MapaComponente: React.FC<{
         });
 
         // Marker inicial
-        const marker = new (window as any).MaplibreGL.Marker({ color: "red" })
+        const marker = new (window as any).maplibregl.Marker({ color: "red" })
             .setLngLat([lng, lat])
             .addTo(mapa);
 

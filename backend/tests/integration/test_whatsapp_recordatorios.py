@@ -19,8 +19,9 @@ Lo que se prueba aca es el camino completo, con la base de por medio:
 5. **El endpoint de configuracion**: default inactivo, guardar
    activa (con token cifrado y enmascarado en la respuesta),
    conservar el token al guardarlo sin pegarlo de nuevo, desactivar
-   sin borrar credenciales, y `staff` no puede guardar (es configur
-   de dueno).
+   sin borrar credenciales, `staff` no puede guardar (es configuracion
+   de dueno), y las coordenadas del mapa (Fase 9.3) se guardan en
+   `businesses` y vuelven por el GET aunque la conexion este apagada.
 
 El drain corre contra filas **commiteadas de verdad**: abre su propia
 sesion con el GUC del tenant, y una sesion dentro de la transaccion
@@ -52,7 +53,7 @@ from app.modules.bookings.service import BookingResult, create_booking
 # Se importa por su efecto secundario: sin `Business` en el metadata, la FK
 # `Service.business_id` no tiene contra que resolverse y el mapper falla al armar
 # la sesion. Quitarlo parece una limpieza y rompe los tests.
-from app.modules.businesses.models import Business  # noqa: F401
+from app.modules.businesses.models import Business
 from app.modules.notifications.models import WhatsAppConnection
 from app.workers import outbox
 from httpx import AsyncClient
@@ -569,6 +570,54 @@ async def test_config_whatsapp_guarda_activa_y_cifra_el_token(
     assert conexion.access_token_encrypted != TOKEN_WS
     assert decrypt_string(conexion.access_token_encrypted) == TOKEN_WS
     assert conexion.is_active is True
+
+
+async def test_config_whatsapp_guarda_coordenadas_del_negocio(
+    http_client: AsyncClient,
+    session: AsyncSession,
+    negocio_whatsapp: None,
+    set_tenant,
+) -> None:
+    """Fase 9.3: lat/lng viajan en el PUT y viven en `businesses`, no en la conexion.
+
+    Las coordenadas del mapa se pueden guardar aunque los recordatorios
+    esten apagados y no haya credenciales: el early-return del servicio
+    persiste el mapa igual, y el GET las devuelve sin importar el estado.
+    """
+    await set_tenant(BUSINESS_WS)
+
+    # Apagado y sin credenciales: igual debe persistir la posicion nueva.
+    primera = await http_client.put(
+        "/api/v1/business/config/whatsapp",
+        headers=_auth_header(_token_admin()),
+        json={"activo": False, "latitude": -34.6037, "longitude": -58.3816},
+    )
+    assert primera.status_code == 200
+    assert primera.json()["latitude"] == pytest.approx(-34.6037)
+    assert primera.json()["longitude"] == pytest.approx(-58.3816)
+
+    # La fila del negocio quedo con las coordenadas (no la conexion).
+    negocio = (
+        (await session.execute(select(Business).where(Business.id == BUSINESS_WS))).scalars().one()
+    )
+    assert negocio.latitude == pytest.approx(-34.6037)
+    assert negocio.longitude == pytest.approx(-58.3816)
+
+    # El GET las devuelve tal cual.
+    respuesta_get = await http_client.get(
+        "/api/v1/business/config/whatsapp", headers=_auth_header(_token_admin())
+    )
+    assert respuesta_get.status_code == 200
+    assert respuesta_get.json()["latitude"] == pytest.approx(-34.6037)
+    assert respuesta_get.json()["longitude"] == pytest.approx(-58.3816)
+
+    # Fuera de rango geografico: el schema lo rechaza antes de tocar la base.
+    invalida = await http_client.put(
+        "/api/v1/business/config/whatsapp",
+        headers=_auth_header(_token_admin()),
+        json={"activo": False, "latitude": 95.0, "longitude": 0.0},
+    )
+    assert invalida.status_code == 422
 
 
 async def test_config_whatsapp_guardar_sin_token_conserva_el_actual(

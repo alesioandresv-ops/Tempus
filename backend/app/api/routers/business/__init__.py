@@ -1479,6 +1479,8 @@ async def guardar_config_whatsapp(
         access_token=datos.access_token,
         reminder_24h_template=datos.reminder_24h_template,
         reminder_2h_template=datos.reminder_2h_template,
+        latitude=datos.latitude,
+        longitude=datos.longitude,
     )
     return WhatsappConfigOut(**asdict(config))
 
