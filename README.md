@@ -89,9 +89,9 @@ entorno, esos tests se saltan con un mensaje que lo dice, y los unitarios corren
 igual. Para verlos correr:
 
 ```bash
-# `preparar_base_test.py` crea `tempus_test` y escribe `backend/.env.testing`, que el
+# `scripts/preparar_base_test.py` crea `tempus_test` y escribe `backend/.env.testing`, que el
 # conftest carga solo. Es la via facil: no hay nada que exportar a mano.
-python preparar_base_test.py
+python scripts/preparar_base_test.py
 
 # A mano, si preferis no depender del script (puerto **5432**, el de la base de
 # desarrollo; el 5433 es el del compose, que publica al host):

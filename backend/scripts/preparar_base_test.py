@@ -187,7 +187,11 @@ def _escribir_env_testing(url_app: str, url_mig: str) -> pathlib.Path | None:
     lo deja anotado. Un `.env` con claves en el repositorio es de las pocas
     cosas que no tienen arreglo despues.
     """
-    destino = pathlib.Path(__file__).resolve().parent / ".env.testing"
+    # `tests/conftest.py` lo lee desde la raiz del backend (hace `parents[1]`
+    # sobre `tests/`), no desde el directorio de este script. Este vive en
+    # `scripts/`, asi que hay que subir un nivel mas: `parents[1]` de
+    # `backend/scripts/` es `backend/`, donde el conftest espera encontrarlo.
+    destino = pathlib.Path(__file__).resolve().parents[1] / ".env.testing"
     contenido = (
         "# Generado por `preparar_base_test.py`. No editar a mano, no subir.\n"
         "#\n"
@@ -205,7 +209,7 @@ def _escribir_env_testing(url_app: str, url_mig: str) -> pathlib.Path | None:
 
 def _agregar_a_gitignore(nombre: str) -> None:
     """Anota el archivo en `.gitignore` si todavia no esta."""
-    raiz = pathlib.Path(__file__).resolve().parent
+    raiz = pathlib.Path(__file__).resolve().parents[1]  # `backend/`, raiz del paquete
     for candidato in (raiz / ".gitignore", raiz.parent / ".gitignore"):
         if not candidato.is_file():
             continue

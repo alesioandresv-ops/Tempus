@@ -45,7 +45,7 @@ def _cargar_env_testing() -> None:
     que sostienen la RLS, la exclusion anti-doble-reserva y el aislamiento entre
     negocios.
 
-    Con este archivo, `python preparar_base_test.py` deja el `pytest` siguiente
+    Con este archivo, `python scripts/preparar_base_test.py` deja el `pytest` siguiente
     completo. Que se lea aqui y no en un plugin es a proposito: `conftest.py` se
     importa antes de que cualquier test o fixture mire las variables, y no agrega
     una dependencia.

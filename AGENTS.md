@@ -11,7 +11,7 @@ Instrucciones compactas para trabajar en este repositorio. Solo información esp
 ## Configuración requerida y roles de BD
 - **BD de desarrollo**: `docker compose up -d` (Postgres 18; el compose expone el puerto host `${POSTGRES_PORT:-5433}`). Dos roles/bases se crean con `infra/postgres/init/*.sql`.
 - **Roles app vs migraciones**: la app usa `DATABASE_URL` (rol `tempus_app`, con RLS aplicado). Migraciones/siembra con DDL usan `DATABASE_MIGRATION_URL` (rol `tempus_owner`, también bajo RLS en tests pero con permisos DDL). Nunca uses el mismo rol para servir requests y para cambios de esquema.
-- **Preparación BD de tests**: ejecuta `cd backend && python preparar_base_test.py` para crear `tempus_test` y escribir `backend/.env.testing`. `conftest` carga `.env.testing` pero **nunca sobreescribe** variables ya definidas (gana lo que esté en el shell). Ver comentarios en `conftest` sobre esto.
+- **Preparación BD de tests**: ejecuta `cd backend && python scripts/preparar_base_test.py` para crear `tempus_test` y escribir `backend/.env.testing`. `conftest` carga `.env.testing` pero **nunca sobreescribe** variables ya definidas (gana lo que esté en el shell). Ver comentarios en `conftest` sobre esto.
 - **Guardia crítica**: la sesión de tests fuerza `DATABASE_URL = TEST_DATABASE_URL` (si está definido) para evitar que tests de integración escriban en la BD de desarrollo. Los tests de integración/tenancy/concurrency requieren Postgres y se **saltan** (no fallan) si `TEST_DATABASE_URL` no está definido.
 
 ## Comandos exactos (no obvios)
@@ -21,7 +21,7 @@ Instrucciones compactas para trabajar en este repositorio. Solo información esp
 - **Ejecutar API**: `cd backend && python -m uvicorn app.main:app --reload` (local). Detrás de proxy usar `--forwarded-allow-ips='<ip-del-proxy>'` (el rate limiting usa `request.client.host`, no lee cabeceras de IP confiables por defecto).
 - **Lint/formato**: `cd backend && python -m ruff format --check . && python -m ruff check .` (CI los ejecuta).
 - **Typecheck (gate crítico)**: `cd backend && python -m mypy app/core app/modules/auth` (el chequeo completo de `app tests` falla actualmente; CI solo revisa paths críticos).
-- **Tests**: `cd backend && python -m pytest` (1184). Necesita Postgres para integration/tenancy/concurrency; usa `preparar_base_test.py` o define `TEST_DATABASE_URL` y `DATABASE_MIGRATION_URL`. Marcadores: `unit`, `integration`, `concurrency`, `tenancy`, `slow`. Excluir slow con `-m 'not slow'`.
+- **Tests**: `cd backend && python -m pytest` (1184). Necesita Postgres para integration/tenancy/concurrency; usa `scripts/preparar_base_test.py` o define `TEST_DATABASE_URL` y `DATABASE_MIGRATION_URL`. Marcadores: `unit`, `integration`, `concurrency`, `tenancy`, `slow`. Excluir slow con `-m 'not slow'`.
 - **Frontend**: `cd frontend && npm install && npm run dev` (Vite) / `npm run build` (CI lo ejecuta en `deploy-check`).
 
 ## Trampas de tests y configuración (a preservar)
@@ -31,6 +31,7 @@ Instrucciones compactas para trabajar en este repositorio. Solo información esp
 - **Orden de teardown en CI**: `docker compose down -v` se ejecuta al final de cada job (no antes de setup/uso). Este orden está protegido por `backend/tests/unit/test_ci_workflow.py`; no reordenes el teardown antes de migraciones/tests.
 - **Validación estricta de config**: `JWT_SECRET_KEY` >= 32 bytes (UTF-8); `ENCRYPTION_KEY` debe decodificarse con base64url a exactamente 32 bytes (Fernet). Placeholders en `PLACEHOLDER_SECRETS` se rechazan fuera de `local` (y en entornos tipo prod). `default_timezone` debe ser IANA válido (falla rápido). Listas aceptan CSV/JSON vía validador personalizado (no asumir solo decode JSON de pydantic-settings).
 - **tzdata requerido en Windows** (dependencia explícita) — su ausencia rompe la validación de timezone al arrancar.
+- **pgcrypto puede no existir** (AppLocker de la facu bloquea `pgcrypto.dll`): la migración `0000` tolera su ausencia (DO block con EXCEPTION, RAISE NOTICE). Nada en runtime ni en migraciones posteriores usa `gen_random_bytes` (en PG18 `gen_random_uuid()` es core), así que la ausencia es inofensiva. No reintroducir dependencias de pgcrypto en migraciones nuevas sin revisar esta trampa.
 - **Rate limiting**: usa `request.client.host`; detrás de proxies definir `FORWARDED_ALLOW_IPS` (o `--forwarded-allow-ips` de uvicorn). Mal configurado colapsa todos los usuarios en un mismo bucket.
 - **IDs fijos en datos de test**: UUID estilo v7 fijos (p.ej. `BUSINESS_A` empieza 111…-7111…) para reproducibilidad; preservar semántica al tocar fixtures.
 - **Seed de negocios para rutas públicas**: las rutas públicas (`/public/bookings`, `/public/businesses/{slug}/availability`) resuelven el negocio solo si `businesses.status = 'active'` (default de la columna: `trial`, que no se publica). Los seeds de integración deben sembrar `status='active'`, no el default. Y un upsert con `ON CONFLICT DO UPDATE` sobre `businesses` cae en la política `businesses_write` (exige GUC = id del negocio): fijar `app.current_business_id` **antes** de la sentencia, en el mismo `begin()`.
@@ -40,7 +41,7 @@ Instrucciones compactas para trabajar en este repositorio. Solo información esp
 ## Scripts de verificación (notas operativas)
 - `backend/verificar_limites.py`: prueba los 5 límites (§10.5) contra un servidor real en ejecución (no en memoria). Ventana por teléfono 1 hora — ejecutarlo dos veces con el mismo número puede llenar bucket (genera un teléfono nuevo por corrida). Definir `TEMPUS_PORT` si no es puerto por defecto.
 - `backend/verificar_produccion.py`: lee catálogo de PostgreSQL (no código) para verificar endurecimiento de producción (`rate_limit_hit` INVOKER, `search_path` sin `pg_temp`, tokens, enmascarado de secretos). Usa `DATABASE_MIGRATION_URL`.
-- `backend/preparar_base_test.py`: escribe `backend/.env.testing` usado por conftest para habilitar suite completa localmente.
+- `backend/scripts/preparar_base_test.py`: escribe `backend/.env.testing` usado por conftest para habilitar suite completa localmente. Vive en `scripts/` pero escribe en `backend/` (el conftest lee de ahí); no moverlo sin ajustar `parents[1]`.
 
 ## Qué cambiar / qué no cambiar
 - **Preferir `edit` sobre reescritura ciega** si cambia `AGENTS.md`. Preservar orientación verificada, borrar fluff/obsoleto, reconciliar con código actual.
