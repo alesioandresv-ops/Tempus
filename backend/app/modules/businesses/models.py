@@ -21,6 +21,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Float,
     ForeignKey,
     Integer,
     Numeric,
@@ -105,6 +106,12 @@ class Business(GlobalBase, Base):
     cover_media_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("media.id", ondelete="SET NULL", name="fk_businesses_cover_media_id_media"),
         nullable=True,
+    )
+    latitude: Mapped[float | None] = mapped_column(
+        Float, nullable=True, comment="Coordenada geográfica en decimal"
+    )
+    longitude: Mapped[float | None] = mapped_column(
+        Float, nullable=True, comment="Coordenada geográfica en decimal"
     )
 
     @property

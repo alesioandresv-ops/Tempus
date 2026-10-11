@@ -9,12 +9,13 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { MapaComponente } from '@/components/ui/MapaComponente'
 import type { WhatsappConfig, WhatsappConfigSave } from '@/types'
 import { api } from '@/services/api'
 import { mensajeDeError, MensajeDeError } from './comun'
 
 /**
- * Pestaña Configuración del admin (Fase D-3 + Fase 0.5).
+ * Pestaña Configuración del admin (Fase D-3 + Fase 0.5 + Fase 9.2).
  *
  * De los recordatorios por WhatsApp del negocio: el switch,
  * el Phone Number ID y el token de la cuenta de Meta, y el
@@ -31,6 +32,12 @@ import { mensajeDeError, MensajeDeError } from './comun'
  * endpoint del backend lo cambia por las credenciales del WABA.
  * Ese código nunca es un token: el intercambio ocurre del lado
  * del servidor, donde vive el `client_secret` de la app de Meta.
+ *
+ * **Ubicación del negocio (Fase 9.2)**: el mapa arrastrable con
+ * MapLibre GL JS (OpenStreetMap, sin API key) setea `latitude` y
+ * `longitude`, que se guardan en `businesses` junto al resto de la
+ * configuración. Sin configuración, las coordenadas quedan en 0,0
+ * (no se publican hasta que el negocio las setea).
  *
  * Sin configuración la API responde `activo: false` con los
  * defaults: todo negocio nace con los recordatorios apagados.
@@ -89,6 +96,23 @@ function sdkDeFacebook(appId: string): Promise<FacebookSDK> {
   return sdkPromesa
 }
 
+/**
+ * `WhatsappConfig` con las coordenadas del negocio (Fase 9.2).
+ *
+ * El endpoint de configuración puede devolver `latitude`/`longitude`
+ * null (columnas nullable en `businesses`), por eso son opcionales.
+ */
+interface WhatsappConfigConCoordenadas extends WhatsappConfig {
+  latitude?: number | null
+  longitude?: number | null
+}
+
+/** Lo mismo que `WhatsappConfigSave` pero con las coordenadas del negocio. */
+interface WhatsappConfigSaveConCoordenadas extends WhatsappConfigSave {
+  latitude: number
+  longitude: number
+}
+
 export function ConfiguracionTab() {
   const {
     data: config,
@@ -110,6 +134,8 @@ export function ConfiguracionTab() {
   const [guardando, setGuardando] = useState(false)
   const [guardado, setGuardado] = useState(false)
   const [errorGuardar, setErrorGuardar] = useState<string | null>(null)
+  const [lat, setLat] = useState(0)
+  const [lng, setLng] = useState(0)
 
   const [conectando, setConectando] = useState(false)
   const [mensajeConnect, setMensajeConnect] = useState<string | null>(null)
@@ -120,10 +146,13 @@ export function ConfiguracionTab() {
   // guardar) no debe pisar lo que la persona está editando.
   useEffect(() => {
     if (config && !cargados) {
+      const conCoordenadas = config as WhatsappConfigConCoordenadas
       setActivo(config.activo)
       setPhoneNumberId(config.phone_number_id ?? '')
       setTemplate24h(config.reminder_24h_template)
       setTemplate2h(config.reminder_2h_template)
+      setLat(conCoordenadas.latitude ?? 0)
+      setLng(conCoordenadas.longitude ?? 0)
       setCargados(true)
     }
   }, [config, cargados])
@@ -139,8 +168,13 @@ export function ConfiguracionTab() {
     try {
       // Los campos vacíos se omiten a propósito: la API los
       // lee como "conservar lo que haya", y el token solo se
-      // manda para pegarlo o cambiarlo.
-      const datos: WhatsappConfigSave = { activo }
+      // manda para pegarlo o cambiarlo. Las coordenadas del
+      // negocio (Fase 9.2) se mandan siempre.
+      const datos: WhatsappConfigSaveConCoordenadas = {
+        activo,
+        latitude: lat,
+        longitude: lng,
+      }
       if (phoneNumberId.trim()) datos.phone_number_id = phoneNumberId.trim()
       if (accessToken) datos.access_token = accessToken
       if (template24h.trim()) datos.reminder_24h_template = template24h.trim()
@@ -258,6 +292,31 @@ export function ConfiguracionTab() {
               se cargan abajo.
             </p>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Ubicación del negocio</CardTitle>
+          <CardDescription>
+            Arrastra el marker para ajustar la ubicación exacta. El mapa usa
+            OpenStreetMap y no necesita API key.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <MapaComponente
+            latInicial={lat}
+            lngInicial={lng}
+            onCoordenadasCambio={(nuevaLat, nuevoLng) =>
+              toca(() => {
+                setLat(nuevaLat)
+                setLng(nuevoLng)
+              })
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            Coordenadas: Lat {lat.toFixed(4)}, Lng {lng.toFixed(4)}
+          </p>
         </CardContent>
       </Card>
 
