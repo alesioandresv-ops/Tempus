@@ -10,6 +10,9 @@ antes de escalar a la suite completa de 1349.
 - **C. Reserva publica**: disponibilidad -> reserva -> gestion por token.
 - **D. Autenticacion**: login, rate limit, access token y refresh.
 - **E. Servicios, profesionales y horarios** del panel.
+- **F. Schedules/excepciones/feriados** (Suite F, 50 tests): la semana, las
+  excepciones de dia, los feriados y como los tres terminan en la grilla de
+  disponibilidad publica.
 
 **Que se siembra y por que se commitea.** Las rutas publicas
 (`GET /public/businesses/{slug}`, la disponibilidad y `POST /public/bookings`)
@@ -48,6 +51,8 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
+from itertools import pairwise
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -65,6 +70,7 @@ from app.modules.auth.tokens import (
 )
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncEngine,
@@ -1704,3 +1710,813 @@ class TestServiciosProfesionales:
         )
         assert respuesta.status_code == 409, respuesta.text
         assert "no puede realizar" in respuesta.json()["detail"]
+
+
+# --------------------------------------------------------------------------- #
+# Suite F: schedules, excepciones y feriados
+# --------------------------------------------------------------------------- #
+#
+# Dos mundos distintos, como en las suites anteriores:
+#
+# - **Panel** (`negocio_panel`): los endpoints `/business/horarios`,
+#   `/business/excepciones` y `/business/feriados` pasan por el override de
+#   `http_client`, asi que la semana y las excepciones viven en la transaccion
+#   del test y no dejan residuo.
+# - **Disponibilidad publica** (`agenda`): la ruta publica abre sesion propia
+#   (`session_scope`/`tenant_session`) y no ve la transaccion del test, asi que
+#   el negocio de integracion se siembra con el rol de migraciones y **se
+#   commitea**, igual que `negocio_booking` en la suite C. Las excepciones y
+#   feriados que un test quiere que la disponibilidad vea tambien se siembran
+#   commiteados; la limpieza de sobras va en el setup del fixture.
+#
+# **Dos desvios de la consigna, documentados y medidos como es hoy:**
+#
+# - Fecha pasada en una excepcion: la consigna pedia 422, el sistema **no**
+#   valida el pasado y crea la excepcion (201). El motor de disponibilidad la
+#   ignora porque solo mira slots futuros, asi que el hueco es cosmetico; el
+#   test fija el comportamiento actual para que un cambio futuro sea visible.
+# - Fecha duplicada: la consigna pedia 409, el sistema hoy **no** traduce el
+#   `UniqueConstraint(business_id, local_date)` y deja escapar un
+#   `IntegrityError`. El test lo pin y documenta el hueco: un dia que alguien
+#   agregue el handler de 409, este test va a fallar y habra que actualizarlo.
+
+URL_EXCEPCIONES = "/api/v1/business/excepciones"
+URL_FERIADOS = "/api/v1/business/feriados"
+
+
+def _fecha_futura(dias: int = 1) -> dt.date:
+    """Una fecha futura local, con margen de sobra para el lead time."""
+    return dt.datetime.now(TZ).date() + dt.timedelta(days=dias)
+
+
+def _dia_de(semana: object, weekday: int) -> dict[str, object]:
+    """El `DiaHorarioOut` de un weekday dentro de un `SemanaHorarioOut`."""
+    for dia in semana["dias"]:  # type: ignore[attr-defined,index]
+        if dia["weekday"] == weekday:
+            return dia  # type: ignore[no-any-return]
+    raise AssertionError(f"no hay dia {weekday} en la semana")
+
+
+def _semana(*dias: tuple[int, list[dict[str, str]]]) -> dict[str, object]:
+    """El cuerpo de `PUT /business/horarios` a partir de `(weekday, windows)`."""
+    return {"dias": [{"weekday": w, "windows": v} for w, v in dias]}  # type: ignore[arg-type]
+
+
+class TestSchedulesSemanales:
+    """`GET/PUT /business/horarios`: la semana reemplaza entera, nunca suma."""
+
+    async def test_los_horarios_iniciales_responde_200(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.get(URL_HORARIOS, headers=_auth(token))
+        assert respuesta.status_code == 200, respuesta.text
+
+    async def test_los_horarios_iniciales_traen_siete_dias(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """El contrato entrega la semana completa, con los cerrados incluidos."""
+        _, token = negocio_panel
+        respuesta = await http_client.get(URL_HORARIOS, headers=_auth(token))
+        assert [d["weekday"] for d in respuesta.json()["dias"]] == list(range(7))
+
+    async def test_los_horarios_iniciales_traen_el_default_de_alta(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """El alta siembra una semana por defecto: lunes a sabado, partida."""
+        _, token = negocio_panel
+        respuesta = await http_client.get(URL_HORARIOS, headers=_auth(token))
+        for dia in respuesta.json()["dias"]:
+            if dia["weekday"] in range(6):
+                assert dia["windows"] == [
+                    {"start": "09:00:00", "end": "12:00:00"},
+                    {"start": "16:00:00", "end": "20:00:00"},
+                ], dia
+            else:
+                assert dia["windows"] == [], dia
+
+    async def test_reemplazar_con_un_dia_responde_200(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.put(
+            URL_HORARIOS,
+            json=_semana((LUNES, [{"start": "09:00", "end": "17:00"}])),
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 200, respuesta.text
+
+    async def test_reemplazar_devuelve_la_ventana_del_dia(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.put(
+            URL_HORARIOS,
+            json=_semana((LUNES, [{"start": "09:00", "end": "17:00"}])),
+            headers=_auth(token),
+        )
+        lunes = _dia_de(respuesta.json(), LUNES)
+        assert lunes["windows"] == [{"start": "09:00:00", "end": "17:00:00"}]
+
+    async def test_reemplazar_mantiene_las_horas_de_la_ventana(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.put(
+            URL_HORARIOS,
+            json=_semana((LUNES, [{"start": "09:00", "end": "17:00"}])),
+            headers=_auth(token),
+        )
+        ventana = _dia_de(respuesta.json(), LUNES)["windows"][0]
+        assert ventana["start"] == "09:00:00"
+        assert ventana["end"] == "17:00:00"
+
+    async def test_reemplazar_varios_dias_devuelve_la_semana_completa(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """De lunes a viernes, las 7 posiciones de la semana siguen saliendo."""
+        _, token = negocio_panel
+        respuesta = await http_client.put(
+            URL_HORARIOS,
+            json=_semana(*[(d, [{"start": "09:00", "end": "13:00"}]) for d in range(5)]),
+            headers=_auth(token),
+        )
+        assert len(respuesta.json()["dias"]) == 7
+
+    async def test_los_dias_no_enviados_quedan_cerrados(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """La semantica es "este es mi horario", no "agregar estos dias"."""
+        _, token = negocio_panel
+        respuesta = await http_client.put(
+            URL_HORARIOS,
+            json=_semana(
+                (LUNES, [{"start": "09:00", "end": "17:00"}]),
+                (1, [{"start": "09:00", "end": "13:00"}]),
+            ),
+            headers=_auth(token),
+        )
+        cuerpo = respuesta.json()
+        assert _dia_de(cuerpo, LUNES)["windows"] != []
+        assert _dia_de(cuerpo, 1)["windows"] != []
+        assert _dia_de(cuerpo, 2)["windows"] == []
+        assert _dia_de(cuerpo, DOMINGO)["windows"] == []
+
+    async def test_reemplazar_ordena_las_ventanas_de_un_dia(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """El orden del `window_index` lo decide el servicio: por `start`."""
+        _, token = negocio_panel
+        respuesta = await http_client.put(
+            URL_HORARIOS,
+            json=_semana(
+                (
+                    LUNES,
+                    [
+                        {"start": "16:00", "end": "20:00"},
+                        {"start": "09:00", "end": "12:00"},
+                    ],
+                )
+            ),
+            headers=_auth(token),
+        )
+        lunes = _dia_de(respuesta.json(), LUNES)
+        assert lunes["windows"] == [
+            {"start": "09:00:00", "end": "12:00:00"},
+            {"start": "16:00:00", "end": "20:00:00"},
+        ]
+
+    async def test_reemplazar_pisa_el_horario_anterior(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """El segundo `PUT` reemplaza: el lunes viejo no queda mezclado."""
+        _, token = negocio_panel
+        await http_client.put(
+            URL_HORARIOS,
+            json=_semana((LUNES, [{"start": "09:00", "end": "12:00"}])),
+            headers=_auth(token),
+        )
+        await http_client.put(
+            URL_HORARIOS,
+            json=_semana((LUNES, [{"start": "14:00", "end": "18:00"}])),
+            headers=_auth(token),
+        )
+        respuesta = await http_client.get(URL_HORARIOS, headers=_auth(token))
+        lunes = _dia_de(respuesta.json(), LUNES)
+        assert lunes["windows"] == [{"start": "14:00:00", "end": "18:00:00"}]
+
+    async def test_reemplazar_sin_dias_cierra_toda_la_semana(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        await http_client.put(
+            URL_HORARIOS,
+            json=_semana((LUNES, [{"start": "09:00", "end": "17:00"}])),
+            headers=_auth(token),
+        )
+        await http_client.put(URL_HORARIOS, json={"dias": []}, headers=_auth(token))
+        respuesta = await http_client.get(URL_HORARIOS, headers=_auth(token))
+        assert all(d["windows"] == [] for d in respuesta.json()["dias"])
+
+    async def test_fin_antes_de_inicio_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.put(
+            URL_HORARIOS,
+            json=_semana((LUNES, [{"start": "17:00", "end": "09:00"}])),
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_hora_mal_formada_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.put(
+            URL_HORARIOS,
+            json=_semana((LUNES, [{"start": "las nueve", "end": "17:00"}])),
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_weekday_siete_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.put(
+            URL_HORARIOS,
+            json=_semana((7, [{"start": "09:00", "end": "17:00"}])),
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_weekday_negativo_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.put(
+            URL_HORARIOS,
+            json=_semana((-1, [{"start": "09:00", "end": "17:00"}])),
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_ventanas_solapadas_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.put(
+            URL_HORARIOS,
+            json=_semana(
+                (
+                    LUNES,
+                    [
+                        {"start": "09:00", "end": "13:00"},
+                        {"start": "11:00", "end": "15:00"},
+                    ],
+                )
+            ),
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 422, respuesta.text
+        assert "se pisan" in _mensajes_de_campo(respuesta)
+
+
+async def _crear_excepcion(http_client: AsyncClient, token: str, **cambios: object) -> object:
+    cuerpo: dict[str, object] = {
+        "local_date": _fecha_futura().isoformat(),
+        "is_closed": True,
+        "reason": None,
+        "windows": [],
+    }
+    cuerpo.update(cambios)
+    return await http_client.post(URL_EXCEPCIONES, json=cuerpo, headers=_auth(token))
+
+
+class TestSchedulesExcepciones:
+    """`GET/POST/DELETE /business/excepciones`: dias que reemplazan a la semana."""
+
+    async def test_listar_excepciones_al_inicio_esta_vacio(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.get(URL_EXCEPCIONES, headers=_auth(token))
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json() == []
+
+    async def test_crear_excepcion_futura_responde_201(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await _crear_excepcion(http_client, token)
+        assert respuesta.status_code == 201, respuesta.text
+
+    async def test_excepcion_cerrada_devuelve_is_closed(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await _crear_excepcion(http_client, token)
+        assert respuesta.json()["is_closed"] is True
+
+    async def test_excepcion_guarda_el_motivo(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await _crear_excepcion(http_client, token, reason="Feriado local")
+        assert respuesta.json()["reason"] == "Feriado local"
+
+    async def test_listar_incluye_la_excepcion_creada(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        creada = await _crear_excepcion(http_client, token)
+        respuesta = await http_client.get(URL_EXCEPCIONES, headers=_auth(token))
+        assert [e["id"] for e in respuesta.json()] == [creada.json()["id"]]
+
+    async def test_crear_excepcion_abierta_con_ventanas_responde_201(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """Una excepcion abierta trae ventanas propias: abre un dia cerrado."""
+        _, token = negocio_panel
+        respuesta = await _crear_excepcion(
+            http_client,
+            token,
+            is_closed=False,
+            windows=[{"start": "10:00", "end": "14:00"}],
+        )
+        assert respuesta.status_code == 201, respuesta.text
+        assert respuesta.json()["is_closed"] is False
+
+    async def test_excepcion_cerrada_con_ventanas_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """`is_closed` con ventanas es una contradiccion: se rechaza antes."""
+        _, token = negocio_panel
+        respuesta = await _crear_excepcion(
+            http_client,
+            token,
+            is_closed=True,
+            windows=[{"start": "10:00", "end": "14:00"}],
+        )
+        assert respuesta.status_code == 422, respuesta.text
+        assert "no puede tener ventanas" in _mensajes_de_campo(respuesta)
+
+    async def test_motivo_demasiado_largo_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await _crear_excepcion(http_client, token, reason="x" * 201)
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_excepcion_en_fecha_pasada_se_acepta(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """Sin validacion de pasado hoy: la excepcion se crea igual.
+
+        La consigna de la suite pedia 422; el sistema no lo valida (la
+        disponibilidad la ignora porque jamas ofrece un slot pasado). Este test
+        fija el comportamiento actual para que el hueco quede a la vista.
+        """
+        _, token = negocio_panel
+        ayer = (dt.datetime.now(TZ).date() - dt.timedelta(days=1)).isoformat()
+        respuesta = await _crear_excepcion(http_client, token, local_date=ayer)
+        assert respuesta.status_code == 201, respuesta.text
+
+    async def test_excepcion_duplicada_falla_en_la_base(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """La fecha duplicada no se traduce a 409: escapa un `IntegrityError`.
+
+        La consigna pedia 409; el `UniqueConstraint(business_id, local_date)`
+        hoy se deja escapar hasta el handler de `Exception`. El test lo pin y
+        documenta; cuando alguien agregue la traduccion a 409, este test va a
+        fallar y hay que actualizarlo.
+        """
+        _, token = negocio_panel
+        fecha = _fecha_futura().isoformat()
+        primera = await _crear_excepcion(http_client, token, local_date=fecha)
+        assert primera.status_code == 201, primera.text
+        with pytest.raises(IntegrityError):
+            await _crear_excepcion(http_client, token, local_date=fecha)
+
+    async def test_borrar_excepcion_responde_204(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        creada = await _crear_excepcion(http_client, token)
+        respuesta = await http_client.delete(
+            f"{URL_EXCEPCIONES}/{creada.json()['id']}", headers=_auth(token)
+        )
+        assert respuesta.status_code == 204, respuesta.text
+
+    async def test_borrar_excepcion_la_quita_del_listado(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        creada = await _crear_excepcion(http_client, token)
+        await http_client.delete(f"{URL_EXCEPCIONES}/{creada.json()['id']}", headers=_auth(token))
+        respuesta = await http_client.get(URL_EXCEPCIONES, headers=_auth(token))
+        assert respuesta.json() == []
+
+    async def test_excepcion_sin_token_no_se_autoriza(self, http_client: AsyncClient) -> None:
+        respuesta = await http_client.get(URL_EXCEPCIONES)
+        assert respuesta.status_code in (401, 403), respuesta.text
+
+
+async def _crear_feriado(http_client: AsyncClient, token: str, **cambios: object) -> object:
+    cuerpo: dict[str, object] = {
+        "local_date": _fecha_futura().isoformat(),
+        "name": "Feriado",
+    }
+    cuerpo.update(cambios)
+    return await http_client.post(URL_FERIADOS, json=cuerpo, headers=_auth(token))
+
+
+class TestFeriados:
+    """`GET/POST/DELETE /business/feriados`: cierres puntuales con nombre."""
+
+    async def test_listar_feriados_al_inicio_esta_vacio(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.get(URL_FERIADOS, headers=_auth(token))
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json() == []
+
+    async def test_crear_feriado_responde_201(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await _crear_feriado(http_client, token)
+        assert respuesta.status_code == 201, respuesta.text
+
+    async def test_feriado_devuelve_el_nombre(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await _crear_feriado(http_client, token, name="Feriado Patrio")
+        assert respuesta.json()["name"] == "Feriado Patrio"
+
+    async def test_listar_incluye_el_feriado_creado(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        creado = await _crear_feriado(http_client, token)
+        respuesta = await http_client.get(URL_FERIADOS, headers=_auth(token))
+        assert [f["id"] for f in respuesta.json()] == [creado.json()["id"]]
+
+    async def test_feriado_sin_nombre_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.post(
+            URL_FERIADOS,
+            json={"local_date": _fecha_futura().isoformat()},
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_feriado_con_nombre_vacio_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await _crear_feriado(http_client, token, name="")
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_feriado_con_nombre_solo_espacios_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """El nombre obligatorio no puede ser solo blancos: el servicio lo poda."""
+        _, token = negocio_panel
+        respuesta = await _crear_feriado(http_client, token, name="   ")
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_borrar_feriado_responde_204(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        creado = await _crear_feriado(http_client, token)
+        respuesta = await http_client.delete(
+            f"{URL_FERIADOS}/{creado.json()['id']}", headers=_auth(token)
+        )
+        assert respuesta.status_code == 204, respuesta.text
+
+    async def test_borrar_feriado_lo_quita_del_listado(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        creado = await _crear_feriado(http_client, token)
+        await http_client.delete(f"{URL_FERIADOS}/{creado.json()['id']}", headers=_auth(token))
+        respuesta = await http_client.get(URL_FERIADOS, headers=_auth(token))
+        assert respuesta.json() == []
+
+
+# --------------------------------------------------------------------------- #
+# Suite F: la agenda en la disponibilidad publica
+# --------------------------------------------------------------------------- #
+
+SLUG_AGENDA = "massive-agenda"
+BUSINESS_AGENDA = uuid.UUID("dd000000-0000-7000-8000-0000000000d1")
+SERVICE_AGENDA = uuid.UUID("dd000000-0000-7000-8000-0000000000d2")
+PROF_AGENDA = uuid.UUID("dd000000-0000-7000-8000-0000000000d3")
+
+#: La grilla del negocio se siembra a 30 minutos a proposito: con el servicio
+#: de 30 minutos y la ventana 09-17, el lunes normal da exactamente 16 slots
+#: (09:00 a 16:30), y el test lo exige sin depender del default de 15.
+DURACION_AGENDA = 30
+
+
+def _lunes_futuro(semanas: int = 0) -> dt.date:
+    """Un lunes local a 30 dias (mas semanas opcionales) de hoy."""
+    base = dt.datetime.now(TZ).date() + dt.timedelta(days=30)
+    base += dt.timedelta(weeks=semanas)
+    return base + dt.timedelta(days=(LUNES - base.weekday()) % 7)
+
+
+@asynccontextmanager
+async def _transaccion_owner(
+    migration_database_url: str,
+) -> AsyncIterator[AsyncConnection]:
+    """Una transaccion committeada con el rol de migraciones y un solo engine."""
+    engine: AsyncEngine = create_async_engine(migration_database_url, poolclass=None, echo=False)
+    try:
+        async with engine.begin() as conn:
+            yield conn
+    finally:
+        await engine.dispose()
+
+
+async def _sembrar_agenda(conn: AsyncConnection) -> None:
+    """Negocio activo, lunes 09-17, servicio y profesional asignado.
+
+    La limpieza de sobras va en setup: los feriados y excepciones que un test
+    commitea sobreviven a la corrida y el siguiente arranque los ve.
+    """
+    await conn.execute(
+        text(f"SELECT set_config('{TENANT_GUC}', :t, true)"),
+        {"t": str(BUSINESS_AGENDA)},
+    )
+    await conn.execute(text("DELETE FROM bookings WHERE business_id = :b"), {"b": BUSINESS_AGENDA})
+    await conn.execute(text("DELETE FROM customers WHERE business_id = :b"), {"b": BUSINESS_AGENDA})
+    await conn.execute(
+        text("DELETE FROM business_exception_windows WHERE business_id = :b"),
+        {"b": BUSINESS_AGENDA},
+    )
+    await conn.execute(
+        text("DELETE FROM business_exceptions WHERE business_id = :b"),
+        {"b": BUSINESS_AGENDA},
+    )
+    await conn.execute(text("DELETE FROM holidays WHERE business_id = :b"), {"b": BUSINESS_AGENDA})
+    await conn.execute(
+        text("DELETE FROM business_hours WHERE business_id = :b"),
+        {"b": BUSINESS_AGENDA},
+    )
+
+    await conn.execute(
+        text(
+            """
+            INSERT INTO businesses
+                (id, name, slug, timezone, status, slot_interval_minutes, min_lead_minutes)
+            VALUES (:id, 'Massive Agenda', :slug, :tz, 'active', 30, 0)
+            ON CONFLICT (id) DO UPDATE SET
+                name = EXCLUDED.name,
+                slug = EXCLUDED.slug,
+                timezone = EXCLUDED.timezone,
+                status = 'active',
+                slot_interval_minutes = 30,
+                min_lead_minutes = 0
+            """
+        ),
+        {"id": BUSINESS_AGENDA, "slug": SLUG_AGENDA, "tz": TIMEZONE},
+    )
+
+    await conn.execute(
+        text(
+            """
+            INSERT INTO business_hours
+                (business_id, weekday, window_index, start_time, end_time, is_open)
+            VALUES (:b, 0, 0, '09:00', '17:00', true)
+            """
+        ),
+        {"b": BUSINESS_AGENDA},
+    )
+
+    await conn.execute(
+        text(
+            """
+            INSERT INTO services (id, business_id, name, duration_minutes, price, currency)
+            VALUES (:id, :b, 'Corte', :dur, 1500.00, 'ARS')
+            ON CONFLICT (id) DO UPDATE SET
+                is_active = true, duration_minutes = :dur
+            """
+        ),
+        {"id": SERVICE_AGENDA, "b": BUSINESS_AGENDA, "dur": DURACION_AGENDA},
+    )
+
+    await conn.execute(
+        text(
+            """
+            INSERT INTO professionals (id, business_id, display_name, sort_order)
+            VALUES (:id, :b, 'Profe Agenda', 1)
+            ON CONFLICT (id) DO UPDATE SET is_active = true
+            """
+        ),
+        {"id": PROF_AGENDA, "b": BUSINESS_AGENDA},
+    )
+
+    await conn.execute(
+        text(
+            """
+            INSERT INTO professional_services (professional_id, service_id, business_id, is_active)
+            VALUES (:p, :s, :b, true)
+            ON CONFLICT (professional_id, service_id) DO UPDATE SET is_active = true
+            """
+        ),
+        {"p": PROF_AGENDA, "s": SERVICE_AGENDA, "b": BUSINESS_AGENDA},
+    )
+
+    await conn.execute(text(f"SELECT set_config('{TENANT_GUC}', '', true)"))
+
+
+@pytest_asyncio.fixture
+async def agenda(migration_database_url: str) -> AsyncIterator[str]:
+    async with _transaccion_owner(migration_database_url) as conn:
+        await _sembrar_agenda(conn)
+    yield SLUG_AGENDA
+
+
+async def _pedir_slots(http_client: AsyncClient, fecha: dt.date) -> list[dict[str, object]]:
+    respuesta = await http_client.get(
+        f"/api/v1/public/businesses/{SLUG_AGENDA}/availability",
+        params={"service_id": str(SERVICE_AGENDA), "date": fecha.isoformat()},
+    )
+    assert respuesta.status_code == 200, respuesta.text
+    return respuesta.json()["slots"]  # type: ignore[no-any-return]
+
+
+def _hora_local(iso: str) -> dt.time:
+    return dt.datetime.fromisoformat(iso).astimezone(TZ).time()
+
+
+async def _crear_excepcion_en_base(
+    migration_database_url: str,
+    *,
+    local_date: dt.date,
+    is_closed: bool = True,
+    windows: tuple[tuple[dt.time, dt.time], ...] = (),
+) -> None:
+    """Excepcion committeada: la ruta publica abre sesion propia y la ve."""
+    async with _transaccion_owner(migration_database_url) as conn:
+        await conn.execute(
+            text(f"SELECT set_config('{TENANT_GUC}', :t, true)"),
+            {"t": str(BUSINESS_AGENDA)},
+        )
+        resultado = await conn.execute(
+            text(
+                "INSERT INTO business_exceptions "
+                "(business_id, local_date, is_closed) VALUES (:b, :d, :c) RETURNING id"
+            ),
+            {"b": BUSINESS_AGENDA, "d": local_date, "c": is_closed},
+        )
+        exception_id = resultado.scalar_one()
+        for indice, (inicio, fin) in enumerate(windows):
+            await conn.execute(
+                text(
+                    "INSERT INTO business_exception_windows "
+                    "(business_id, exception_id, window_index, start_time, end_time) "
+                    "VALUES (:b, :e, :i, :s, :f)"
+                ),
+                {
+                    "b": BUSINESS_AGENDA,
+                    "e": exception_id,
+                    "i": indice,
+                    "s": inicio,
+                    "f": fin,
+                },
+            )
+        await conn.execute(text(f"SELECT set_config('{TENANT_GUC}', '', true)"))
+
+
+async def _crear_feriado_en_base(migration_database_url: str, *, local_date: dt.date) -> uuid.UUID:
+    async with _transaccion_owner(migration_database_url) as conn:
+        await conn.execute(
+            text(f"SELECT set_config('{TENANT_GUC}', :t, true)"),
+            {"t": str(BUSINESS_AGENDA)},
+        )
+        resultado = await conn.execute(
+            text(
+                "INSERT INTO holidays (business_id, local_date, name) "
+                "VALUES (:b, :d, 'Feriado') RETURNING id"
+            ),
+            {"b": BUSINESS_AGENDA, "d": local_date},
+        )
+        await conn.execute(text(f"SELECT set_config('{TENANT_GUC}', '', true)"))
+        return resultado.scalar_one()  # type: ignore[no-any-return]
+
+
+async def _borrar_feriado_en_base(migration_database_url: str, holiday_id: uuid.UUID) -> None:
+    async with _transaccion_owner(migration_database_url) as conn:
+        await conn.execute(
+            text(f"SELECT set_config('{TENANT_GUC}', :t, true)"),
+            {"t": str(BUSINESS_AGENDA)},
+        )
+        await conn.execute(
+            text("DELETE FROM holidays WHERE business_id = :b AND id = :i"),
+            {"b": BUSINESS_AGENDA, "i": holiday_id},
+        )
+        await conn.execute(text(f"SELECT set_config('{TENANT_GUC}', '', true)"))
+
+
+class TestSchedulesDisponibilidad:
+    """La semana, las excepciones y los feriados terminan en la grilla publica."""
+
+    async def test_lunes_con_horario_responde_200(
+        self, http_client: AsyncClient, agenda: str
+    ) -> None:
+        await _pedir_slots(http_client, _lunes_futuro())
+
+    async def test_lunes_devuelve_dieciseis_slots(
+        self, http_client: AsyncClient, agenda: str
+    ) -> None:
+        """09-17 cada 30 minutos con turnos de 30: 16 slots exactos."""
+        slots = await _pedir_slots(http_client, _lunes_futuro())
+        assert len(slots) == 16
+
+    async def test_el_primer_slot_es_la_apertura(
+        self, http_client: AsyncClient, agenda: str
+    ) -> None:
+        slots = await _pedir_slots(http_client, _lunes_futuro())
+        assert _hora_local(str(slots[0]["starts_at"])) == dt.time(9, 0)
+
+    async def test_el_ultimo_slot_deja_entrar_la_duracion(
+        self, http_client: AsyncClient, agenda: str
+    ) -> None:
+        """El ultimo slot arranca 16:30: con 30 min de turno cierra 17:00."""
+        slots = await _pedir_slots(http_client, _lunes_futuro())
+        ultimo = slots[-1]
+        assert _hora_local(str(ultimo["starts_at"])) == dt.time(16, 30)
+        assert _hora_local(str(ultimo["ends_at"])) == dt.time(17, 0)
+
+    async def test_los_slots_van_cada_treinta_minutos(
+        self, http_client: AsyncClient, agenda: str
+    ) -> None:
+        """La grilla respeta el intervalo del negocio, no el de la duracion."""
+        slots = await _pedir_slots(http_client, _lunes_futuro())
+        inicios = [dt.datetime.fromisoformat(str(s["starts_at"])) for s in slots]
+        diferencias = {int((b - a).total_seconds()) for a, b in pairwise(inicios)}
+        assert diferencias == {1800}
+
+    async def test_los_slots_tienen_al_profesional_como_candidato(
+        self, http_client: AsyncClient, agenda: str
+    ) -> None:
+        slots = await _pedir_slots(http_client, _lunes_futuro())
+        assert slots[0]["candidatos"] == [str(PROF_AGENDA)]
+
+    async def test_excepcion_cerrada_deja_el_dia_sin_slots(
+        self, http_client: AsyncClient, agenda: str, migration_database_url: str
+    ) -> None:
+        await _crear_excepcion_en_base(
+            migration_database_url, local_date=_lunes_futuro(), is_closed=True
+        )
+        assert await _pedir_slots(http_client, _lunes_futuro()) == []
+
+    async def test_excepcion_abierta_reemplaza_el_horario_del_dia(
+        self, http_client: AsyncClient, agenda: str, migration_database_url: str
+    ) -> None:
+        """10-12 en vez de 09-17: la excepcion sustituye, no suma."""
+        await _crear_excepcion_en_base(
+            migration_database_url,
+            local_date=_lunes_futuro(),
+            is_closed=False,
+            windows=((dt.time(10, 0), dt.time(12, 0)),),
+        )
+        slots = await _pedir_slots(http_client, _lunes_futuro())
+        assert len(slots) == 4
+        assert _hora_local(str(slots[0]["starts_at"])) == dt.time(10, 0)
+
+    async def test_feriado_deja_el_dia_sin_slots(
+        self, http_client: AsyncClient, agenda: str, migration_database_url: str
+    ) -> None:
+        await _crear_feriado_en_base(migration_database_url, local_date=_lunes_futuro())
+        assert await _pedir_slots(http_client, _lunes_futuro()) == []
+
+    async def test_borrar_el_feriado_libera_los_slots(
+        self, http_client: AsyncClient, agenda: str, migration_database_url: str
+    ) -> None:
+        lunes = _lunes_futuro()
+        feriado = await _crear_feriado_en_base(migration_database_url, local_date=lunes)
+        assert await _pedir_slots(http_client, lunes) == []
+        await _borrar_feriado_en_base(migration_database_url, feriado)
+        assert len(await _pedir_slots(http_client, lunes)) == 16
+
+    async def test_dia_sin_horario_no_tiene_slots(
+        self, http_client: AsyncClient, agenda: str
+    ) -> None:
+        """Un martes sin fila en `business_hours` es un dia cerrado."""
+        martes = _lunes_futuro() + dt.timedelta(days=1)
+        assert await _pedir_slots(http_client, martes) == []
+
+    async def test_domingo_no_tiene_slots(self, http_client: AsyncClient, agenda: str) -> None:
+        domingo = _lunes_futuro() + dt.timedelta(days=6)
+        assert await _pedir_slots(http_client, domingo) == []
