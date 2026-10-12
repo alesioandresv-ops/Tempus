@@ -21,8 +21,8 @@ Instrucciones compactas para trabajar en este repositorio. Solo información esp
 - **Ejecutar API**: `cd backend && python -m uvicorn app.main:app --reload` (local). Detrás de proxy usar `--forwarded-allow-ips='<ip-del-proxy>'` (el rate limiting usa `request.client.host`, no lee cabeceras de IP confiables por defecto).
 - **Lint/formato**: `cd backend && python -m ruff format --check . && python -m ruff check .` (CI los ejecuta).
 - **Typecheck (gate crítico)**: `cd backend && python -m mypy app/core app/modules/auth` (el chequeo completo de `app tests` falla actualmente; CI solo revisa paths críticos).
-- **Tests**: `cd backend && python -m pytest` (1184). Necesita Postgres para integration/tenancy/concurrency; usa `scripts/preparar_base_test.py` o define `TEST_DATABASE_URL` y `DATABASE_MIGRATION_URL`. Marcadores: `unit`, `integration`, `concurrency`, `tenancy`, `slow`. Excluir slow con `-m 'not slow'`.
-- **Frontend**: `cd frontend && npm install && npm run dev` (Vite) / `npm run build` (CI lo ejecuta en `deploy-check`).
+- **Tests**: `cd backend && python -m pytest` (1351 al momento; crece por fase). Necesita Postgres para integration/tenancy/concurrency; usa `scripts/preparar_base_test.py` o define `TEST_DATABASE_URL` y `DATABASE_MIGRATION_URL`. Marcadores: `unit`, `integration`, `concurrency`, `tenancy`, `slow`. Excluir slow con `-m 'not slow'`.
+- **Frontend**: `cd frontend && npm install && npm run dev` (Vite) / `npm run build` (CI lo ejecuta en `deploy-check`). Ver sección de quirks más abajo.
 
 ## Trampas de tests y configuración (a preservar)
 - **No SQLite en tests** (impuesto por config/arquitectura). Siempre Postgres para aislamiento transversal.
@@ -37,6 +37,12 @@ Instrucciones compactas para trabajar en este repositorio. Solo información esp
 - **Seed de negocios para rutas públicas**: las rutas públicas (`/public/bookings`, `/public/businesses/{slug}/availability`) resuelven el negocio solo si `businesses.status = 'active'` (default de la columna: `trial`, que no se publica). Los seeds de integración deben sembrar `status='active'`, no el default. Y un upsert con `ON CONFLICT DO UPDATE` sobre `businesses` cae en la política `businesses_write` (exige GUC = id del negocio): fijar `app.current_business_id` **antes** de la sentencia, en el mismo `begin()`.
 - **Limpieza de sobras committed por la ruta pública**: `/public/bookings` commitea con sesión propia (no la del test), así los turnos creados persisten entre corridas y chocan con la EXCLUDE en la siguiente. Limpiar `bookings`/`customers` del negocio en el **setup** del fixture (en teardown aún hay locks del test sin deshacer y el `DELETE` espera hasta el timeout).
 - **`pytest-flask` global**: si está instalado en el intérprete (no es dependencia del proyecto) inyecta un fixture `autouse` que hace `app.response_class` y mata decenas de tests en el setup con `AttributeError`; neutralizado con `-p no:flask` en `addopts` (ver comentario en `pyproject.toml`).
+
+## Frontend (Vite + React + TS)
+- **Gates locales**: `cd frontend && npx tsc --noEmit` (debe dar 0) y `npm run build` (= `tsc -b && vite build`; el `tsc -b` ya es typecheck). `npm run lint` corre eslint. CI solo ejecuta `npm install && npm run build` en el job `deploy-check`; **no hay** job de lint ni de tests de frontend.
+- **e2e sin cablear**: `frontend/tests/e2e/booking.spec.ts` es Playwright, pero falta `@playwright/test` en `package.json` y no hay `playwright.config` (ni script `test`). No corre en CI; no asumas que `npx playwright test` funciona sin instalarlo.
+- **MapLibre (`maplibre-gl` v6)**: no hay default export → `import { Map, Marker } from 'maplibre-gl'` + `import 'maplibre-gl/dist/maplibre-gl.css'`. `MapaComponente.tsx` usa un **style raster inline de OSM**; no uses `demotiles.maplibre.org` (bloqueado en la red de la escuela → mapa en blanco). El contenedor necesita altura explícita y hay que llamar `map.resize()` (bug de pestaña oculta). El dep-optimizer de Vite 5 no emite el worker de maplibre: solo rompería estilos vectoriales/geojson/terrain, no el raster usado.
+- **`npm install` puede colgarse** (red de la facultad; pasó con `maplibre-gl` y `lucide-react`). Si un dep queda sin `.d.ts` —visto en `lucide-react`: su `typings` apunta a `dist/lucide-react.d.ts` ausente— `tsc` falla con `TS7016`; reinstalá desde una red estable o bajá el `.d.ts` de unpkg a `node_modules/<pkg>/`.
 
 ## Scripts de verificación (notas operativas)
 - `backend/verificar_limites.py`: prueba los 5 límites (§10.5) contra un servidor real en ejecución (no en memoria). Ventana por teléfono 1 hora — ejecutarlo dos veces con el mismo número puede llenar bucket (genera un teléfono nuevo por corrida). Definir `TEMPUS_PORT` si no es puerto por defecto.
