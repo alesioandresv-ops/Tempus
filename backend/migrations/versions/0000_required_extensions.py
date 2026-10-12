@@ -34,6 +34,7 @@ EXTENSIONES: tuple[tuple[str, str], ...] = (
     ),
 )
 
+
 def upgrade() -> None:
     for nombre, _ in EXTENSIONES:
         if nombre == "pgcrypto":
@@ -50,6 +51,7 @@ $$;
 """)
         else:
             op.execute(f'CREATE EXTENSION IF NOT EXISTS "{nombre}"')
+
 
 def downgrade() -> None:
     pass
