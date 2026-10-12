@@ -13,6 +13,11 @@ antes de escalar a la suite completa de 1349.
 - **F. Schedules/excepciones/feriados** (Suite F, 50 tests): la semana, las
   excepciones de dia, los feriados y como los tres terminan en la grilla de
   disponibilidad publica.
+- **G. Bloqueos y ausencias**: CRUD del panel y como restan slots.
+- **H. Clientes**: alta por la reserva publica y lectura del panel.
+- **I. Onboarding**: el alta self-service, su semana default y sus validaciones.
+- **J. WhatsApp y notificaciones**: la conexion cifrada y las filas de
+  `notification_requests` que la reserva programa.
 
 **Que se siembra y por que se commitea.** Las rutas publicas
 (`GET /public/businesses/{slug}`, la disponibilidad y `POST /public/bookings`)
@@ -59,6 +64,7 @@ from zoneinfo import ZoneInfo
 import pytest
 import pytest_asyncio
 from app.core.config import get_settings
+from app.core.encryption import decrypt_string, mask_secret
 from app.core.security import hash_password, reset_password_hash_cache
 from app.core.time import now
 from app.db.session import TENANT_GUC
@@ -3430,3 +3436,957 @@ class TestClientes:
     async def test_listar_clientes_sin_token_responde_401(self, http_client: AsyncClient) -> None:
         respuesta = await http_client.get(URL_CLIENTES)
         assert respuesta.status_code == 401, respuesta.text
+
+
+# --------------------------------------------------------------------------- #
+# Suite I: onboarding
+# --------------------------------------------------------------------------- #
+#
+# El alta es **pre-tenant**: usa la sesion global (la del login), no una
+# de tenant, y crea el negocio por `tempus_create_business`--una funcion
+# SECURITY DEFINER porque `businesses` no es escribible por `tempus_app`.
+# Por eso el alta pasa por el override de `http_client` como cualquier
+# otro endpoint: la fila vive en la transaccion del test y no deja
+# residuo.
+#
+# **Tres desvios de la consigna, medidos como es hoy:**
+#
+# - Email duplicado: la consigna pedia 409; la unicidad de
+#   `business_users` es `(business_id, email)`--la misma persona puede
+#   trabajar en varios negocios--asi que el segundo alta con el mismo
+#   email es 201. El 409 real del alta es el slug, por el indice
+#   UNIQUE de `businesses.slug`.
+# - Activacion: la consigna pedia un endpoint trial -> active; **no
+#   existe**. El alta deja `trial` (default de la columna) y el paso a
+#   `active` es decision de la plataforma, fuera de la API. El test de
+#   "publica" usa un negocio `active` sembrado con el rol de
+#   migraciones, como las suites anteriores.
+# - Trial no publicado: la ruta publica solo resuelve negocios
+#   `active`, asi que un `trial` responde 404 (no 403 ni 410).
+
+URL_NEGOCIO = "/api/v1/business/negocio"
+
+EMAIL_ONBOARD = "Massive.Onboard@Peluqueria.com"
+PASSWORD_ONBOARD = PASSWORD_CONFIG
+OWNER_ONBOARD = "Ana Perez"
+NEGOCIO_ONBOARD = "Peluquería Massive"
+
+#: Negocios commiteados para la parte publica: uno `trial` y uno `active`.
+SLUG_TRIAL_O = "massive-trial-o"
+BUSINESS_TRIAL_O = uuid.UUID("ff000000-0000-7000-8000-0000000000f1")
+SLUG_ACTIVE_O = "massive-active-o"
+BUSINESS_ACTIVE_O = uuid.UUID("ff000000-0000-7000-8000-0000000000f2")
+
+
+def _cuerpo_registro(**cambios: object) -> dict[str, object]:
+    cuerpo: dict[str, object] = {
+        "business_name": NEGOCIO_ONBOARD,
+        "slug": "massive-onboard",
+        "owner_name": OWNER_ONBOARD,
+        "email": EMAIL_ONBOARD,
+        "password": PASSWORD_ONBOARD,
+        "phone": "+54 9 11 2345-6789",
+        "timezone": TIMEZONE,
+    }
+    cuerpo.update(cambios)
+    return cuerpo
+
+
+async def _sembrar_publicos_onboarding(conn: AsyncConnection) -> None:
+    """Un negocio `trial` y uno `active`, commiteados.
+
+    `businesses` tiene RLS: `businesses_insert` deja escribir al
+    rol de DDL, pero el `ON CONFLICT (id) DO UPDATE` pasa por
+    `businesses_write`, que exige el GUC en el `id`. La primera
+    corrida inserta limpio y no lo nota; la segunda actualiza y
+    sin el GUC revienta. El seed fija `app.current_business_id`
+    antes de cada sentencia, en la misma transaccion.
+    """
+    await conn.execute(
+        text(f"SELECT set_config('{TENANT_GUC}', :t, true)"),
+        {"t": str(BUSINESS_TRIAL_O)},
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO businesses (id, name, slug, timezone, status) "
+            "VALUES (:id, 'Massive Trial O', :slug, :tz, 'trial') "
+            "ON CONFLICT (id) DO UPDATE SET status = 'trial'"
+        ),
+        {"id": BUSINESS_TRIAL_O, "slug": SLUG_TRIAL_O, "tz": TIMEZONE},
+    )
+    await conn.execute(
+        text(f"SELECT set_config('{TENANT_GUC}', :t, true)"),
+        {"t": str(BUSINESS_ACTIVE_O)},
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO businesses (id, name, slug, timezone, status) "
+            "VALUES (:id, 'Massive Active O', :slug, :tz, 'active') "
+            "ON CONFLICT (id) DO UPDATE SET status = 'active'"
+        ),
+        {"id": BUSINESS_ACTIVE_O, "slug": SLUG_ACTIVE_O, "tz": TIMEZONE},
+    )
+    await conn.execute(text(f"SELECT set_config('{TENANT_GUC}', '', true)"))
+
+
+@pytest_asyncio.fixture
+async def negocio_publico_onboarding(
+    migration_database_url: str,
+) -> AsyncIterator[tuple[str, str]]:
+    async with _transaccion_owner(migration_database_url) as conn:
+        await _sembrar_publicos_onboarding(conn)
+    yield SLUG_TRIAL_O, SLUG_ACTIVE_O
+
+
+@pytest_asyncio.fixture
+async def negocio_onboarding(
+    http_client: AsyncClient, session: AsyncSession
+) -> AsyncIterator[tuple[uuid.UUID, str]]:
+    """Alta real + login del dueno, con el GUC puesto.
+
+    El negocio, el dueno, el profesional y los horarios nacen en la
+    transaccion del test; el GUC hay que fijarlo a mano porque el
+    override entrega la sesion sin el `SET LOCAL` de produccion.
+    """
+    alta = await http_client.post(URL_ALTA, json=_cuerpo_registro())
+    assert alta.status_code == 201, alta.text
+    business_id = uuid.UUID(str(alta.json()["business_id"]))
+    await _poner_tenant(session, business_id)
+    login = await http_client.post(
+        URL_LOGIN, json={"email": EMAIL_ONBOARD, "password": PASSWORD_ONBOARD}
+    )
+    assert login.status_code == 200, login.text
+    yield business_id, login.json()["access_token"]
+
+
+class TestOnboarding:
+    """`POST /auth/register-business`: alta, semana default y validaciones."""
+
+    async def test_el_alta_responde_201(self, http_client: AsyncClient) -> None:
+        respuesta = await http_client.post(
+            URL_ALTA, json=_cuerpo_registro(slug="massive-onboard-201")
+        )
+        assert respuesta.status_code == 201, respuesta.text
+
+    async def test_el_alta_devuelve_business_id_y_slug(self, http_client: AsyncClient) -> None:
+        respuesta = await http_client.post(
+            URL_ALTA, json=_cuerpo_registro(slug="massive-onboard-ids")
+        )
+        assert uuid.UUID(str(respuesta.json()["business_id"]))
+        assert respuesta.json()["slug"] == "massive-onboard-ids"
+
+    async def test_el_alta_devuelve_el_mensaje_de_login(self, http_client: AsyncClient) -> None:
+        """El alta no devuelve tokens: el mensaje dice que hay que loguearse."""
+        respuesta = await http_client.post(
+            URL_ALTA, json=_cuerpo_registro(slug="massive-onboard-msg")
+        )
+        assert "Inicia sesion" in respuesta.json()["mensaje"]
+
+    async def test_el_alta_canonicaliza_el_slug(self, http_client: AsyncClient) -> None:
+        """Acentos, mayusculas y separadores: `Peluquería Café` -> slug."""
+        respuesta = await http_client.post(
+            URL_ALTA,
+            json=_cuerpo_registro(
+                business_name="Peluquería Café!",
+                slug="Peluquería Café",
+            ),
+        )
+        assert respuesta.status_code == 201, respuesta.text
+        assert respuesta.json()["slug"] == "peluqueria-cafe"
+
+    async def test_el_negocio_nace_en_trial(
+        self, http_client: AsyncClient, negocio_onboarding: tuple[uuid.UUID, str]
+    ) -> None:
+        """El default de la columna es `trial`; no hay que pedirlo."""
+        _, token = negocio_onboarding
+        respuesta = await http_client.get(URL_NEGOCIO, headers=_auth(token))
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json()["status"] == "trial"
+
+    async def test_el_dueno_nace_admin(
+        self, http_client: AsyncClient, negocio_onboarding: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_onboarding
+        respuesta = await http_client.get(URL_ME, headers=_auth(token))
+        assert respuesta.json()["role"] == "admin"
+
+    async def test_el_dueno_puede_loguearse_tras_el_alta(
+        self, http_client: AsyncClient, negocio_onboarding: tuple[uuid.UUID, str]
+    ) -> None:
+        """El alta no abre sesion: la puerta de entrada es el login."""
+        _, token = negocio_onboarding
+        respuesta = await http_client.get(URL_ME, headers=_auth(token))
+        assert respuesta.status_code == 200, respuesta.text
+
+    async def test_el_negocio_nace_con_el_nombre_y_la_timezone(
+        self, http_client: AsyncClient, negocio_onboarding: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_onboarding
+        respuesta = await http_client.get(URL_NEGOCIO, headers=_auth(token))
+        assert respuesta.json()["name"] == NEGOCIO_ONBOARD
+        assert respuesta.json()["timezone"] == TIMEZONE
+
+    async def test_el_horario_inicial_tiene_siete_dias(
+        self, http_client: AsyncClient, negocio_onboarding: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_onboarding
+        respuesta = await http_client.get(URL_HORARIOS, headers=_auth(token))
+        assert respuesta.status_code == 200, respuesta.text
+        assert len(respuesta.json()["dias"]) == 7
+
+    async def test_el_lunes_tiene_las_dos_ventanas_default(
+        self, http_client: AsyncClient, negocio_onboarding: tuple[uuid.UUID, str]
+    ) -> None:
+        """Jornada partida: 09-12 y 16-20, dos filas por dia."""
+        _, token = negocio_onboarding
+        respuesta = await http_client.get(URL_HORARIOS, headers=_auth(token))
+        dias = {d["weekday"]: d["windows"] for d in respuesta.json()["dias"]}
+        assert dias[LUNES] == [
+            {"start": "09:00:00", "end": "12:00:00"},
+            {"start": "16:00:00", "end": "20:00:00"},
+        ]
+
+    async def test_la_semana_default_va_de_lunes_a_sabado(
+        self, http_client: AsyncClient, negocio_onboarding: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_onboarding
+        respuesta = await http_client.get(URL_HORARIOS, headers=_auth(token))
+        dias = {d["weekday"]: d["windows"] for d in respuesta.json()["dias"]}
+        for weekday in range(6):
+            assert dias[weekday] != []
+
+    async def test_el_domingo_no_tiene_ventanas(
+        self, http_client: AsyncClient, negocio_onboarding: tuple[uuid.UUID, str]
+    ) -> None:
+        """El default no siembra el domingo: sin filas es cerrado."""
+        _, token = negocio_onboarding
+        respuesta = await http_client.get(URL_HORARIOS, headers=_auth(token))
+        dias = {d["weekday"]: d["windows"] for d in respuesta.json()["dias"]}
+        assert dias[DOMINGO] == []
+
+    async def test_el_alta_crea_el_profesional_con_el_nombre_del_dueno(
+        self, http_client: AsyncClient, negocio_onboarding: tuple[uuid.UUID, str]
+    ) -> None:
+        """El profesional nace vinculado al dueno, con su nombre."""
+        _, token = negocio_onboarding
+        respuesta = await http_client.get(URL_PROFESIONALES, headers=_auth(token))
+        assert respuesta.status_code == 200, respuesta.text
+        profesionales = respuesta.json()
+        assert len(profesionales) == 1
+        assert profesionales[0]["display_name"] == OWNER_ONBOARD
+
+    async def test_el_telefono_se_guarda_en_e164_sin_el_mas(
+        self, http_client: AsyncClient, negocio_onboarding: tuple[uuid.UUID, str]
+    ) -> None:
+        """El onboarding normaliza lo que pega el celular: sin `+` ni espacios."""
+        _, token = negocio_onboarding
+        respuesta = await http_client.get(URL_NEGOCIO, headers=_auth(token))
+        assert respuesta.json()["phone_e164"] == "5491123456789"
+
+    async def test_el_slug_duplicado_responde_409(self, http_client: AsyncClient) -> None:
+        primera = await http_client.post(URL_ALTA, json=_cuerpo_registro())
+        assert primera.status_code == 201, primera.text
+        segunda = await http_client.post(URL_ALTA, json=_cuerpo_registro())
+        assert segunda.status_code == 409, segunda.text
+
+    async def test_un_slug_reservado_responde_409(self, http_client: AsyncClient) -> None:
+        """`admin` vive en `slug_reservations`: la funcion lo rechaza."""
+        respuesta = await http_client.post(URL_ALTA, json=_cuerpo_registro(slug="admin"))
+        assert respuesta.status_code == 409, respuesta.text
+
+    async def test_el_mismo_email_en_otro_negocio_no_conflicta(
+        self, http_client: AsyncClient
+    ) -> None:
+        """La unicidad de `business_users` es `(business_id, email)`.
+
+        Desvio documentado de la consigna (pedia 409): la misma persona
+        puede ser miembro de varios negocios, y el segundo alta con su
+        email crea un negocio nuevo, no un conflicto.
+        """
+        primera = await http_client.post(URL_ALTA, json=_cuerpo_registro())
+        assert primera.status_code == 201, primera.text
+        segunda = await http_client.post(
+            URL_ALTA, json=_cuerpo_registro(slug="massive-onboard-mismo-email")
+        )
+        assert segunda.status_code == 201, segunda.text
+
+    async def test_una_timezone_invalida_responde_422(self, http_client: AsyncClient) -> None:
+        respuesta = await http_client.post(
+            URL_ALTA, json=_cuerpo_registro(timezone="No/Es_Una_Zona")
+        )
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_una_password_corta_responde_422(self, http_client: AsyncClient) -> None:
+        respuesta = await http_client.post(URL_ALTA, json=_cuerpo_registro(password="corta"))
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_un_email_invalido_responde_422(self, http_client: AsyncClient) -> None:
+        respuesta = await http_client.post(URL_ALTA, json=_cuerpo_registro(email="no-es-un-email"))
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_un_nombre_de_negocio_solo_espacios_responde_422(
+        self, http_client: AsyncClient
+    ) -> None:
+        """Pasa el `min_length` del esquema; lo rechaza el servicio."""
+        respuesta = await http_client.post(URL_ALTA, json=_cuerpo_registro(business_name="  "))
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_un_slug_que_normaliza_a_vacio_responde_422(
+        self, http_client: AsyncClient
+    ) -> None:
+        respuesta = await http_client.post(URL_ALTA, json=_cuerpo_registro(slug="!!!"))
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_un_telefono_invalido_responde_422(self, http_client: AsyncClient) -> None:
+        respuesta = await http_client.post(URL_ALTA, json=_cuerpo_registro(phone="123"))
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_un_negocio_trial_no_es_publico(
+        self,
+        http_client: AsyncClient,
+        negocio_publico_onboarding: tuple[str, str],
+    ) -> None:
+        """La ruta publica solo resuelve `active`: un `trial` es 404."""
+        slug_trial, _ = negocio_publico_onboarding
+        respuesta = await http_client.get(f"/api/v1/public/businesses/{slug_trial}")
+        assert respuesta.status_code == 404, respuesta.text
+
+    async def test_un_negocio_active_si_es_publico(
+        self,
+        http_client: AsyncClient,
+        negocio_publico_onboarding: tuple[str, str],
+    ) -> None:
+        """La activacion no es un endpoint: es estado de plataforma.
+
+        Desvio documentado de la consigna (pedia activar trial -> active):
+        no existe esa ruta; el negocio `active` que si se publica se siembra
+        commiteado, como en las suites anteriores.
+        """
+        _, slug_active = negocio_publico_onboarding
+        respuesta = await http_client.get(f"/api/v1/public/businesses/{slug_active}")
+        assert respuesta.status_code == 200, respuesta.text
+        # El perfil publico no repite el slug: va en la URL.
+        assert respuesta.json()["id"] == str(BUSINESS_ACTIVE_O)
+        assert respuesta.json()["name"] == "Massive Active O"
+
+
+# --------------------------------------------------------------------------- #
+# Suite J: WhatsApp y notificaciones
+# --------------------------------------------------------------------------- #
+#
+# Dos negocios commiteados con el rol de migraciones. La conexion
+# de WhatsApp **no** se siembra: el token viaja una sola vez por
+# el `PUT` y se guarda cifrado con Fernet (`ENCRYPTION_KEY`),
+# nunca en claro.
+#
+# **Desvio de la consigna, medido como es hoy:** "sin config, la
+# reserva no crea notificacion" no es lo que hace el sistema.
+# `schedule_for_booking` programa las filas **siempre**--es la
+# garantia de que el recordatorio exista aunque Meta este caido--;
+# la conexion la usa la outbox al **enviar**, no al programar. El
+# unico caso que no programa nada es el cliente dado de baja
+# (`is_opted_out`), y eso se decide al programar.
+
+URL_NOTIFICACIONES = "/api/v1/business/notificaciones"
+
+SLUG_WHATSAPP = "massive-whatsapp"
+BUSINESS_WHATSAPP = uuid.UUID("0f000000-0000-7000-8000-0000000000f1")
+SERVICE_WHATSAPP = uuid.UUID("0f000000-0000-7000-8000-0000000000f2")
+PROF_WHATSAPP = uuid.UUID("0f000000-0000-7000-8000-0000000000f3")
+
+SLUG_SIN_WHATSAPP = "massive-sin-whatsapp"
+BUSINESS_SIN_WHATSAPP = uuid.UUID("0f000000-0000-7000-8000-0000000000f4")
+SERVICE_SIN_WHATSAPP = uuid.UUID("0f000000-0000-7000-8000-0000000000f5")
+PROF_SIN_WHATSAPP = uuid.UUID("0f000000-0000-7000-8000-0000000000f6")
+
+#: Cliente con `is_opted_out = true` en el negocio de WhatsApp.
+CUSTOMER_OPTOUT = uuid.UUID("0f000000-0000-7000-8000-0000000000f7")
+TELEFONO_OPTOUT = "+54911000500"
+
+EMAIL_WHATSAPP = "Massive.Whatsapp@Peluqueria.com"
+EMAIL_SIN_WHATSAPP = "Massive.SinWhatsapp@Peluqueria.com"
+PASSWORD_WHATSAPP = PASSWORD_CONFIG
+
+TOKEN_WHATSAPP = "EAAGm0PX4ZCZBOb-token-de-prueba-largo"
+PHONE_ID_WHATSAPP = "123456789012345"
+
+
+async def _sembrar_negocio_whatsapp(
+    conn: AsyncConnection,
+    *,
+    business: uuid.UUID,
+    slug: str,
+    service: uuid.UUID,
+    profesional: uuid.UUID,
+) -> None:
+    """Negocio activo, lunes 09-17, servicio y profesional asignado."""
+    await conn.execute(
+        text(f"SELECT set_config('{TENANT_GUC}', :t, true)"),
+        {"t": str(business)},
+    )
+    # La limpieza de sobras va en setup: `POST /public/bookings`
+    # commitea reservas, clientes y notificaciones que sobreviven
+    # al rollback de la transaccion del test. `business_hours` va
+    # sin `ON CONFLICT`: hay que borrarla o la segunda corrida
+    # choca con la unica `(business_id, weekday, window_index)`.
+    await conn.execute(
+        text("DELETE FROM business_hours WHERE business_id = :b"),
+        {"b": business},
+    )
+    await conn.execute(
+        text("DELETE FROM notification_requests WHERE business_id = :b"),
+        {"b": business},
+    )
+    await conn.execute(text("DELETE FROM bookings WHERE business_id = :b"), {"b": business})
+    await conn.execute(text("DELETE FROM customers WHERE business_id = :b"), {"b": business})
+    await conn.execute(
+        text("DELETE FROM whatsapp_connections WHERE business_id = :b"),
+        {"b": business},
+    )
+    await conn.execute(
+        text(
+            """
+            INSERT INTO businesses
+                (id, name, slug, timezone, status, slot_interval_minutes, min_lead_minutes)
+            VALUES (:id, 'Massive Whatsapp', :slug, :tz, 'active', 30, 0)
+            ON CONFLICT (id) DO UPDATE SET
+                name = EXCLUDED.name,
+                slug = EXCLUDED.slug,
+                timezone = EXCLUDED.timezone,
+                status = 'active',
+                slot_interval_minutes = 30,
+                min_lead_minutes = 0
+            """
+        ),
+        {"id": business, "slug": slug, "tz": TIMEZONE},
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO business_hours "
+            "(business_id, weekday, window_index, start_time, end_time, is_open) "
+            "VALUES (:b, 0, 0, '09:00', '17:00', true)"
+        ),
+        {"b": business},
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO services (id, business_id, name, duration_minutes, price, currency) "
+            "VALUES (:id, :b, 'Corte', 30, 1500.00, 'ARS') "
+            "ON CONFLICT (id) DO UPDATE SET "
+            "is_active = true, duration_minutes = 30, price = 1500.00"
+        ),
+        {"id": service, "b": business},
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO professionals (id, business_id, display_name, sort_order) "
+            "VALUES (:id, :b, 'Profe Whatsapp', 1) "
+            "ON CONFLICT (id) DO UPDATE SET is_active = true"
+        ),
+        {"id": profesional, "b": business},
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO professional_services "
+            "(professional_id, service_id, business_id, is_active) "
+            "VALUES (:p, :s, :b, true) "
+            "ON CONFLICT (professional_id, service_id) DO UPDATE SET is_active = true"
+        ),
+        {"p": profesional, "s": service, "b": business},
+    )
+
+
+async def _sembrar_whatsapp(conn: AsyncConnection) -> None:
+    """Dos negocios y un cliente dado de baja; la limpieza va en setup."""
+    await _sembrar_negocio_whatsapp(
+        conn,
+        business=BUSINESS_WHATSAPP,
+        slug=SLUG_WHATSAPP,
+        service=SERVICE_WHATSAPP,
+        profesional=PROF_WHATSAPP,
+    )
+    await _sembrar_negocio_whatsapp(
+        conn,
+        business=BUSINESS_SIN_WHATSAPP,
+        slug=SLUG_SIN_WHATSAPP,
+        service=SERVICE_SIN_WHATSAPP,
+        profesional=PROF_SIN_WHATSAPP,
+    )
+    await conn.execute(
+        text(f"SELECT set_config('{TENANT_GUC}', :t, true)"),
+        {"t": str(BUSINESS_WHATSAPP)},
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO customers "
+            "(id, business_id, first_name, last_name, phone_e164, is_opted_out) "
+            "VALUES (:id, :b, 'Baja', 'Whatsapp', :tel, true) "
+            "ON CONFLICT (id) DO UPDATE SET is_opted_out = true"
+        ),
+        {"id": CUSTOMER_OPTOUT, "b": BUSINESS_WHATSAPP, "tel": TELEFONO_OPTOUT},
+    )
+    await conn.execute(text(f"SELECT set_config('{TENANT_GUC}', '', true)"))
+
+
+@pytest_asyncio.fixture
+async def negocio_whatsapp(
+    http_client: AsyncClient,
+    session: AsyncSession,
+    migration_database_url: str,
+) -> AsyncIterator[tuple[str, str]]:
+    """Negocios activos commiteados + dos miembros, con tokens.
+
+    El miembro sin conexion se crea primero y el de WhatsApp al
+    final: el GUC queda en el negocio de WhatsApp, que es el que
+    leen la mayoria de los tests. El login no depende del GUC
+    (busca por `auth_business_user_for_login`), asi que cada
+    miembro entra con cualquier estado de tenant.
+    """
+    async with _transaccion_owner(migration_database_url) as conn:
+        await _sembrar_whatsapp(conn)
+    await _crear_miembro(
+        session,
+        business_id=BUSINESS_SIN_WHATSAPP,
+        email=EMAIL_SIN_WHATSAPP,
+        password=PASSWORD_WHATSAPP,
+    )
+    await _crear_miembro(
+        session,
+        business_id=BUSINESS_WHATSAPP,
+        email=EMAIL_WHATSAPP,
+        password=PASSWORD_WHATSAPP,
+    )
+    login = await http_client.post(
+        URL_LOGIN, json={"email": EMAIL_WHATSAPP, "password": PASSWORD_WHATSAPP}
+    )
+    assert login.status_code == 200, login.text
+    login_sin = await http_client.post(
+        URL_LOGIN,
+        json={"email": EMAIL_SIN_WHATSAPP, "password": PASSWORD_WHATSAPP},
+    )
+    assert login_sin.status_code == 200, login_sin.text
+    yield login.json()["access_token"], login_sin.json()["access_token"]
+
+
+async def _listar_notificaciones(
+    http_client: AsyncClient, token: str, **params: object
+) -> list[dict[str, object]]:
+    respuesta = await http_client.get(URL_NOTIFICACIONES, params=params, headers=_auth(token))
+    assert respuesta.status_code == 200, respuesta.text
+    listado: list[dict[str, object]] = respuesta.json()
+    return listado
+
+
+async def _guardar_config(http_client: AsyncClient, token: str, **cambios: object) -> object:
+    return await http_client.put(URL_CONFIG, json=cambios, headers=_auth(token))
+
+
+class TestNotificacionesWhatsapp:
+    """La conexion cifrada y las filas que la reserva programa."""
+
+    async def test_la_config_inicial_esta_inactiva(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        """Sin fila en `whatsapp_connections`, todo negocio nace apagado."""
+        token_whatsapp, _ = negocio_whatsapp
+        respuesta = await http_client.get(URL_CONFIG, headers=_auth(token_whatsapp))
+        assert respuesta.status_code == 200, respuesta.text
+        config = respuesta.json()
+        assert config["activo"] is False
+        assert config["phone_number_id"] is None
+        assert config["token_ultimos"] is None
+
+    async def test_la_config_inicial_trae_las_plantillas_por_defecto(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        token_whatsapp, _ = negocio_whatsapp
+        respuesta = await http_client.get(URL_CONFIG, headers=_auth(token_whatsapp))
+        config = respuesta.json()
+        assert config["reminder_24h_template"] == "recordatorio_24h"
+        assert config["reminder_2h_template"] == "recordatorio_2h"
+
+    async def test_guardar_config_responde_200(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        token_whatsapp, _ = negocio_whatsapp
+        respuesta = await _guardar_config(
+            http_client,
+            token_whatsapp,
+            activo=True,
+            phone_number_id=PHONE_ID_WHATSAPP,
+            access_token=TOKEN_WHATSAPP,
+        )
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json()["activo"] is True
+
+    async def test_guardar_config_devuelve_el_phone_number_id(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        token_whatsapp, _ = negocio_whatsapp
+        respuesta = await _guardar_config(
+            http_client,
+            token_whatsapp,
+            activo=True,
+            phone_number_id=PHONE_ID_WHATSAPP,
+            access_token=TOKEN_WHATSAPP,
+        )
+        assert respuesta.json()["phone_number_id"] == PHONE_ID_WHATSAPP
+
+    async def test_guardar_config_devuelve_el_token_enmascarado(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        token_whatsapp, _ = negocio_whatsapp
+        respuesta = await _guardar_config(
+            http_client,
+            token_whatsapp,
+            activo=True,
+            phone_number_id=PHONE_ID_WHATSAPP,
+            access_token=TOKEN_WHATSAPP,
+        )
+        assert respuesta.json()["token_ultimos"] == mask_secret(TOKEN_WHATSAPP)
+
+    async def test_guardar_config_no_devuelve_el_token_completo(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        """El token viaja una sola vez: despues solo la marca de "hay token"."""
+        token_whatsapp, _ = negocio_whatsapp
+        respuesta = await _guardar_config(
+            http_client,
+            token_whatsapp,
+            activo=True,
+            phone_number_id=PHONE_ID_WHATSAPP,
+            access_token=TOKEN_WHATSAPP,
+        )
+        assert TOKEN_WHATSAPP not in respuesta.text
+
+    async def test_el_token_se_guarda_cifrado_en_la_base(
+        self,
+        http_client: AsyncClient,
+        negocio_whatsapp: tuple[str, str],
+        session: AsyncSession,
+    ) -> None:
+        """Fernet, no texto: un dump de la tabla no da la cuenta de WhatsApp."""
+        token_whatsapp, _ = negocio_whatsapp
+        await _guardar_config(
+            http_client,
+            token_whatsapp,
+            activo=True,
+            phone_number_id=PHONE_ID_WHATSAPP,
+            access_token=TOKEN_WHATSAPP,
+        )
+        await _poner_tenant(session, BUSINESS_WHATSAPP)
+        resultado = await session.execute(
+            text("SELECT access_token_encrypted FROM whatsapp_connections WHERE business_id = :b"),
+            {"b": BUSINESS_WHATSAPP},
+        )
+        crudo = resultado.scalar_one()
+        assert crudo != TOKEN_WHATSAPP
+        assert decrypt_string(crudo) == TOKEN_WHATSAPP
+
+    async def test_guardar_config_guarda_las_coordenadas_del_mapa(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        """`latitude`/`longitude` viven en `businesses`, no en la conexion."""
+        token_whatsapp, _ = negocio_whatsapp
+        respuesta = await _guardar_config(
+            http_client,
+            token_whatsapp,
+            activo=False,
+            latitude=LIBRES_LAT,
+            longitude=LIBRES_LNG,
+        )
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json()["latitude"] == LIBRES_LAT
+        assert respuesta.json()["longitude"] == LIBRES_LNG
+
+    async def test_guardar_config_conserva_el_token_si_no_viene_otro(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        """`access_token=None` conserva el guardado: reactivar es un click."""
+        token_whatsapp, _ = negocio_whatsapp
+        await _guardar_config(
+            http_client,
+            token_whatsapp,
+            activo=True,
+            phone_number_id=PHONE_ID_WHATSAPP,
+            access_token=TOKEN_WHATSAPP,
+        )
+        segunda = await _guardar_config(
+            http_client,
+            token_whatsapp,
+            activo=True,
+            phone_number_id=PHONE_ID_WHATSAPP,
+            access_token=None,
+        )
+        assert segunda.status_code == 200, segunda.text
+        assert segunda.json()["token_ultimos"] == mask_secret(TOKEN_WHATSAPP)
+
+    async def test_guardar_config_actualiza_la_plantilla_del_recordatorio_24h(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        token_whatsapp, _ = negocio_whatsapp
+        respuesta = await _guardar_config(
+            http_client,
+            token_whatsapp,
+            activo=True,
+            phone_number_id=PHONE_ID_WHATSAPP,
+            access_token=TOKEN_WHATSAPP,
+            reminder_24h_template="plantilla_personalizada",
+        )
+        assert respuesta.json()["reminder_24h_template"] == "plantilla_personalizada"
+        assert respuesta.json()["reminder_2h_template"] == "recordatorio_2h"
+
+    async def test_una_plantilla_con_guiones_responde_422(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        """El esquema exige `^[A-Za-z0-9_]+$`: guiones no son nombre de plantilla."""
+        token_whatsapp, _ = negocio_whatsapp
+        respuesta = await _guardar_config(
+            http_client,
+            token_whatsapp,
+            activo=True,
+            phone_number_id=PHONE_ID_WHATSAPP,
+            access_token=TOKEN_WHATSAPP,
+            reminder_24h_template="mi-plantilla",
+        )
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_activar_sin_phone_number_id_responde_422(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        """Una conexion activa sin numero crearia recordatorios que nunca salen."""
+        token_whatsapp, _ = negocio_whatsapp
+        respuesta = await _guardar_config(
+            http_client,
+            token_whatsapp,
+            activo=True,
+            phone_number_id=None,
+            access_token=TOKEN_WHATSAPP,
+        )
+        assert respuesta.status_code == 422, respuesta.text
+        assert "Phone Number ID" in respuesta.json()["detail"]
+
+    async def test_activar_sin_token_responde_422(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        token_whatsapp, _ = negocio_whatsapp
+        respuesta = await _guardar_config(
+            http_client,
+            token_whatsapp,
+            activo=True,
+            phone_number_id=PHONE_ID_WHATSAPP,
+            access_token=None,
+        )
+        assert respuesta.status_code == 422, respuesta.text
+        assert "token" in respuesta.json()["detail"].lower()
+
+    async def test_un_token_corto_responde_422(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        token_whatsapp, _ = negocio_whatsapp
+        respuesta = await _guardar_config(
+            http_client,
+            token_whatsapp,
+            activo=True,
+            phone_number_id=PHONE_ID_WHATSAPP,
+            access_token="corto",
+        )
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_guardar_inactivo_sin_credenciales_no_crea_fila(
+        self,
+        http_client: AsyncClient,
+        negocio_whatsapp: tuple[str, str],
+        session: AsyncSession,
+    ) -> None:
+        """Apagar sin credenciales no deja fila: no hay nada que conservar."""
+        token_whatsapp, _ = negocio_whatsapp
+        respuesta = await _guardar_config(http_client, token_whatsapp, activo=False)
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json()["activo"] is False
+        await _poner_tenant(session, BUSINESS_WHATSAPP)
+        resultado = await session.execute(
+            text("SELECT count(*) FROM whatsapp_connections WHERE business_id = :b"),
+            {"b": BUSINESS_WHATSAPP},
+        )
+        assert resultado.scalar_one() == 0
+
+    async def test_guardar_inactivo_conserva_la_conexion(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        """Desactivar no borra el token: el panel sigue reconociendo la cuenta."""
+        token_whatsapp, _ = negocio_whatsapp
+        primera = await _guardar_config(
+            http_client,
+            token_whatsapp,
+            activo=True,
+            phone_number_id=PHONE_ID_WHATSAPP,
+            access_token=TOKEN_WHATSAPP,
+        )
+        assert primera.status_code == 200, primera.text
+        segunda = await _guardar_config(http_client, token_whatsapp, activo=False)
+        assert segunda.status_code == 200, segunda.text
+        assert segunda.json()["activo"] is False
+        assert segunda.json()["token_ultimos"] == mask_secret(TOKEN_WHATSAPP)
+
+    async def test_la_config_sin_token_responde_401(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        _, _ = negocio_whatsapp
+        respuesta = await http_client.get(URL_CONFIG)
+        assert respuesta.status_code == 401, respuesta.text
+
+    async def test_guardar_config_sin_scopes_responde_403(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        sin_scopes = create_access_token(
+            user_id=uuid.uuid4(),
+            business_id=BUSINESS_WHATSAPP,
+            role=str(BusinessUserRole.ADMIN),
+            scopes=[],
+        )
+        respuesta = await _guardar_config(http_client, sin_scopes.token, activo=False)
+        assert respuesta.status_code == 403, respuesta.text
+
+    async def test_ver_config_sin_scopes_responde_403(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        sin_scopes = create_access_token(
+            user_id=uuid.uuid4(),
+            business_id=BUSINESS_WHATSAPP,
+            role=str(BusinessUserRole.ADMIN),
+            scopes=[],
+        )
+        respuesta = await http_client.get(URL_CONFIG, headers=_auth(sin_scopes.token))
+        assert respuesta.status_code == 403, respuesta.text
+
+    async def test_la_reserva_crea_las_tres_notificaciones_aun_sin_conexion(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        """El agendado no depende de la conexion: la garantia es la fila.
+
+        Desvio documentado de la consigna (pedia "sin config, sin
+        notificacion"): `schedule_for_booking` programa
+        `booking_confirmed` y los dos recordatorios siempre; la
+        conexion de WhatsApp la usa la outbox al enviar. Este
+        negocio no tiene fila en `whatsapp_connections` y aun
+        asi programa las tres.
+        """
+        token_whatsapp, _ = negocio_whatsapp
+        respuesta = await _reservar(
+            http_client,
+            starts_at=_proximo(LUNES, 9),
+            telefono="+54911000501",
+            professional_id=PROF_WHATSAPP,
+            service_id=SERVICE_WHATSAPP,
+            slug=SLUG_WHATSAPP,
+        )
+        assert respuesta.status_code == 201, respuesta.text
+        listado = await _listar_notificaciones(http_client, token_whatsapp)
+        assert {n["kind"] for n in listado} == {
+            "booking_confirmed",
+            "reminder_24h",
+            "reminder_2h",
+        }
+
+    async def test_el_panel_lista_las_notificaciones(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        token_whatsapp, _ = negocio_whatsapp
+        await _reservar(
+            http_client,
+            starts_at=_proximo(LUNES, 9),
+            telefono="+54911000502",
+            professional_id=PROF_WHATSAPP,
+            service_id=SERVICE_WHATSAPP,
+            slug=SLUG_WHATSAPP,
+        )
+        listado = await _listar_notificaciones(http_client, token_whatsapp)
+        assert len(listado) == 3
+        for notificacion in listado:
+            assert notificacion["id"]
+            assert notificacion["booking_id"]
+            assert notificacion["status"] == "pending"
+            assert "scheduled_for" in notificacion
+
+    async def test_las_filas_arrancan_en_intento_cero(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        token_whatsapp, _ = negocio_whatsapp
+        await _reservar(
+            http_client,
+            starts_at=_proximo(LUNES, 9),
+            telefono="+54911000503",
+            professional_id=PROF_WHATSAPP,
+            service_id=SERVICE_WHATSAPP,
+            slug=SLUG_WHATSAPP,
+        )
+        listado = await _listar_notificaciones(http_client, token_whatsapp)
+        for notificacion in listado:
+            assert notificacion["attempts"] == 0
+            assert notificacion["max_attempts"] == 3
+
+    async def test_el_listado_filtra_por_reserva(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        token_whatsapp, _ = negocio_whatsapp
+        primera = await _reservar(
+            http_client,
+            starts_at=_proximo(LUNES, 9),
+            telefono="+54911000504",
+            professional_id=PROF_WHATSAPP,
+            service_id=SERVICE_WHATSAPP,
+            slug=SLUG_WHATSAPP,
+        )
+        assert primera.status_code == 201, primera.text
+        booking_id = primera.json()["booking_id"]
+        segunda = await _reservar(
+            http_client,
+            starts_at=_proximo(LUNES, 10),
+            telefono="+54911000505",
+            professional_id=PROF_WHATSAPP,
+            service_id=SERVICE_WHATSAPP,
+            slug=SLUG_WHATSAPP,
+        )
+        assert segunda.status_code == 201, segunda.text
+        listado = await _listar_notificaciones(http_client, token_whatsapp, reserva_id=booking_id)
+        assert len(listado) == 3
+        assert {n["booking_id"] for n in listado} == {booking_id}
+
+    async def test_los_recordatorios_se_programan_antes_del_turno(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        token_whatsapp, _ = negocio_whatsapp
+        starts_at = _proximo(LUNES, 9)
+        await _reservar(
+            http_client,
+            starts_at=starts_at,
+            telefono="+54911000506",
+            professional_id=PROF_WHATSAPP,
+            service_id=SERVICE_WHATSAPP,
+            slug=SLUG_WHATSAPP,
+        )
+        listado = await _listar_notificaciones(http_client, token_whatsapp)
+        por_kind = {n["kind"]: n for n in listado}
+        assert dt.datetime.fromisoformat(
+            str(por_kind["reminder_24h"]["scheduled_for"])
+        ) == starts_at - dt.timedelta(hours=24)
+        assert dt.datetime.fromisoformat(
+            str(por_kind["reminder_2h"]["scheduled_for"])
+        ) == starts_at - dt.timedelta(hours=2)
+
+    async def test_el_cliente_dado_de_baja_no_genera_notificaciones(
+        self, http_client: AsyncClient, negocio_whatsapp: tuple[str, str]
+    ) -> None:
+        """El opt-out se respeta al programar: es el unico caso sin filas."""
+        token_whatsapp, _ = negocio_whatsapp
+        respuesta = await _reservar(
+            http_client,
+            starts_at=_proximo(LUNES, 9),
+            telefono=TELEFONO_OPTOUT,
+            professional_id=PROF_WHATSAPP,
+            service_id=SERVICE_WHATSAPP,
+            slug=SLUG_WHATSAPP,
+        )
+        assert respuesta.status_code == 201, respuesta.text
+        assert await _listar_notificaciones(http_client, token_whatsapp) == []
