@@ -52,6 +52,7 @@ import datetime as dt
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
+from decimal import Decimal
 from itertools import pairwise
 from zoneinfo import ZoneInfo
 
@@ -2268,6 +2269,8 @@ async def _sembrar_agenda(conn: AsyncConnection) -> None:
         {"b": BUSINESS_AGENDA},
     )
     await conn.execute(text("DELETE FROM holidays WHERE business_id = :b"), {"b": BUSINESS_AGENDA})
+    await conn.execute(text("DELETE FROM blocks WHERE business_id = :b"), {"b": BUSINESS_AGENDA})
+    await conn.execute(text("DELETE FROM time_off WHERE business_id = :b"), {"b": BUSINESS_AGENDA})
     await conn.execute(
         text("DELETE FROM business_hours WHERE business_id = :b"),
         {"b": BUSINESS_AGENDA},
@@ -2520,3 +2523,910 @@ class TestSchedulesDisponibilidad:
     async def test_domingo_no_tiene_slots(self, http_client: AsyncClient, agenda: str) -> None:
         domingo = _lunes_futuro() + dt.timedelta(days=6)
         assert await _pedir_slots(http_client, domingo) == []
+
+
+# --------------------------------------------------------------------------- #
+# Suite G: ausencias y bloqueos
+# --------------------------------------------------------------------------- #
+#
+# Los mismos dos mundos que la suite F:
+#
+# - **Panel** (`negocio_panel`): `POST/GET/DELETE /business/bloqueos` y
+#   `POST /business/ausencias` pasan por el override de `http_client`, asi que
+#   los bloqueos viven en la transaccion del test y no dejan residuo.
+# - **Disponibilidad publica** (`agenda`): la ruta publica abre sesion propia y
+#   no ve la transaccion del test; el bloqueo que tiene que restar slots se
+#   siembra commiteado con el rol de migraciones, igual que excepciones y
+#   feriados. La limpieza de sobras va en el setup del fixture `agenda`.
+#
+# **Dos desvios de la consigna, medidos como es hoy:**
+#
+# - Solapamiento entre bloqueos: la consigna pedia 409 o 422; el servicio
+#   **no** valida que dos bloqueos se pisen (`crear_bloqueo` no consulta los
+#   existentes), asi que el segundo se crea (201). Un solapamiento no es un
+#   error de datos--un profesional puede tener un bloqueo personal encima de un
+#   cierre de negocio--, y el test fija ese comportamiento para que un cambio
+#   futuro sea visible.
+# - Fecha pasada: la consigna pedia 422; el sistema **no** valida el pasado y el
+#   bloqueo se crea (201). El motor de disponibilidad solo mira slots futuros,
+#   asi que el hueco es cosmetico.
+
+URL_BLOQUEOS = "/api/v1/business/bloqueos"
+URL_AUSENCIAS = "/api/v1/business/ausencias"
+
+
+def _cuerpo_bloqueo(
+    *,
+    inicio: dt.datetime,
+    fin: dt.datetime,
+    professional_id: uuid.UUID | None = None,
+    **cambios: object,
+) -> dict[str, object]:
+    cuerpo: dict[str, object] = {
+        "starts_at": inicio.isoformat().replace("+00:00", "Z"),
+        "ends_at": fin.isoformat().replace("+00:00", "Z"),
+        "professional_id": None if professional_id is None else str(professional_id),
+    }
+    cuerpo.update(cambios)
+    return cuerpo
+
+
+def _cuerpo_ausencia(
+    *,
+    professional_id: uuid.UUID,
+    inicio: dt.datetime,
+    fin: dt.datetime,
+    **cambios: object,
+) -> dict[str, object]:
+    cuerpo: dict[str, object] = {
+        "professional_id": str(professional_id),
+        "starts_at": inicio.isoformat().replace("+00:00", "Z"),
+        "ends_at": fin.isoformat().replace("+00:00", "Z"),
+    }
+    cuerpo.update(cambios)
+    return cuerpo
+
+
+async def _profesional_id(http_client: AsyncClient, token: str) -> uuid.UUID:
+    creado = await _crear_profesional(http_client, token, display_name="Profe Bloqueos")
+    return uuid.UUID(str(creado["id"]))
+
+
+async def _crear_bloqueo(
+    http_client: AsyncClient,
+    token: str,
+    *,
+    inicio: dt.datetime | None = None,
+    fin: dt.datetime | None = None,
+    professional_id: uuid.UUID | None = None,
+    **cambios: object,
+) -> dict[str, object]:
+    inicio = inicio if inicio is not None else _proximo(LUNES, 9)
+    fin = fin if fin is not None else inicio + dt.timedelta(hours=1)
+    respuesta = await http_client.post(
+        URL_BLOQUEOS,
+        json=_cuerpo_bloqueo(inicio=inicio, fin=fin, professional_id=professional_id, **cambios),
+        headers=_auth(token),
+    )
+    assert respuesta.status_code == 201, respuesta.text
+    creado: dict[str, object] = respuesta.json()
+    return creado
+
+
+async def _crear_bloqueo_en_base(
+    migration_database_url: str,
+    *,
+    local_date: dt.date,
+    start_time: dt.time,
+    end_time: dt.time,
+    professional_id: uuid.UUID | None = PROF_AGENDA,
+) -> uuid.UUID:
+    """Bloqueo committeado: la ruta publica abre sesion propia y lo ve.
+
+    `professional_id=None` cierra el negocio entero--el brazo `is_(None)` que el
+    motor suma a la disponibilidad de cada profesional.
+    """
+    inicio = dt.datetime.combine(local_date, start_time, tzinfo=TZ).astimezone(dt.UTC)
+    fin = dt.datetime.combine(local_date, end_time, tzinfo=TZ).astimezone(dt.UTC)
+    async with _transaccion_owner(migration_database_url) as conn:
+        await conn.execute(
+            text(f"SELECT set_config('{TENANT_GUC}', :t, true)"),
+            {"t": str(BUSINESS_AGENDA)},
+        )
+        resultado = await conn.execute(
+            text(
+                "INSERT INTO blocks "
+                "(business_id, professional_id, kind, starts_at, ends_at, occupied_from, occupied_to) "
+                "VALUES (:b, :p, 'blocked', :s, :f, :s, :f) RETURNING id"
+            ),
+            {"b": BUSINESS_AGENDA, "p": professional_id, "s": inicio, "f": fin},
+        )
+        await conn.execute(text(f"SELECT set_config('{TENANT_GUC}', '', true)"))
+        return resultado.scalar_one()  # type: ignore[no-any-return]
+
+
+async def _borrar_bloqueo_en_base(migration_database_url: str, block_id: uuid.UUID) -> None:
+    async with _transaccion_owner(migration_database_url) as conn:
+        await conn.execute(
+            text(f"SELECT set_config('{TENANT_GUC}', :t, true)"),
+            {"t": str(BUSINESS_AGENDA)},
+        )
+        await conn.execute(
+            text("DELETE FROM blocks WHERE business_id = :b AND id = :i"),
+            {"b": BUSINESS_AGENDA, "i": block_id},
+        )
+        await conn.execute(text(f"SELECT set_config('{TENANT_GUC}', '', true)"))
+
+
+class TestBloqueosAusencias:
+    """Bloqueos y ausencias: el panel los administra, la grilla los resta."""
+
+    async def test_crear_bloqueo_de_profesional_responde_201(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        profesional = await _profesional_id(http_client, token)
+        creado = await _crear_bloqueo(http_client, token, professional_id=profesional)
+        assert uuid.UUID(str(creado["id"]))
+
+    async def test_el_bloqueo_devuelve_el_professional_id(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        profesional = await _profesional_id(http_client, token)
+        creado = await _crear_bloqueo(http_client, token, professional_id=profesional)
+        assert creado["professional_id"] == str(profesional)
+
+    async def test_el_bloqueo_guarda_la_razon(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        profesional = await _profesional_id(http_client, token)
+        creado = await _crear_bloqueo(
+            http_client, token, professional_id=profesional, reason="Congreso"
+        )
+        assert creado["reason"] == "Congreso"
+
+    async def test_el_bloqueo_de_negocio_no_tiene_profesional(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """Sin `professional_id` el bloqueo es de todo el negocio: `None`."""
+        _, token = negocio_panel
+        creado = await _crear_bloqueo(http_client, token)
+        assert creado["professional_id"] is None
+
+    async def test_el_bloqueo_respeta_el_kind(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        profesional = await _profesional_id(http_client, token)
+        creado = await _crear_bloqueo(
+            http_client, token, professional_id=profesional, kind="private"
+        )
+        assert creado["kind"] == "private"
+
+    async def test_listar_bloqueos_incluye_el_creado(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        creado = await _crear_bloqueo(http_client, token)
+        respuesta = await http_client.get(URL_BLOQUEOS, headers=_auth(token))
+        assert respuesta.status_code == 200, respuesta.text
+        assert any(b["id"] == creado["id"] for b in respuesta.json())
+
+    async def test_listar_sin_filtro_trae_los_dos_tipos(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """Sin filtro caben el bloqueo de negocio y el de un profesional."""
+        _, token = negocio_panel
+        profesional = await _profesional_id(http_client, token)
+        de_profesional = await _crear_bloqueo(
+            http_client, token, inicio=_proximo(LUNES, 9), professional_id=profesional
+        )
+        de_negocio = await _crear_bloqueo(http_client, token, inicio=_proximo(LUNES, 11))
+        respuesta = await http_client.get(URL_BLOQUEOS, headers=_auth(token))
+        ids = {b["id"] for b in respuesta.json()}
+        assert de_profesional["id"] in ids
+        assert de_negocio["id"] in ids
+
+    async def test_listar_filtra_por_profesional(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        profesional = await _profesional_id(http_client, token)
+        await _crear_bloqueo(
+            http_client, token, inicio=_proximo(LUNES, 9), professional_id=profesional
+        )
+        await _crear_bloqueo(http_client, token, inicio=_proximo(LUNES, 11))
+        respuesta = await http_client.get(
+            URL_BLOQUEOS, params={"professional_id": str(profesional)}, headers=_auth(token)
+        )
+        assert respuesta.status_code == 200, respuesta.text
+        assert [b["professional_id"] for b in respuesta.json()] == [str(profesional)]
+
+    async def test_borrar_bloqueo_responde_204(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        creado = await _crear_bloqueo(http_client, token)
+        respuesta = await http_client.delete(f"{URL_BLOQUEOS}/{creado['id']}", headers=_auth(token))
+        assert respuesta.status_code == 204, respuesta.text
+
+    async def test_borrar_bloqueo_lo_saca_de_la_lista(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        creado = await _crear_bloqueo(http_client, token)
+        await http_client.delete(f"{URL_BLOQUEOS}/{creado['id']}", headers=_auth(token))
+        respuesta = await http_client.get(URL_BLOQUEOS, headers=_auth(token))
+        assert all(b["id"] != creado["id"] for b in respuesta.json())
+
+    async def test_bloqueo_con_fin_igual_al_inicio_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        inicio = _proximo(LUNES, 9)
+        respuesta = await http_client.post(
+            URL_BLOQUEOS,
+            json=_cuerpo_bloqueo(inicio=inicio, fin=inicio),
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_bloqueo_con_fin_antes_del_inicio_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.post(
+            URL_BLOQUEOS,
+            json=_cuerpo_bloqueo(inicio=_proximo(LUNES, 10), fin=_proximo(LUNES, 9)),
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_bloqueo_de_profesional_inexistente_responde_404(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.post(
+            URL_BLOQUEOS,
+            json=_cuerpo_bloqueo(
+                inicio=_proximo(LUNES, 9),
+                fin=_proximo(LUNES, 10),
+                professional_id=uuid.uuid4(),
+            ),
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 404, respuesta.text
+
+    async def test_bloqueo_de_profesional_de_otro_negocio_responde_404(
+        self,
+        http_client: AsyncClient,
+        negocio_panel: tuple[uuid.UUID, str],
+        agenda: str,
+    ) -> None:
+        """Un profesional de otro tenant no se confirma: 404, no 403."""
+        _, token = negocio_panel
+        respuesta = await http_client.post(
+            URL_BLOQUEOS,
+            json=_cuerpo_bloqueo(
+                inicio=_proximo(LUNES, 9),
+                fin=_proximo(LUNES, 10),
+                professional_id=PROF_AGENDA,
+            ),
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 404, respuesta.text
+
+    async def test_bloqueos_solapados_se_crean_igual(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """El servicio no valida solapamiento: el segundo bloqueo es 201.
+
+        Desvio documentado de la consigna (pedia 409/422). Un profesional puede
+        tener un bloqueo personal encima de un cierre de negocio; el motor suma
+        los dos rangos.
+        """
+        _, token = negocio_panel
+        profesional = await _profesional_id(http_client, token)
+        inicio = _proximo(LUNES, 9)
+        await _crear_bloqueo(
+            http_client,
+            token,
+            inicio=inicio,
+            fin=inicio + dt.timedelta(hours=1),
+            professional_id=profesional,
+        )
+        segundo = await _crear_bloqueo(
+            http_client,
+            token,
+            inicio=inicio + dt.timedelta(minutes=30),
+            fin=inicio + dt.timedelta(hours=2),
+            professional_id=profesional,
+        )
+        assert uuid.UUID(str(segundo["id"]))
+
+    async def test_bloqueo_en_fecha_pasada_se_crea_igual(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """El servicio no valida el pasado: un bloqueo de ayer es 201.
+
+        Desvio documentado de la consigna (pedia 422). El motor solo mira slots
+        futuros, asi que el bloqueo pasado no cambia la grilla.
+        """
+        _, token = negocio_panel
+        inicio = now() - dt.timedelta(days=2)
+        creado = await _crear_bloqueo(
+            http_client, token, inicio=inicio, fin=inicio + dt.timedelta(hours=1)
+        )
+        assert uuid.UUID(str(creado["id"]))
+
+    async def test_listar_bloqueos_sin_token_responde_401(self, http_client: AsyncClient) -> None:
+        respuesta = await http_client.get(URL_BLOQUEOS)
+        assert respuesta.status_code == 401, respuesta.text
+
+    async def test_listar_bloqueos_sin_scopes_responde_403(self, http_client: AsyncClient) -> None:
+        sin_scopes = create_access_token(
+            user_id=uuid.uuid4(),
+            business_id=BUSINESS_A,
+            role=str(BusinessUserRole.ADMIN),
+            scopes=[],
+        )
+        respuesta = await http_client.get(URL_BLOQUEOS, headers=_auth(sin_scopes.token))
+        assert respuesta.status_code == 403, respuesta.text
+
+    async def test_crear_ausencia_responde_201(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        profesional = await _profesional_id(http_client, token)
+        inicio = _proximo(LUNES, 9)
+        respuesta = await http_client.post(
+            URL_AUSENCIAS,
+            json=_cuerpo_ausencia(
+                professional_id=profesional, inicio=inicio, fin=inicio + dt.timedelta(days=3)
+            ),
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 201, respuesta.text
+
+    async def test_la_ausencia_nace_aprobada(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """Desde el panel es una decision tomada: `approved`, no `pending`."""
+        _, token = negocio_panel
+        profesional = await _profesional_id(http_client, token)
+        inicio = _proximo(LUNES, 9)
+        respuesta = await http_client.post(
+            URL_AUSENCIAS,
+            json=_cuerpo_ausencia(
+                professional_id=profesional, inicio=inicio, fin=inicio + dt.timedelta(days=3)
+            ),
+            headers=_auth(token),
+        )
+        assert respuesta.json()["status"] == "approved"
+
+    async def test_ausencia_con_fin_antes_del_inicio_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        profesional = await _profesional_id(http_client, token)
+        respuesta = await http_client.post(
+            URL_AUSENCIAS,
+            json=_cuerpo_ausencia(
+                professional_id=profesional,
+                inicio=_proximo(LUNES, 10),
+                fin=_proximo(LUNES, 9),
+            ),
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_bloqueo_de_dia_completo_deja_el_dia_sin_slots(
+        self, http_client: AsyncClient, agenda: str, migration_database_url: str
+    ) -> None:
+        """09-17 tapado entero: la grilla del lunes queda vacia."""
+        lunes = _lunes_futuro()
+        await _crear_bloqueo_en_base(
+            migration_database_url,
+            local_date=lunes,
+            start_time=dt.time(9, 0),
+            end_time=dt.time(17, 0),
+        )
+        assert await _pedir_slots(http_client, lunes) == []
+
+    async def test_bloqueo_parcial_reduce_los_slots(
+        self, http_client: AsyncClient, agenda: str, migration_database_url: str
+    ) -> None:
+        """09-12 tapado: de 16 slots del lunes quedan los 10 desde las 12:00."""
+        lunes = _lunes_futuro()
+        await _crear_bloqueo_en_base(
+            migration_database_url,
+            local_date=lunes,
+            start_time=dt.time(9, 0),
+            end_time=dt.time(12, 0),
+        )
+        slots = await _pedir_slots(http_client, lunes)
+        assert len(slots) == 10
+        assert _hora_local(str(slots[0]["starts_at"])) == dt.time(12, 0)
+
+    async def test_borrar_el_bloqueo_libera_los_slots(
+        self, http_client: AsyncClient, agenda: str, migration_database_url: str
+    ) -> None:
+        lunes = _lunes_futuro()
+        bloqueo = await _crear_bloqueo_en_base(
+            migration_database_url,
+            local_date=lunes,
+            start_time=dt.time(9, 0),
+            end_time=dt.time(17, 0),
+        )
+        assert await _pedir_slots(http_client, lunes) == []
+        await _borrar_bloqueo_en_base(migration_database_url, bloqueo)
+        assert len(await _pedir_slots(http_client, lunes)) == 16
+
+    async def test_bloqueo_de_negocio_cierra_para_todos(
+        self, http_client: AsyncClient, agenda: str, migration_database_url: str
+    ) -> None:
+        """`professional_id=None` resta disponibilidad de cada profesional."""
+        lunes = _lunes_futuro()
+        await _crear_bloqueo_en_base(
+            migration_database_url,
+            local_date=lunes,
+            start_time=dt.time(9, 0),
+            end_time=dt.time(17, 0),
+            professional_id=None,
+        )
+        assert await _pedir_slots(http_client, lunes) == []
+
+
+# --------------------------------------------------------------------------- #
+# Suite H: clientes
+# --------------------------------------------------------------------------- #
+#
+# No hay alta directa de clientes: el **unico** camino de creacion es la reserva
+# publica (`_get_or_create_customer`), que deduplica por `(business_id,
+# phone_e164)`. La suite, entonces, crea clientes reservando. El negocio tiene
+# que estar `active` y committeado--la ruta publica abre sesion propia--y el
+# miembro del panel se crea en la transaccion del test, como en las suites B/D/E.
+#
+# **El telefono no se valida en la reserva publica.** `validar_telefono` existe
+# en `customers.service` pero ningun handler lo llama; `customer_phone_e164` es
+# un `str` libre en `BookingCreateRequest`. La consigna pedia un 422 por formato
+# de WhatsApp; el sistema guarda lo que manda el cliente, sin tocar. El test
+# `test_el_telefono_se_guarda_tal_cual` fija ese comportamiento.
+
+URL_CLIENTES = "/api/v1/business/clientes"
+
+SLUG_CLIENTES = "massive-clientes"
+BUSINESS_CLIENTES = uuid.UUID("ee000000-0000-7000-8000-0000000000e1")
+SERVICE_CLIENTES = uuid.UUID("ee000000-0000-7000-8000-0000000000e2")
+PROF_CLIENTES = uuid.UUID("ee000000-0000-7000-8000-0000000000e3")
+
+#: Un negocio ajeno con un cliente, para el 404 cruzado de `GET /clientes/{id}`.
+BUSINESS_AJENO = uuid.UUID("ee000000-0000-7000-8000-0000000000e8")
+CUSTOMER_AJENO = uuid.UUID("ee000000-0000-7000-8000-0000000000e9")
+
+EMAIL_CLIENTES = "Massive.Clientes@Peluqueria.com"
+PASSWORD_CLIENTES = PASSWORD_CONFIG
+
+NOMBRE_CLIENTES = "Ana"
+APELLIDO_CLIENTES = "Perez"
+NOMBRE_PROFESIONAL_CLIENTES = "Profe Clientes"
+
+
+async def _sembrar_clientes(conn: AsyncConnection) -> None:
+    """Negocio activo, lunes 09-17, servicio y profesional asignado, committeado.
+
+    La limpieza de sobras va en setup: `POST /public/bookings` commitea con
+    sesion propia y los clientes quedan; la siguiente corrida los veria.
+    """
+    await conn.execute(
+        text(f"SELECT set_config('{TENANT_GUC}', :t, true)"),
+        {"t": str(BUSINESS_CLIENTES)},
+    )
+    await conn.execute(
+        text("DELETE FROM bookings WHERE business_id = :b"), {"b": BUSINESS_CLIENTES}
+    )
+    await conn.execute(
+        text("DELETE FROM customers WHERE business_id = :b"), {"b": BUSINESS_CLIENTES}
+    )
+    await conn.execute(
+        text("DELETE FROM business_hours WHERE business_id = :b"), {"b": BUSINESS_CLIENTES}
+    )
+    await conn.execute(
+        text(
+            """
+            INSERT INTO businesses
+                (id, name, slug, timezone, status, slot_interval_minutes, min_lead_minutes)
+            VALUES (:id, 'Massive Clientes', :slug, :tz, 'active', 30, 0)
+            ON CONFLICT (id) DO UPDATE SET
+                name = EXCLUDED.name,
+                slug = EXCLUDED.slug,
+                timezone = EXCLUDED.timezone,
+                status = 'active',
+                slot_interval_minutes = 30,
+                min_lead_minutes = 0
+            """
+        ),
+        {"id": BUSINESS_CLIENTES, "slug": SLUG_CLIENTES, "tz": TIMEZONE},
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO business_hours "
+            "(business_id, weekday, window_index, start_time, end_time, is_open) "
+            "VALUES (:b, 0, 0, '09:00', '17:00', true)"
+        ),
+        {"b": BUSINESS_CLIENTES},
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO services (id, business_id, name, duration_minutes, price, currency) "
+            "VALUES (:id, :b, 'Corte', 30, 1500.00, 'ARS') "
+            "ON CONFLICT (id) DO UPDATE SET "
+            "is_active = true, duration_minutes = 30, price = 1500.00"
+        ),
+        {"id": SERVICE_CLIENTES, "b": BUSINESS_CLIENTES},
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO professionals (id, business_id, display_name, sort_order) "
+            "VALUES (:id, :b, :nombre, 1) ON CONFLICT (id) DO UPDATE SET is_active = true"
+        ),
+        {"id": PROF_CLIENTES, "b": BUSINESS_CLIENTES, "nombre": NOMBRE_PROFESIONAL_CLIENTES},
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO professional_services "
+            "(professional_id, service_id, business_id, is_active) "
+            "VALUES (:p, :s, :b, true) "
+            "ON CONFLICT (professional_id, service_id) DO UPDATE SET is_active = true"
+        ),
+        {"p": PROF_CLIENTES, "s": SERVICE_CLIENTES, "b": BUSINESS_CLIENTES},
+    )
+
+    # Negocio ajeno con un cliente, para el 404 cruzado. Se siembra aca y no se
+    # depende del fixture `agenda`: si no existiera, la FK del cliente fallaria.
+    await conn.execute(
+        text(f"SELECT set_config('{TENANT_GUC}', :t, true)"),
+        {"t": str(BUSINESS_AJENO)},
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO businesses (id, name, slug, timezone, status) "
+            "VALUES (:id, 'Massive Ajeno', 'massive-ajeno', :tz, 'active') "
+            "ON CONFLICT (id) DO UPDATE SET status = 'active'"
+        ),
+        {"id": BUSINESS_AJENO, "tz": TIMEZONE},
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO customers (id, business_id, first_name, last_name, phone_e164) "
+            "VALUES (:id, :b, 'Otro', 'Negocio', '+54911000999') "
+            "ON CONFLICT (id) DO UPDATE SET first_name = EXCLUDED.first_name"
+        ),
+        {"id": CUSTOMER_AJENO, "b": BUSINESS_AJENO},
+    )
+    await conn.execute(text(f"SELECT set_config('{TENANT_GUC}', '', true)"))
+
+
+@pytest_asyncio.fixture
+async def negocio_clientes(
+    http_client: AsyncClient,
+    session: AsyncSession,
+    migration_database_url: str,
+) -> AsyncIterator[str]:
+    """Negocio activo committeado + miembro del panel, y su access token."""
+    async with _transaccion_owner(migration_database_url) as conn:
+        await _sembrar_clientes(conn)
+    await _crear_miembro(
+        session,
+        business_id=BUSINESS_CLIENTES,
+        email=EMAIL_CLIENTES,
+        password=PASSWORD_CLIENTES,
+    )
+    login = await http_client.post(
+        URL_LOGIN, json={"email": EMAIL_CLIENTES, "password": PASSWORD_CLIENTES}
+    )
+    assert login.status_code == 200, login.text
+    yield login.json()["access_token"]
+
+
+def _iso_utc(momento: dt.datetime) -> str:
+    return momento.isoformat().replace("+00:00", "Z")
+
+
+async def _reservar_cliente(
+    http_client: AsyncClient,
+    *,
+    starts_at: dt.datetime,
+    telefono: str,
+    nombre: str = NOMBRE_CLIENTES,
+    apellido: str = APELLIDO_CLIENTES,
+) -> object:
+    """Reserva publica contra el negocio de clientes: el alta de un cliente."""
+    return await http_client.post(
+        "/api/v1/public/bookings",
+        json={
+            "slug": SLUG_CLIENTES,
+            "service_id": str(SERVICE_CLIENTES),
+            "professional_id": str(PROF_CLIENTES),
+            "customer_first_name": nombre,
+            "customer_last_name": apellido,
+            "customer_phone_e164": telefono,
+            "starts_at": _iso_utc(starts_at),
+            "ends_at": _iso_utc(starts_at + dt.timedelta(minutes=30)),
+            "local_date": starts_at.astimezone(TZ).date().isoformat(),
+        },
+    )
+
+
+async def _listar_clientes(
+    http_client: AsyncClient, token: str, **params: object
+) -> list[dict[str, object]]:
+    respuesta = await http_client.get(URL_CLIENTES, params=params, headers=_auth(token))
+    assert respuesta.status_code == 200, respuesta.text
+    listado: list[dict[str, object]] = respuesta.json()
+    return listado
+
+
+async def _cliente_por_telefono(
+    http_client: AsyncClient, token: str, telefono: str
+) -> dict[str, object]:
+    listado = await _listar_clientes(http_client, token, busqueda=telefono)
+    assert listado, f"no se encontro un cliente con telefono {telefono}"
+    return listado[0]
+
+
+class TestClientes:
+    """Clientes: alta por la reserva publica y CRUD de lectura del panel."""
+
+    async def test_el_cliente_se_crea_desde_la_reserva_publica(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        reserva = await _reservar_cliente(
+            http_client, starts_at=_proximo(LUNES, 9), telefono="+54911000101"
+        )
+        assert reserva.status_code == 201, reserva.text
+        assert len(await _listar_clientes(http_client, negocio_clientes)) == 1
+
+    async def test_el_cliente_trae_total_reservas_uno(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 9), telefono="+54911000102")
+        cliente = (await _listar_clientes(http_client, negocio_clientes))[0]
+        assert cliente["total_reservas"] == 1
+
+    async def test_la_misma_telefono_no_duplica_el_cliente(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        """`(business_id, phone_e164)` es unico: la segunda reserva reusa el cliente."""
+        telefono = "+54911000103"
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 9), telefono=telefono)
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 10), telefono=telefono)
+        listado = await _listar_clientes(http_client, negocio_clientes)
+        assert len(listado) == 1
+        assert listado[0]["total_reservas"] == 2
+
+    async def test_el_cliente_trae_el_profesional_mas_frecuente(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 9), telefono="+54911000104")
+        cliente = (await _listar_clientes(http_client, negocio_clientes))[0]
+        assert cliente["profesional_mas_frecuente"] == NOMBRE_PROFESIONAL_CLIENTES
+
+    async def test_el_cliente_trae_lo_gastado(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        """Una reserva confirmada de 1500 suma 1500 al gasto."""
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 9), telefono="+54911000105")
+        cliente = (await _listar_clientes(http_client, negocio_clientes))[0]
+        assert Decimal(str(cliente["total_gastado"])) == Decimal("1500.00")
+
+    async def test_el_cliente_nace_con_el_nombre_de_la_reserva(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 9), telefono="+54911000106")
+        cliente = (await _listar_clientes(http_client, negocio_clientes))[0]
+        assert cliente["first_name"] == NOMBRE_CLIENTES
+        assert cliente["last_name"] == APELLIDO_CLIENTES
+
+    async def test_el_telefono_se_guarda_tal_cual(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        """El telefono no se valida ni se normaliza en la reserva publica."""
+        telefono = "+54911000107"
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 9), telefono=telefono)
+        cliente = (await _listar_clientes(http_client, negocio_clientes))[0]
+        assert cliente["phone_e164"] == telefono
+
+    async def test_buscar_por_nombre_filtra(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        await _reservar_cliente(
+            http_client, starts_at=_proximo(LUNES, 9), telefono="+54911000108", nombre="Juan"
+        )
+        await _reservar_cliente(
+            http_client, starts_at=_proximo(LUNES, 10), telefono="+54911000109", nombre="Maria"
+        )
+        listado = await _listar_clientes(http_client, negocio_clientes, busqueda="Juan")
+        assert [c["first_name"] for c in listado] == ["Juan"]
+
+    async def test_la_busqueda_es_insensible_a_mayusculas(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        await _reservar_cliente(
+            http_client, starts_at=_proximo(LUNES, 9), telefono="+54911000110", nombre="Juan"
+        )
+        listado = await _listar_clientes(http_client, negocio_clientes, busqueda="juan")
+        assert len(listado) == 1
+
+    async def test_la_busqueda_es_parcial(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        await _reservar_cliente(
+            http_client, starts_at=_proximo(LUNES, 9), telefono="+54911000111", nombre="Juan"
+        )
+        listado = await _listar_clientes(http_client, negocio_clientes, busqueda="Jua")
+        assert len(listado) == 1
+
+    async def test_buscar_por_telefono(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 9), telefono="+54911000112")
+        listado = await _listar_clientes(http_client, negocio_clientes, busqueda="+54911000112")
+        assert len(listado) == 1
+
+    async def test_busqueda_sin_resultados_devuelve_vacio(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 9), telefono="+54911000113")
+        assert await _listar_clientes(http_client, negocio_clientes, busqueda="zzzz") == []
+
+    async def test_el_limite_recorta_la_lista(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        for indice, telefono in enumerate(("+54911000114", "+54911000115", "+54911000116")):
+            await _reservar_cliente(
+                http_client,
+                starts_at=_proximo(LUNES, 9) + dt.timedelta(minutes=30 * indice),
+                telefono=telefono,
+            )
+        listado = await _listar_clientes(http_client, negocio_clientes, limite=2)
+        assert len(listado) == 2
+
+    async def test_el_offset_saltea_clientes(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        for indice, telefono in enumerate(("+54911000117", "+54911000118", "+54911000119")):
+            await _reservar_cliente(
+                http_client,
+                starts_at=_proximo(LUNES, 9) + dt.timedelta(minutes=30 * indice),
+                telefono=telefono,
+            )
+        listado = await _listar_clientes(http_client, negocio_clientes, offset=2)
+        assert len(listado) == 1
+
+    async def test_solo_optout_filtra_los_dados_de_baja(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        telefono_baja = "+54911000120"
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 9), telefono=telefono_baja)
+        cliente = await _cliente_por_telefono(http_client, negocio_clientes, telefono_baja)
+        await http_client.patch(
+            f"{URL_CLIENTES}/{cliente['id']}",
+            json={"is_opted_out": True},
+            headers=_auth(negocio_clientes),
+        )
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 10), telefono="+54911000121")
+        listado = await _listar_clientes(http_client, negocio_clientes, solo_optout=True)
+        assert [c["phone_e164"] for c in listado] == [telefono_baja]
+
+    async def test_el_detalle_del_cliente_responde_200(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        telefono = "+54911000122"
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 9), telefono=telefono)
+        cliente = await _cliente_por_telefono(http_client, negocio_clientes, telefono)
+        respuesta = await http_client.get(
+            f"{URL_CLIENTES}/{cliente['id']}", headers=_auth(negocio_clientes)
+        )
+        assert respuesta.status_code == 200, respuesta.text
+
+    async def test_el_detalle_trae_el_telefono(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        telefono = "+54911000123"
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 9), telefono=telefono)
+        cliente = await _cliente_por_telefono(http_client, negocio_clientes, telefono)
+        respuesta = await http_client.get(
+            f"{URL_CLIENTES}/{cliente['id']}", headers=_auth(negocio_clientes)
+        )
+        assert respuesta.json()["phone_e164"] == telefono
+
+    async def test_el_detalle_nace_sin_optout(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        telefono = "+54911000124"
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 9), telefono=telefono)
+        cliente = await _cliente_por_telefono(http_client, negocio_clientes, telefono)
+        respuesta = await http_client.get(
+            f"{URL_CLIENTES}/{cliente['id']}", headers=_auth(negocio_clientes)
+        )
+        assert respuesta.json()["is_opted_out"] is False
+
+    async def test_cliente_inexistente_responde_404(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        respuesta = await http_client.get(
+            f"{URL_CLIENTES}/{uuid.uuid4()}", headers=_auth(negocio_clientes)
+        )
+        assert respuesta.status_code == 404, respuesta.text
+
+    async def test_cliente_de_otro_negocio_responde_404(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        """Con el token del negocio, un cliente ajeno no se confirma: 404."""
+        respuesta = await http_client.get(
+            f"{URL_CLIENTES}/{CUSTOMER_AJENO}", headers=_auth(negocio_clientes)
+        )
+        assert respuesta.status_code == 404, respuesta.text
+
+    async def test_patch_actualiza_el_nombre(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        telefono = "+54911000125"
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 9), telefono=telefono)
+        cliente = await _cliente_por_telefono(http_client, negocio_clientes, telefono)
+        respuesta = await http_client.patch(
+            f"{URL_CLIENTES}/{cliente['id']}",
+            json={"first_name": "Ana Maria"},
+            headers=_auth(negocio_clientes),
+        )
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json()["first_name"] == "Ana Maria"
+
+    async def test_patch_con_nombre_vacio_responde_422(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        telefono = "+54911000126"
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 9), telefono=telefono)
+        cliente = await _cliente_por_telefono(http_client, negocio_clientes, telefono)
+        respuesta = await http_client.patch(
+            f"{URL_CLIENTES}/{cliente['id']}",
+            json={"first_name": ""},
+            headers=_auth(negocio_clientes),
+        )
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_el_optout_apaga_el_marketing(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        """`opt_out_clears_marketing`: dar de baja deja el marketing en false."""
+        telefono = "+54911000127"
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 9), telefono=telefono)
+        cliente = await _cliente_por_telefono(http_client, negocio_clientes, telefono)
+        respuesta = await http_client.patch(
+            f"{URL_CLIENTES}/{cliente['id']}",
+            json={"is_opted_out": True},
+            headers=_auth(negocio_clientes),
+        )
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json()["is_opted_out"] is True
+        assert respuesta.json()["marketing_opt_in"] is False
+
+    async def test_el_historial_devuelve_las_reservas_del_cliente(
+        self, http_client: AsyncClient, negocio_clientes: str
+    ) -> None:
+        telefono = "+54911000128"
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 9), telefono=telefono)
+        await _reservar_cliente(http_client, starts_at=_proximo(LUNES, 10), telefono=telefono)
+        cliente = await _cliente_por_telefono(http_client, negocio_clientes, telefono)
+        respuesta = await http_client.get(
+            f"{URL_CLIENTES}/{cliente['id']}/reservas", headers=_auth(negocio_clientes)
+        )
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json()["total"] == 2
+
+    async def test_listar_clientes_sin_token_responde_401(self, http_client: AsyncClient) -> None:
+        respuesta = await http_client.get(URL_CLIENTES)
+        assert respuesta.status_code == 401, respuesta.text
