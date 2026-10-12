@@ -8,6 +8,8 @@ export interface Business {
   slot_interval_minutes: number
   min_lead_minutes: number
   brand_color: string | null
+  latitude: number | null
+  longitude: number | null
 }
 
 export interface Service {

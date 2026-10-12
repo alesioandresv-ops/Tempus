@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { MapPin } from 'lucide-react'
 import { api } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -78,6 +79,12 @@ export default function BusinessPage() {
     return <div className="flex items-center justify-center min-h-screen">Cargando...</div>
   }
 
+  //: `0,0` es "sin coordenadas" (la API nace con 0/null): no se ofrece el
+  //: mapa para un negocio que no seteo su ubicacion.
+  const lat = business.latitude
+  const lng = business.longitude
+  const tieneUbicacion = lat != null && lng != null && lat !== 0 && lng !== 0
+
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
       <div className="max-w-2xl mx-auto">
@@ -86,6 +93,35 @@ export default function BusinessPage() {
             <CardTitle className="text-2xl">{business.name}</CardTitle>
             {business.description && (
               <CardDescription>{business.description}</CardDescription>
+            )}
+            {tieneUbicacion && (
+              <div className="flex flex-wrap items-center gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    window.open(
+                      `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}`,
+                      '_blank'
+                    )
+                  }
+                >
+                  <MapPin className="mr-2 h-4 w-4" />
+                  Cómo llegar - Ver en mapa
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    window.open(
+                      `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`,
+                      '_blank'
+                    )
+                  }
+                >
+                  Google Maps
+                </Button>
+              </div>
             )}
           </CardHeader>
           <CardContent>
