@@ -243,6 +243,7 @@ async def get_business_public_info(
         slot_interval_minutes=business.slot_interval_minutes,
         min_lead_minutes=business.min_lead_minutes,
         brand_color=business.brand_color,
+        address_text=business.address_text,
         latitude=business.latitude,
         longitude=business.longitude,
     )

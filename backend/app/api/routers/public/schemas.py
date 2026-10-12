@@ -21,6 +21,7 @@ class BusinessPublicInfo(BaseModel):
     slot_interval_minutes: int
     min_lead_minutes: int
     brand_color: str | None = None
+    address_text: str | None = None
     latitude: float | None = None
     longitude: float | None = None
 

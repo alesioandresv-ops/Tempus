@@ -94,6 +94,11 @@ export default function BusinessPage() {
             {business.description && (
               <CardDescription>{business.description}</CardDescription>
             )}
+            {business.address_text && (
+              <p className="text-sm text-muted-foreground flex items-center gap-1">
+                <MapPin className="w-4 h-4" /> {business.address_text}
+              </p>
+            )}
             {tieneUbicacion && (
               <div className="flex flex-wrap items-center gap-2 pt-2">
                 <Button
