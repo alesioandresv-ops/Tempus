@@ -1,9 +1,15 @@
 """Pruebas masivas de validacion del sistema (post-Fase 10).
 
-Tres suites que cubren el camino que se valido a mano despues de la Fase
-10--pagina publica con ubicacion, configuracion del mapa en el panel y el
-flujo de reserva--, para usarlas de andamio antes de escalar a la suite
-completa de 1349.
+Cinco suites (100 tests) que cubren el camino que se valido a mano despues de
+la Fase 10--pagina publica con ubicacion, configuracion del mapa en el panel,
+flujo de reserva, autenticacion y CRUD del panel--, para usarlas de andamio
+antes de escalar a la suite completa de 1349.
+
+- **A. Publico del negocio**: `GET /public/businesses/{slug}`.
+- **B. Configuracion del mapa**: `GET/PUT /business/config/whatsapp` (lat/lng).
+- **C. Reserva publica**: disponibilidad -> reserva -> gestion por token.
+- **D. Autenticacion**: login, rate limit, access token y refresh.
+- **E. Servicios, profesionales y horarios** del panel.
 
 **Que se siembra y por que se commitea.** Las rutas publicas
 (`GET /public/businesses/{slug}`, la disponibilidad y `POST /public/bookings`)
@@ -15,10 +21,12 @@ fila que viviera en la transaccion que el fixture `connection` revierte al
 final seria invisible para el endpoint y el test devolveria 404 sin haber
 probado nada (ver el docstring de `test_availability_public.py`).
 
-La suite B, en cambio, ejercita endpoints del panel autenticados: esos usan las
-dependencias que `http_client` reemplaza por la sesion del test, asi que el
-negocio se crea con el alta de onboarding dentro de la misma transaccion y no
-deja residuo entre corridas.
+Las suites B, D y E, en cambio, ejercitan endpoints del panel autenticados:
+esos usan las dependencias que `http_client` reemplaza por la sesion del test,
+asi que el negocio (y los miembros) se crean dentro de la misma transaccion y
+no dejan residuo entre corridas. El GUC del tenant hay que fijarlo a mano: el
+override entrega la sesion **sin** el `SET LOCAL` que `get_tenant_session` pone
+en produccion, y sin el la RLS devuelve cero filas (ver `test_fase4_panel.py`).
 
 **`0,0` es "sin ubicacion", pero del lado del cliente.** La API publica
 devuelve `latitude`/`longitude` tal cual esten en la fila: `null` si nunca se
@@ -26,19 +34,36 @@ setearon y `0.0` si se guardo el cero explicito. Tratar `0,0` como "sin
 ubicacion" es una decision del frontend (el mapa solo aparece con coords
 distintas de cero); aca se verifica que el contrato HTTP exponga ambos casos
 sin esconderlos.
+
+**El 403 de tenancy, y por que no es un 404 cruzado.** Un acceso cruzado a un
+recurso de **otro** negocio responde 404 y no 403--no confirmar que existe es
+la decision de diseño (ver `test_fase4_panel.py`, "el servicio de otro negocio
+es 404"). Los 403 reales de esta base son otros y son los que la suite D mide:
+un token de plataforma--sin tenant--contra un endpoint de negocio, y un token
+al que le faltan los scopes del rol ("Faltan permisos").
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
+from app.core.config import get_settings
+from app.core.security import hash_password, reset_password_hash_cache
+from app.core.time import now
 from app.db.session import TENANT_GUC
-from httpx import AsyncClient
+from app.main import create_app
+from app.models.enums import BusinessUserRole
+from app.modules.auth.scopes import scopes_for_business_role
+from app.modules.auth.tokens import (
+    create_access_token,
+    create_platform_access_token,
+)
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
@@ -46,6 +71,8 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession,
     create_async_engine,
 )
+
+from tests.conftest import BUSINESS_A, SERVICE_B
 
 pytestmark = pytest.mark.integration
 
@@ -851,3 +878,829 @@ class TestBookingFlow:
         )
         assert respuesta.status_code == 201, respuesta.text
         assert respuesta.json()["professional_id"] == str(PROF_BOOKING)
+
+
+# --------------------------------------------------------------------------- #
+# Argon2 barato para todo el archivo
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture(autouse=True)
+def _argon2_rapido() -> Iterator[None]:
+    """Baja el coste de Argon2 a lo minimo, y lo restaura.
+
+    Autouse y de modulo porque es una condicion de las suites que hashean
+    contrasenas--D y E--, no de un test suelto: pedirlo en cada firma es la
+    forma de que se olvide justo en el test que mas lo necesitaba. El mismo
+    truco que `test_auth_login.py`.
+    """
+    settings = get_settings()
+    original = (
+        settings.argon2_time_cost,
+        settings.argon2_memory_cost,
+        settings.argon2_parallelism,
+    )
+    settings.argon2_time_cost = 1
+    settings.argon2_memory_cost = 8
+    settings.argon2_parallelism = 1
+    reset_password_hash_cache()
+    try:
+        yield
+    finally:
+        (
+            settings.argon2_time_cost,
+            settings.argon2_memory_cost,
+            settings.argon2_parallelism,
+        ) = original
+        reset_password_hash_cache()
+
+
+# --------------------------------------------------------------------------- #
+# Suite D: autenticacion
+# --------------------------------------------------------------------------- #
+
+EMAIL_AUTH = "Massive.Auth@Peluqueria.com"
+PASSWORD_AUTH = "una-contrasena-larga-de-prueba"
+
+#: El detalle unico de todo 401 de credenciales. Que sea uno solo es la garantia
+#: de que el cliente no puede distinguir por que fallo (ver `test_auth_login.py`).
+DETALLE_401 = "Credenciales invalidas."
+
+URL_REFRESH = "/api/v1/auth/refresh"
+URL_ME = "/api/v1/business/me"
+URL_SERVICIOS = "/api/v1/business/servicios"
+URL_PROFESIONALES = "/api/v1/business/profesionales"
+URL_HORARIOS = "/api/v1/business/horarios"
+
+
+async def _crear_miembro(
+    session: AsyncSession,
+    *,
+    business_id: uuid.UUID,
+    email: str,
+    password: str = PASSWORD_AUTH,
+    role: BusinessUserRole = BusinessUserRole.ADMIN,
+) -> uuid.UUID:
+    """Inserta un miembro de negocio con el **rol de la app** y el GUC puesto.
+
+    Se usa la sesion del test, que corre como `tempus_app`, y no el rol de DDL:
+    asi el login verifica el camino que la app puede recorrer de verdad. Todo
+    cae en la transaccion del test y no deja residuo entre corridas.
+    """
+    await _poner_tenant(session, business_id)
+    user_id = uuid.uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO business_users "
+            "(id, business_id, email, password_hash, full_name, role, status) "
+            "VALUES (:id, :business_id, :email, :hash, 'Persona', :role, 'active')"
+        ),
+        {
+            "id": user_id,
+            "business_id": business_id,
+            "email": email,
+            "hash": hash_password(password),
+            "role": str(role),
+        },
+    )
+    await session.flush()
+    return user_id
+
+
+@pytest_asyncio.fixture
+async def miembro_a(session: AsyncSession, business_a: uuid.UUID) -> AsyncIterator[uuid.UUID]:
+    """Un miembro `admin` de A, en la transaccion del test y con el GUC de A."""
+    yield await _crear_miembro(session, business_id=business_a, email=EMAIL_AUTH)
+
+
+@pytest_asyncio.fixture
+async def token_a(http_client: AsyncClient, miembro_a: uuid.UUID) -> AsyncIterator[str]:
+    """El `access_token` de un login real contra el miembro del fixture."""
+    respuesta = await http_client.post(
+        URL_LOGIN, json={"email": EMAIL_AUTH, "password": PASSWORD_AUTH}
+    )
+    assert respuesta.status_code == 200, respuesta.text
+    yield respuesta.json()["access_token"]
+
+
+class TestAuth:
+    """Login, token y refresh: el contrato de la puerta de entrada."""
+
+    async def test_login_ok_devuelve_200(
+        self, http_client: AsyncClient, miembro_a: uuid.UUID
+    ) -> None:
+        respuesta = await http_client.post(
+            URL_LOGIN, json={"email": EMAIL_AUTH, "password": PASSWORD_AUTH}
+        )
+        assert respuesta.status_code == 200, respuesta.text
+
+    async def test_login_devuelve_access_token(
+        self, http_client: AsyncClient, miembro_a: uuid.UUID
+    ) -> None:
+        respuesta = await http_client.post(
+            URL_LOGIN, json={"email": EMAIL_AUTH, "password": PASSWORD_AUTH}
+        )
+        assert respuesta.json()["access_token"]
+
+    async def test_login_token_type_es_bearer(
+        self, http_client: AsyncClient, miembro_a: uuid.UUID
+    ) -> None:
+        respuesta = await http_client.post(
+            URL_LOGIN, json={"email": EMAIL_AUTH, "password": PASSWORD_AUTH}
+        )
+        assert respuesta.json()["token_type"] == "bearer"
+
+    async def test_login_expires_in_es_positivo(
+        self, http_client: AsyncClient, miembro_a: uuid.UUID
+    ) -> None:
+        respuesta = await http_client.post(
+            URL_LOGIN, json={"email": EMAIL_AUTH, "password": PASSWORD_AUTH}
+        )
+        assert respuesta.json()["expires_in"] > 0
+
+    async def test_login_no_devuelve_refresh_en_json(
+        self, http_client: AsyncClient, miembro_a: uuid.UUID
+    ) -> None:
+        """El refresh viaja solo en la cookie HttpOnly, nunca en el cuerpo."""
+        respuesta = await http_client.post(
+            URL_LOGIN, json={"email": EMAIL_AUTH, "password": PASSWORD_AUTH}
+        )
+        assert "refresh_token" not in str(respuesta.json())
+
+    async def test_login_setea_la_cookie_de_refresh(
+        self, http_client: AsyncClient, miembro_a: uuid.UUID
+    ) -> None:
+        respuesta = await http_client.post(
+            URL_LOGIN, json={"email": EMAIL_AUTH, "password": PASSWORD_AUTH}
+        )
+        assert "refresh_token" in respuesta.cookies
+
+    async def test_login_password_mala_responde_401(
+        self, http_client: AsyncClient, miembro_a: uuid.UUID
+    ) -> None:
+        respuesta = await http_client.post(
+            URL_LOGIN, json={"email": EMAIL_AUTH, "password": "no-es-la-contrasena"}
+        )
+        assert respuesta.status_code == 401, respuesta.text
+        assert respuesta.json()["detail"] == DETALLE_401
+
+    async def test_login_usuario_inexistente_responde_401(
+        self, http_client: AsyncClient, miembro_a: uuid.UUID
+    ) -> None:
+        """Un email que no existe da el mismo 401 y el mismo detalle."""
+        respuesta = await http_client.post(
+            URL_LOGIN, json={"email": "nadie.massive@Peluqueria.com", "password": PASSWORD_AUTH}
+        )
+        assert respuesta.status_code == 401, respuesta.text
+        assert respuesta.json()["detail"] == DETALLE_401
+
+    async def test_login_email_vacio_responde_422(self, http_client: AsyncClient) -> None:
+        respuesta = await http_client.post(URL_LOGIN, json={"email": "", "password": PASSWORD_AUTH})
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_login_email_invalido_responde_422(self, http_client: AsyncClient) -> None:
+        respuesta = await http_client.post(
+            URL_LOGIN, json={"email": "no-es-un-email", "password": PASSWORD_AUTH}
+        )
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_login_sin_password_responde_422(self, http_client: AsyncClient) -> None:
+        respuesta = await http_client.post(URL_LOGIN, json={"email": EMAIL_AUTH})
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_login_rate_limit_sexto_intento_429(
+        self, http_client: AsyncClient, miembro_a: uuid.UUID
+    ) -> None:
+        """Cinco intentos por IP: el sexto es 429 y trae `Retry-After`."""
+        for _ in range(5):
+            respuesta = await http_client.post(
+                URL_LOGIN, json={"email": EMAIL_AUTH, "password": "no-es-la-contrasena"}
+            )
+            assert respuesta.status_code == 401, respuesta.text
+        respuesta = await http_client.post(
+            URL_LOGIN, json={"email": EMAIL_AUTH, "password": "no-es-la-contrasena"}
+        )
+        assert respuesta.status_code == 429, respuesta.text
+        assert int(respuesta.headers["Retry-After"]) >= 1
+
+    async def test_token_valido_accede_a_me(self, http_client: AsyncClient, token_a: str) -> None:
+        respuesta = await http_client.get(URL_ME, headers=_auth(token_a))
+        assert respuesta.status_code == 200, respuesta.text
+
+    async def test_me_devuelve_el_business_id(self, http_client: AsyncClient, token_a: str) -> None:
+        respuesta = await http_client.get(URL_ME, headers=_auth(token_a))
+        assert respuesta.json()["business_id"] == str(BUSINESS_A)
+
+    async def test_sin_token_me_responde_401(self, http_client: AsyncClient) -> None:
+        respuesta = await http_client.get(URL_ME)
+        assert respuesta.status_code == 401, respuesta.text
+
+    async def test_header_mal_formado_responde_401(self, http_client: AsyncClient) -> None:
+        """Un esquema que no es `Bearer` no es un token: 401."""
+        respuesta = await http_client.get(URL_ME, headers={"Authorization": "Token algo"})
+        assert respuesta.status_code == 401, respuesta.text
+
+    async def test_token_mal_firmado_responde_401(
+        self, http_client: AsyncClient, token_a: str
+    ) -> None:
+        respuesta = await http_client.get(URL_ME, headers=_auth(token_a + "x"))
+        assert respuesta.status_code == 401, respuesta.text
+
+    async def test_token_expirado_responde_401(
+        self, http_client: AsyncClient, session: AsyncSession
+    ) -> None:
+        """Un token emitido hace 20 minutos ya vencio (vida de 15)."""
+        await _poner_tenant(session, BUSINESS_A)
+        expirado = create_access_token(
+            user_id=uuid.uuid4(),
+            business_id=BUSINESS_A,
+            role=str(BusinessUserRole.ADMIN),
+            scopes=["team:read"],
+            issued_at=now() - dt.timedelta(minutes=20),
+        )
+        respuesta = await http_client.get(URL_ME, headers=_auth(expirado.token))
+        assert respuesta.status_code == 401, respuesta.text
+
+    async def test_token_sin_scopes_responde_403(self, http_client: AsyncClient) -> None:
+        """Un token valido sin `team:read` no abre el listado de servicios."""
+        sin_scopes = create_access_token(
+            user_id=uuid.uuid4(),
+            business_id=BUSINESS_A,
+            role=str(BusinessUserRole.ADMIN),
+            scopes=[],
+        )
+        respuesta = await http_client.get(URL_SERVICIOS, headers=_auth(sin_scopes.token))
+        assert respuesta.status_code == 403, respuesta.text
+
+    async def test_rol_professional_sin_team_read_responde_403(
+        self, http_client: AsyncClient
+    ) -> None:
+        """Los scopes de `professional` no incluyen `team:read`: 403, no 200."""
+        scopes_prof = [str(s) for s in scopes_for_business_role(BusinessUserRole.PROFESSIONAL)]
+        token_prof = create_access_token(
+            user_id=uuid.uuid4(),
+            business_id=BUSINESS_A,
+            role=str(BusinessUserRole.PROFESSIONAL),
+            scopes=scopes_prof,
+        )
+        respuesta = await http_client.get(URL_SERVICIOS, headers=_auth(token_prof.token))
+        assert respuesta.status_code == 403, respuesta.text
+        assert "team:read" in respuesta.json()["detail"]
+
+    async def test_token_de_plataforma_responde_403(self) -> None:
+        """Un token de plataforma--sin tenant--no entra a un endpoint de negocio.
+
+        No usa `http_client` a proposito: ese fixture overridea
+        `get_tenant_session`, que es justo donde vive el rechazo, y la peticion
+        pasaria de largo. Con la app real, el token sin `tid` muere en la
+        dependencia antes de tocar la base. Se le da `team:read` para que el
+        unico 403 posible sea el de tenancy y no el de scopes.
+        """
+        plataforma = create_platform_access_token(
+            user_id=uuid.uuid4(),
+            role="owner",
+            scopes=["team:read"],
+        )
+        app = create_app(get_settings())
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as cliente:
+            respuesta = await cliente.get(URL_SERVICIOS, headers=_auth(plataforma.token))
+        assert respuesta.status_code == 403, respuesta.text
+        assert "no pertenece a un negocio" in respuesta.json()["detail"]
+
+    async def test_servicio_de_otro_negocio_es_404(
+        self, http_client: AsyncClient, token_a: str
+    ) -> None:
+        """Con el token de A, un servicio de B no se confirma: 404, no 403."""
+        respuesta = await http_client.get(f"{URL_SERVICIOS}/{SERVICE_B}", headers=_auth(token_a))
+        assert respuesta.status_code == 404, respuesta.text
+
+    async def test_refresh_sin_cookie_responde_401(self, http_client: AsyncClient) -> None:
+        """Con CSRF y Origin validos pero sin cookie, el refresh da 401."""
+        respuesta = await http_client.post(
+            URL_REFRESH,
+            headers={"X-CSRF-Token": "valid-token", "Origin": "http://localhost:5173"},
+        )
+        assert respuesta.status_code == 401, respuesta.text
+
+    async def test_refresh_sin_csrf_responde_403(self, http_client: AsyncClient) -> None:
+        respuesta = await http_client.post(URL_REFRESH, headers={"Origin": "http://localhost:5173"})
+        assert respuesta.status_code == 403, respuesta.text
+
+    async def test_refresh_rota_el_token(self, http_client: AsyncClient, token_a: str) -> None:
+        """El refresh devuelve un access token nuevo y rota la cookie."""
+        viejo = http_client.cookies.get("refresh_token")
+        assert viejo, "el login no dejo cookie de refresh"
+        respuesta = await http_client.post(
+            URL_REFRESH,
+            headers={"X-CSRF-Token": "valid-token", "Origin": "http://localhost:5173"},
+        )
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json()["access_token"]
+        nuevo = http_client.cookies.get("refresh_token")
+        assert nuevo and nuevo != viejo, "la rotacion devolvio el mismo token"
+
+
+# --------------------------------------------------------------------------- #
+# Suite E: servicios, profesionales y horarios del panel
+# --------------------------------------------------------------------------- #
+
+SLUG_PANEL = "massive-panel"
+EMAIL_PANEL = "Massive.Panel@Peluqueria.com"
+
+#: Negocio publico aparte para el caso "profesional sin servicio". Tiene que
+#: estar `active` (el default `trial` no se publica) y commiteado: las rutas
+#: publicas abren su propia sesion y no verian una fila sin comitear.
+SLUG_SIN_ASIGNACION = "massive-sin-asignacion"
+BUSINESS_SIN_ASIGNACION = uuid.UUID("cc000000-0000-7000-8000-0000000000c1")
+SERVICE_SIN_ASIGNACION = uuid.UUID("cc000000-0000-7000-8000-0000000000c2")
+PROF_SIN_ASIGNACION = uuid.UUID("cc000000-0000-7000-8000-0000000000c3")
+
+
+def _cuerpo_alta_panel() -> dict[str, object]:
+    return {
+        "business_name": "Massive Panel",
+        "slug": SLUG_PANEL,
+        "owner_name": "Ana Perez",
+        "email": EMAIL_PANEL,
+        "password": PASSWORD_CONFIG,
+        "phone": "+54 9 11 2345-6789",
+        "timezone": TIMEZONE,
+    }
+
+
+def _cuerpo_servicio(**cambios: object) -> dict[str, object]:
+    cuerpo: dict[str, object] = {
+        "name": "Corte",
+        "duration_minutes": 30,
+        "price": "1000.00",
+        "currency": "ARS",
+    }
+    cuerpo.update(cambios)
+    return cuerpo
+
+
+def _mensajes_de_campo(respuesta: object) -> str:
+    """Los mensajes de un 422 de esquema, en un solo texto (ver panel Fase 4)."""
+    cuerpo: dict[str, object] = respuesta.json()  # type: ignore[attr-defined]
+    errores: list[dict[str, str]] = cuerpo["errors"]  # type: ignore[typeddict-item]
+    return " ".join(e["message"] for e in errores)
+
+
+async def _crear_servicio(
+    http_client: AsyncClient, token: str, **cambios: object
+) -> dict[str, object]:
+    respuesta = await http_client.post(
+        URL_SERVICIOS, json=_cuerpo_servicio(**cambios), headers=_auth(token)
+    )
+    assert respuesta.status_code == 201, respuesta.text
+    creado: dict[str, object] = respuesta.json()
+    return creado
+
+
+async def _crear_profesional(
+    http_client: AsyncClient, token: str, **cambios: object
+) -> dict[str, object]:
+    cuerpo: dict[str, object] = {"display_name": "Ana Perez"}
+    cuerpo.update(cambios)
+    respuesta = await http_client.post(URL_PROFESIONALES, json=cuerpo, headers=_auth(token))
+    assert respuesta.status_code == 201, respuesta.text
+    creado: dict[str, object] = respuesta.json()
+    return creado
+
+
+@pytest_asyncio.fixture
+async def negocio_panel(
+    http_client: AsyncClient, session: AsyncSession
+) -> AsyncIterator[tuple[uuid.UUID, str]]:
+    """Alta + login del dueno de un negocio propio, con el GUC puesto.
+
+    El negocio y el miembro se crean en la transaccion del test: los endpoints
+    del panel pasan por el override de `http_client` y ven lo mismo. El GUC hay
+    que fijarlo a mano porque el override entrega la sesion sin el `SET LOCAL`
+    que `get_tenant_session` pondria en produccion.
+    """
+    alta = await http_client.post(URL_ALTA, json=_cuerpo_alta_panel())
+    assert alta.status_code == 201, alta.text
+    business_id = uuid.UUID(str(alta.json()["business_id"]))
+    await _poner_tenant(session, business_id)
+
+    login = await http_client.post(
+        URL_LOGIN, json={"email": EMAIL_PANEL, "password": PASSWORD_CONFIG}
+    )
+    assert login.status_code == 200, login.text
+    yield business_id, login.json()["access_token"]
+
+
+async def _sembrar_sin_asignacion(conn: AsyncConnection) -> None:
+    """Negocio activo con agenda, servicio y profesional **sin** asignacion.
+
+    La limpieza de sobras va en setup: `POST /public/bookings` abre su propia
+    sesion, asi que lo que hubiera commiteado una corrida anterior se acumula.
+    """
+    await conn.execute(
+        text(f"SELECT set_config('{TENANT_GUC}', :tenant, true)"),
+        {"tenant": str(BUSINESS_SIN_ASIGNACION)},
+    )
+    await conn.execute(
+        text("DELETE FROM bookings WHERE business_id = :b"), {"b": BUSINESS_SIN_ASIGNACION}
+    )
+    await conn.execute(
+        text("DELETE FROM customers WHERE business_id = :b"), {"b": BUSINESS_SIN_ASIGNACION}
+    )
+    await conn.execute(
+        text(
+            """
+            INSERT INTO businesses (id, name, slug, timezone, status)
+            VALUES (:id, 'Massive Sin Asignacion', :slug, :tz, 'active')
+            ON CONFLICT (slug) DO UPDATE SET status = 'active'
+            """
+        ),
+        {"id": BUSINESS_SIN_ASIGNACION, "slug": SLUG_SIN_ASIGNACION, "tz": TIMEZONE},
+    )
+
+    for weekday in range(5):
+        for indice, (inicio, fin) in enumerate(
+            ((dt.time(9, 0), dt.time(12, 0)), (dt.time(16, 0), dt.time(20, 0)))
+        ):
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO business_hours
+                        (business_id, weekday, window_index, start_time, end_time, is_open)
+                    VALUES (:business, :weekday, :indice, :inicio, :fin, true)
+                    ON CONFLICT (business_id, weekday, window_index) DO UPDATE SET
+                        start_time = EXCLUDED.start_time,
+                        end_time = EXCLUDED.end_time,
+                        is_open = true
+                    """
+                ),
+                {
+                    "business": BUSINESS_SIN_ASIGNACION,
+                    "weekday": weekday,
+                    "indice": indice,
+                    "inicio": inicio,
+                    "fin": fin,
+                },
+            )
+
+    await conn.execute(
+        text(
+            """
+            INSERT INTO services (id, business_id, name, duration_minutes, price, currency)
+            VALUES (:id, :business, 'Corte', :dur, 1500.00, 'ARS')
+            ON CONFLICT (id) DO UPDATE SET
+                name = EXCLUDED.name, duration_minutes = EXCLUDED.duration_minutes,
+                price = EXCLUDED.price, currency = EXCLUDED.currency, is_active = true
+            """
+        ),
+        {"id": SERVICE_SIN_ASIGNACION, "business": BUSINESS_SIN_ASIGNACION, "dur": DURACION},
+    )
+
+    # El profesional existe y esta activo, pero **no** se le asigna el servicio:
+    # es exactamente el caso que el test de la reserva quiere provocar.
+    await conn.execute(
+        text(
+            """
+            INSERT INTO professionals (id, business_id, display_name, sort_order)
+            VALUES (:id, :business, 'Profe Sin Asignar', 1)
+            ON CONFLICT (id) DO UPDATE SET
+                display_name = EXCLUDED.display_name, sort_order = EXCLUDED.sort_order,
+                is_active = true
+            """
+        ),
+        {"id": PROF_SIN_ASIGNACION, "business": BUSINESS_SIN_ASIGNACION},
+    )
+
+    await conn.execute(text("SELECT set_config(:name, '', true)"), {"name": TENANT_GUC})
+
+
+@pytest_asyncio.fixture
+async def negocio_sin_asignacion(migration_database_url: str) -> AsyncIterator[str]:
+    engine: AsyncEngine = create_async_engine(migration_database_url, poolclass=None, echo=False)
+    try:
+        async with engine.begin() as conn:
+            await _sembrar_sin_asignacion(conn)
+        yield SLUG_SIN_ASIGNACION
+    finally:
+        await engine.dispose()
+
+
+class TestServiciosProfesionales:
+    """CRUD del panel: servicios, profesionales, asignaciones y horarios."""
+
+    async def test_crear_servicio_devuelve_201(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.post(
+            URL_SERVICIOS, json=_cuerpo_servicio(), headers=_auth(token)
+        )
+        assert respuesta.status_code == 201, respuesta.text
+
+    async def test_servicio_creado_devuelve_nombre_duracion_y_precio(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        creado = await _crear_servicio(http_client, token)
+        assert creado["name"] == "Corte"
+        assert creado["duration_minutes"] == 30
+        assert str(creado["price"]) == "1000.00"
+
+    async def test_listar_servicios_al_inicio_esta_vacio(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """El alta no siembra servicios: el negocio arranca vacio."""
+        _, token = negocio_panel
+        respuesta = await http_client.get(URL_SERVICIOS, headers=_auth(token))
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json() == []
+
+    async def test_listar_servicios_incluye_el_creado(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        creado = await _crear_servicio(http_client, token)
+        respuesta = await http_client.get(URL_SERVICIOS, headers=_auth(token))
+        assert [s["id"] for s in respuesta.json()] == [creado["id"]]
+
+    async def test_obtener_servicio_por_id(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        creado = await _crear_servicio(http_client, token)
+        respuesta = await http_client.get(f"{URL_SERVICIOS}/{creado['id']}", headers=_auth(token))
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json()["name"] == "Corte"
+
+    async def test_patch_servicio_actualiza_el_nombre(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        creado = await _crear_servicio(http_client, token)
+        respuesta = await http_client.patch(
+            f"{URL_SERVICIOS}/{creado['id']}",
+            json={"name": "Corte premium"},
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json()["name"] == "Corte premium"
+
+    async def test_patch_parcial_conserva_la_duracion(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """`PATCH` toca solo lo que se manda; lo demas queda igual."""
+        _, token = negocio_panel
+        creado = await _crear_servicio(http_client, token)
+        respuesta = await http_client.patch(
+            f"{URL_SERVICIOS}/{creado['id']}",
+            json={"price": "1500.50"},
+            headers=_auth(token),
+        )
+        assert respuesta.json()["duration_minutes"] == 30
+        assert str(respuesta.json()["price"]) == "1500.50"
+
+    async def test_delete_archiva_en_lugar_de_borrar(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        creado = await _crear_servicio(http_client, token)
+        respuesta = await http_client.delete(
+            f"{URL_SERVICIOS}/{creado['id']}", headers=_auth(token)
+        )
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json()["is_active"] is False
+        assert respuesta.json()["archived_at"] is not None
+
+    async def test_servicio_archivado_no_aparece_en_el_listado(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        creado = await _crear_servicio(http_client, token)
+        await http_client.delete(f"{URL_SERVICIOS}/{creado['id']}", headers=_auth(token))
+        respuesta = await http_client.get(URL_SERVICIOS, headers=_auth(token))
+        assert respuesta.json() == []
+
+    async def test_servicio_archivado_sigue_visible_con_incluir_archivados(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        creado = await _crear_servicio(http_client, token)
+        await http_client.delete(f"{URL_SERVICIOS}/{creado['id']}", headers=_auth(token))
+        respuesta = await http_client.get(
+            URL_SERVICIOS,
+            params={"incluir_archivados": True, "incluir_inactivos": True},
+            headers=_auth(token),
+        )
+        assert [s["id"] for s in respuesta.json()] == [creado["id"]]
+
+    async def test_servicio_de_otro_negocio_es_404(
+        self,
+        http_client: AsyncClient,
+        negocio_panel: tuple[uuid.UUID, str],
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.get(f"{URL_SERVICIOS}/{SERVICE_B}", headers=_auth(token))
+        assert respuesta.status_code == 404, respuesta.text
+
+    async def test_nombre_vacio_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.post(
+            URL_SERVICIOS, json=_cuerpo_servicio(name=""), headers=_auth(token)
+        )
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_duracion_cero_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.post(
+            URL_SERVICIOS, json=_cuerpo_servicio(duration_minutes=0), headers=_auth(token)
+        )
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_duracion_negativa_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.post(
+            URL_SERVICIOS, json=_cuerpo_servicio(duration_minutes=-5), headers=_auth(token)
+        )
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_duracion_fuera_de_catalogo_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """Siete minutos no estan en el set, y el mensaje nombra los que si."""
+        _, token = negocio_panel
+        respuesta = await http_client.post(
+            URL_SERVICIOS, json=_cuerpo_servicio(duration_minutes=7), headers=_auth(token)
+        )
+        assert respuesta.status_code == 422, respuesta.text
+        mensajes = _mensajes_de_campo(respuesta)
+        for permitida in (15, 30, 45, 60, 90, 120):
+            assert str(permitida) in mensajes
+
+    async def test_precio_negativo_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.post(
+            URL_SERVICIOS, json=_cuerpo_servicio(price="-1.00"), headers=_auth(token)
+        )
+        assert respuesta.status_code == 422, respuesta.text
+
+    async def test_crear_profesional_devuelve_201(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.post(
+            URL_PROFESIONALES, json={"display_name": "Ana Perez"}, headers=_auth(token)
+        )
+        assert respuesta.status_code == 201, respuesta.text
+        assert respuesta.json()["display_name"] == "Ana Perez"
+
+    async def test_profesional_con_whatsapp_lo_devuelve(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        creado = await _crear_profesional(http_client, token, whatsapp="5491123456789")
+        assert creado["whatsapp"] == "5491123456789"
+
+    async def test_whatsapp_invalido_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.post(
+            URL_PROFESIONALES,
+            json={"display_name": "Ana Perez", "whatsapp": "+5491123456789"},
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 422, respuesta.text
+        assert "E.164" in _mensajes_de_campo(respuesta)
+
+    async def test_patch_borra_el_whatsapp_con_vacio(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        creado = await _crear_profesional(http_client, token, whatsapp="5491123456789")
+        respuesta = await http_client.patch(
+            f"{URL_PROFESIONALES}/{creado['id']}",
+            json={"whatsapp": ""},
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json()["whatsapp"] is None
+
+    async def test_asignar_servicios_reemplaza_el_conjunto(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """Mandar la lista entera reemplaza: la segunda vez no se suma a la primera."""
+        _, token = negocio_panel
+        primero = await _crear_servicio(http_client, token, name="Corte")
+        segundo = await _crear_servicio(http_client, token, name="Barba")
+        profesional = await _crear_profesional(http_client, token)
+        url = f"{URL_PROFESIONALES}/{profesional['id']}/servicios"
+
+        ambos = await http_client.put(
+            url,
+            json={"servicios": [{"service_id": primero["id"]}, {"service_id": segundo["id"]}]},
+            headers=_auth(token),
+        )
+        assert sorted(a["service_id"] for a in ambos.json()) == sorted(
+            [primero["id"], segundo["id"]]
+        )
+
+        solo_uno = await http_client.put(
+            url, json={"servicios": [{"service_id": primero["id"]}]}, headers=_auth(token)
+        )
+        assert [a["service_id"] for a in solo_uno.json()] == [primero["id"]]
+
+    async def test_asignar_servicio_ajeno_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        profesional = await _crear_profesional(http_client, token)
+        respuesta = await http_client.put(
+            f"{URL_PROFESIONALES}/{profesional['id']}/servicios",
+            json={"servicios": [{"service_id": str(uuid.uuid4())}]},
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 422, respuesta.text
+        assert "no son del negocio" in respuesta.json()["detail"]
+
+    async def test_reemplazar_horarios_y_leer_los_cambios(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        """La semana reemplaza entera: el dia que no viene queda cerrado."""
+        _, token = negocio_panel
+        respuesta = await http_client.put(
+            URL_HORARIOS,
+            json={
+                "dias": [
+                    {
+                        "weekday": 0,
+                        "windows": [
+                            {"start": "16:00", "end": "20:00"},
+                            {"start": "09:00", "end": "12:00"},
+                        ],
+                    },
+                    {"weekday": 1, "windows": [{"start": "09:00", "end": "13:00"}]},
+                ]
+            },
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 200, respuesta.text
+        dias = {d["weekday"]: d["windows"] for d in respuesta.json()["dias"]}
+        assert dias[0] == [
+            {"start": "09:00:00", "end": "12:00:00"},
+            {"start": "16:00:00", "end": "20:00:00"},
+        ]
+        assert dias[2] == []
+        assert dias[DOMINGO] == []
+
+        lectura = await http_client.get(URL_HORARIOS, headers=_auth(token))
+        lunes = next(d for d in lectura.json()["dias"] if d["weekday"] == 0)
+        assert lunes["windows"] == [
+            {"start": "09:00:00", "end": "12:00:00"},
+            {"start": "16:00:00", "end": "20:00:00"},
+        ]
+
+    async def test_horarios_solapados_responde_422(
+        self, http_client: AsyncClient, negocio_panel: tuple[uuid.UUID, str]
+    ) -> None:
+        _, token = negocio_panel
+        respuesta = await http_client.put(
+            URL_HORARIOS,
+            json={
+                "dias": [
+                    {
+                        "weekday": 0,
+                        "windows": [
+                            {"start": "09:00", "end": "13:00"},
+                            {"start": "11:00", "end": "15:00"},
+                        ],
+                    }
+                ]
+            },
+            headers=_auth(token),
+        )
+        assert respuesta.status_code == 422, respuesta.text
+        assert "se pisan" in _mensajes_de_campo(respuesta)
+
+    async def test_profesional_sin_servicio_no_puede_reservar(
+        self, http_client: AsyncClient, negocio_sin_asignacion: str
+    ) -> None:
+        """Un profesional sin la asignacion no toma el turno: 409, no 201."""
+        respuesta = await _reservar(
+            http_client,
+            starts_at=_proximo(LUNES, 9),
+            telefono="+54911000030",
+            professional_id=PROF_SIN_ASIGNACION,
+            service_id=SERVICE_SIN_ASIGNACION,
+            slug=negocio_sin_asignacion,
+        )
+        assert respuesta.status_code == 409, respuesta.text
+        assert "no puede realizar" in respuesta.json()["detail"]
