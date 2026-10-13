@@ -29,10 +29,10 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 #: Rol con DDL. Dueño de las tablas.
-MIGRATION_ROLE = "tempus_owner"
+MIGRATION_ROLE = os.getenv("DB_OWNER_ROLE", "tempus_owner")
 
 #: Rol que usa la aplicacion. NO es dueño y esta sujeto a RLS.
-APP_ROLE = "tempus_app"
+APP_ROLE = os.getenv("DB_APP_ROLE", "tempus_app")
 
 #: Tablas con RLS. Copia congelada de `app.models.TENANT_TABLES`.
 #:
