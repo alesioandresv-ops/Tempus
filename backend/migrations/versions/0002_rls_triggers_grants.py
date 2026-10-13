@@ -19,6 +19,7 @@ detecta sin que la migracion dependa del codigo.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 
 from alembic import op
