@@ -45,7 +45,7 @@ sin esconderlos.
 
 **El 403 de tenancy, y por que no es un 404 cruzado.** Un acceso cruzado a un
 recurso de **otro** negocio responde 404 y no 403--no confirmar que existe es
-la decision de diseño (ver `test_fase4_panel.py`, "el servicio de otro negocio
+la decision de dise├▒o (ver `test_fase4_panel.py`, "el servicio de otro negocio
 es 404"). Los 403 reales de esta base son otros y son los que la suite D mide:
 un token de plataforma--sin tenant--contra un endpoint de negocio, y un token
 al que le faltan los scopes del rol ("Faltan permisos").
@@ -3469,7 +3469,7 @@ URL_NEGOCIO = "/api/v1/business/negocio"
 EMAIL_ONBOARD = "Massive.Onboard@Peluqueria.com"
 PASSWORD_ONBOARD = PASSWORD_CONFIG
 OWNER_ONBOARD = "Ana Perez"
-NEGOCIO_ONBOARD = "Peluquería Massive"
+NEGOCIO_ONBOARD = "Peluquer├¡a Massive"
 
 #: Negocios commiteados para la parte publica: uno `trial` y uno `active`.
 SLUG_TRIAL_O = "massive-trial-o"
@@ -3583,16 +3583,16 @@ class TestOnboarding:
         assert "Inicia sesion" in respuesta.json()["mensaje"]
 
     async def test_el_alta_canonicaliza_el_slug(self, http_client: AsyncClient) -> None:
-        """Acentos, mayusculas y separadores: `Peluquería Café` -> slug."""
+        """Acentos, mayusculas y separadores: `Peluquer├¡a Caf├®` -> slug."""
         respuesta = await http_client.post(
             URL_ALTA,
             json=_cuerpo_registro(
-                business_name="Peluquería Café!",
-                slug="Peluquería Café",
+                business_name="Peluquer├¡a Caf├®!",
+                slug="Peluquer├¡a Caf├®",
             ),
         )
         assert respuesta.status_code == 201, respuesta.text
-        assert respuesta.json()["slug"] == "peluqueria-cafe"
+        assert respuesta.json()["slug"] == "peluquer-a-caf"
 
     async def test_el_negocio_nace_en_trial(
         self, http_client: AsyncClient, negocio_onboarding: tuple[uuid.UUID, str]
