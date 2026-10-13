@@ -39,7 +39,11 @@ import type {
   WhatsappConnectResult,
 } from '@/types'
 
-const API_BASE = '/api/v1'
+// En dev (sin `VITE_API_URL`) usa la ruta relativa, que el proxy de Vite manda al
+// backend local. En prod, si `VITE_API_URL` esta definida, apunta al backend real.
+const API_BASE = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL.replace(/\/+$/, '')}/api/v1`
+  : '/api/v1'
 
 /**
  * Error de la API con el cuerpo de la respuesta encima.

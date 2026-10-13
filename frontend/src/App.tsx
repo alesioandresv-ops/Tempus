@@ -3,6 +3,12 @@ import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import BusinessPage from './pages/BusinessPage'
 import ManageBookingPage from './pages/ManageBookingPage'
 import AdminPage from './pages/AdminPage'
+import AdminLayout from './app/admin/layout'
+import DashboardPage from './app/admin/page'
+import AppointmentsPage from './app/admin/appointments/page'
+import ClientsPage from './app/admin/clients/page'
+import ServicesPage from './app/admin/services/page'
+import StaffPage from './app/admin/staff/page'
 import ProfessionalPage from './pages/ProfessionalPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
@@ -53,12 +59,64 @@ function App() {
         {/* Gestion de reserva por token */}
         <Route path="/r/:token" element={<ManageBookingPage />} />
 
+        {/* Admin Dashboard (nuevo layout) */}
+        <Route
+          path="/admin/dashboard"
+          element={
+            <ProtectedRoute>
+              <AdminLayout>
+                <DashboardPage />
+              </AdminLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/appointments"
+          element={
+            <ProtectedRoute>
+              <AdminLayout>
+                <AppointmentsPage />
+              </AdminLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/clients"
+          element={
+            <ProtectedRoute>
+              <AdminLayout>
+                <ClientsPage />
+              </AdminLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/services"
+          element={
+            <ProtectedRoute>
+              <AdminLayout>
+                <ServicesPage />
+              </AdminLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/staff"
+          element={
+            <ProtectedRoute>
+              <AdminLayout>
+                <StaffPage />
+              </AdminLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin"
+          element={<Navigate to="/admin/dashboard" replace />}
+        />
+
         {/*
-          Las dos rutas del panel pasan por `ProtectedRoute`. Sin el, `/admin` y
-          `/panel` se ven--se renderizan--con o sin sesion, y lo unico que falla seria
-          cada peticion con un 401: la persona ve un panel vacio con errores en vez de
-          un mensaje de que tiene que entrar. Y es peor si el panel llega a pintar algo
-          con datos cacheados de otra sesion, porque el error deja de verse.
+          Las rutas del panel pasan por `ProtectedRoute`.
         */}
         <Route
           path="/admin/*"
