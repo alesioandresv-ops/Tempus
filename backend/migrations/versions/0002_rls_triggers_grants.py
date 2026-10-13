@@ -229,11 +229,13 @@ def _grant_app_role() -> None:
     # invariante: es una coincidencia que se rompe en el primer `CREATE DATABASE`
     # con otra plantilla. Por eso se revoca de forma explicita.
     #
-    # Se revoca de PUBLIC tambien porque `has_schema_privilege` tiene en cuenta la
-    # pertenencia a PUBLIC: revocar solo del rol no alcanzaria si PUBLIC tuviera
-    # CREATE, que es exactamente el caso de un PostgreSQL anterior a 15.
-    op.execute(f'REVOKE CREATE ON SCHEMA public FROM "{APP_ROLE}"')
-    op.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
+    # En produccion con un solo rol (owner == app), NO revocar CREATE del propio owner
+    # porque rompe las migraciones siguientes que crean funciones.
+    if APP_ROLE != MIGRATION_ROLE:
+        op.execute(f'REVOKE CREATE ON SCHEMA public FROM "{APP_ROLE}"')
+        op.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
+    else:
+        print(f"[_grant_app_role] Skipping REVOKE CREATE, single-role env (owner==app=={APP_ROLE})")
 
     # Se revoca despues de conceder, en este orden, y no al reves: revocar sobre
     # un privilege que no existe da error y aborta la migracion.
