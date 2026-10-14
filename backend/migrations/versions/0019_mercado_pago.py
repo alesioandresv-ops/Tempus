@@ -215,7 +215,7 @@ def _crear_funcion_resolver() -> None:
         """
     )
     op.execute(f"REVOKE ALL ON FUNCTION {RESOLVE_SIGNATURE} FROM PUBLIC")
-    op.execute(f"GRANT EXECUTE ON FUNCTION {RESOLVE_SIGNATURE} TO {APP_ROLE}")
+    _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {RESOLVE_SIGNATURE} TO {APP_ROLE}", APP_ROLE)
     op.execute(f'GRANT EXECUTE ON FUNCTION {RESOLVE_SIGNATURE} TO "{DEFINER_ROLE}"')
 
     # El dueno pasa a ser el definer (BYPASSRLS), igual que 0017: `tempus_owner`
@@ -245,6 +245,17 @@ def _borrar_funcion_resolver() -> None:
         f'REVOKE SELECT (business_id, preapproval_id) ON mp_subscriptions FROM "{DEFINER_ROLE}"'
     )
 
+
+def _grant_if_exists(sql_grant: str, role_name: str):
+    op.execute(f"""
+        DO $$ 
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role_name}') THEN
+                EXECUTE $$"{sql_grant}"$$;
+            END IF;
+        END
+        $$;
+    """)
 
 def upgrade() -> None:
     _crear_enums_nuevos()

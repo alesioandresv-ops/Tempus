@@ -75,6 +75,17 @@ _TENANT_GUC = "app.current_business_id"
 _ROL_ONBOARDING = "tempus_owner"
 
 
+def _grant_if_exists(sql_grant: str, role_name: str):
+    op.execute(f"""
+        DO $$ 
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role_name}') THEN
+                EXECUTE $$"{sql_grant}"$$;
+            END IF;
+        END
+        $$;
+    """)
+
 def upgrade() -> None:
     # `WITH CHECK (true)` a proposito: no hay fila previa a la que comparar. La
     # restriccion que si importa--"solo el rol de onboarding"-- la hace el `TO`.

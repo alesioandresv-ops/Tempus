@@ -21,6 +21,17 @@ RATE_LIMIT_HIT = "rate_limit_hit"
 
 SEARCH_PATH = "pg_catalog, public"
 
+def _grant_if_exists(sql_grant: str, role_name: str):
+    op.execute(f"""
+        DO $$ 
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role_name}') THEN
+                EXECUTE $$"{sql_grant}"$$;
+            END IF;
+        END
+        $$;
+    """)
+
 def upgrade() -> None:
     # Fix para Render single-user: asegurar que el usuario actual pueda crear
     op.execute('GRANT CREATE ON SCHEMA public TO CURRENT_USER')

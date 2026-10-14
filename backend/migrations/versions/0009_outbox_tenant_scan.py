@@ -69,6 +69,17 @@ FUNCTION = "businesses_with_pending_notifications"
 DEFAULT_LIMIT = 50
 
 
+def _grant_if_exists(sql_grant: str, role_name: str):
+    op.execute(f"""
+        DO $$ 
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role_name}') THEN
+                EXECUTE $$"{sql_grant}"$$;
+            END IF;
+        END
+        $$;
+    """)
+
 def upgrade() -> None:
     op.execute(
         f"""
@@ -124,7 +135,7 @@ def upgrade() -> None:
     #    un 500 por privilegio. Confundir estas dos cosas es el error clasico: un
     #    GRANT al unico rol y el sintoma es "la funcion existe pero no puedo llamarla".
     op.execute(f'GRANT EXECUTE ON FUNCTION {FUNCTION}(integer) TO "{DEFINER_ROLE}"')
-    op.execute(f"GRANT EXECUTE ON FUNCTION {FUNCTION}(integer) TO {APP_ROLE}")
+    _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {FUNCTION}(integer) TO {APP_ROLE}", APP_ROLE)
 
 
 def downgrade() -> None:

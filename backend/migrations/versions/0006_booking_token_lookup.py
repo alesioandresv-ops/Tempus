@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "0006_booking_token_lookup"
-down_revision: str = "0005_booking_tokens"
+down_revision: str = "0005_login_definer_role"
 branch_labels = None
 depends_on = None
 

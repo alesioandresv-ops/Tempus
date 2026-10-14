@@ -298,6 +298,17 @@ def _revoke_app_role() -> None:
     # aplicacion en la base de destino, que es justo cuando nadie esta mirando.
 
 
+def _grant_if_exists(sql_grant: str, role_name: str):
+    op.execute(f"""
+        DO $$ 
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role_name}') THEN
+                EXECUTE $$"{sql_grant}"$$;
+            END IF;
+        END
+        $$;
+    """)
+
 def upgrade() -> None:
     _enable_rls()
     _create_updated_at_trigger()

@@ -26,6 +26,17 @@ depends_on: str | Sequence[str] | None = None
 APP_ROLE = "tempus_app"
 
 
+def _grant_if_exists(sql_grant: str, role_name: str):
+    op.execute(f"""
+        DO $$ 
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role_name}') THEN
+                EXECUTE $$"{sql_grant}"$$;
+            END IF;
+        END
+        $$;
+    """)
+
 def upgrade() -> None:
     #: Los comments coinciden con el modelo `Business` (la ordenada geografica
     #: en decimal); `alembic check` los compara y falla si faltan.

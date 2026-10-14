@@ -17,6 +17,17 @@ DEFINER_ROLE = os.getenv("DB_DEFINER_ROLE", "tempus_login_definer")
 BUSINESS_LOGIN = "auth_business_user_for_login"
 COLUMNAS_LOGIN = "id, business_id, password_hash, role, status, full_name"
 
+def _grant_if_exists(sql_grant: str, role_name: str):
+    op.execute(f"""
+        DO $$ 
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role_name}') THEN
+                EXECUTE $$"{sql_grant}"$$;
+            END IF;
+        END
+        $$;
+    """)
+
 def upgrade() -> None:
     # En Render/produccion con un solo rol, no hay roles definer que crear.
     # Si OWNER y APP son el mismo usuario, salteamos toda esta lógica.

@@ -161,6 +161,17 @@ $cuerpo$
 """
 
 
+def _grant_if_exists(sql_grant: str, role_name: str):
+    op.execute(f"""
+        DO $$ 
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role_name}') THEN
+                EXECUTE $$"{sql_grant}"$$;
+            END IF;
+        END
+        $$;
+    """)
+
 def upgrade() -> None:
     op.execute(_CREAR_FUNCION)
     op.execute(_CREAR_DISPONIBLE)

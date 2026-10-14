@@ -50,6 +50,17 @@ PLATFORM_BY_ID = "auth_platform_user_by_id"
 SEARCH_PATH = "pg_catalog, public"
 
 
+def _grant_if_exists(sql_grant: str, role_name: str):
+    op.execute(f"""
+        DO $$ 
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role_name}') THEN
+                EXECUTE $$"{sql_grant}"$$;
+            END IF;
+        END
+        $$;
+    """)
+
 def upgrade() -> None:
     # Misma forma que `auth_business_user_for_login` de 0004, sin `password_hash`:
     # la rotacion no verifica contrasena, y por lo tanto no deberia poder leerla.
@@ -77,7 +88,7 @@ def upgrade() -> None:
         """
     )
     op.execute(f"REVOKE ALL ON FUNCTION {BUSINESS_BY_ID}(uuid) FROM PUBLIC")
-    op.execute(f"GRANT EXECUTE ON FUNCTION {BUSINESS_BY_ID}(uuid) TO {APP_ROLE}")
+    _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {BUSINESS_BY_ID}(uuid) TO {APP_ROLE}", APP_ROLE)
 
     # `is_active` y no `status`: es la unica columna de estado que tiene
     # `platform_users`, y el CHECK `exactly_one_principal` de `refresh_tokens` ya
@@ -103,7 +114,7 @@ def upgrade() -> None:
         """
     )
     op.execute(f"REVOKE ALL ON FUNCTION {PLATFORM_BY_ID}(uuid) FROM PUBLIC")
-    op.execute(f"GRANT EXECUTE ON FUNCTION {PLATFORM_BY_ID}(uuid) TO {APP_ROLE}")
+    _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {PLATFORM_BY_ID}(uuid) TO {APP_ROLE}", APP_ROLE)
 
 
 def downgrade() -> None:
