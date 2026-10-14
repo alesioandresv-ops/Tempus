@@ -33,6 +33,7 @@ def _grant_if_exists(sql_grant: str, role_name: str):
         $do$;
     """)
 
+
 def upgrade() -> None:
     # `CREATE` en el esquema se le da al definer antes de crear la funcion y se le
     # quita despues. No se le deja permanente: `CREATE` en `public` para un rol
@@ -60,7 +61,9 @@ def upgrade() -> None:
     )
     reset_role()
     definer_sin_create()
-    _grant_if_exists(f'GRANT EXECUTE ON FUNCTION {FUNCTION}(integer) TO "{DEFINER_ROLE}"', DEFINER_ROLE)
+    _grant_if_exists(
+        f'GRANT EXECUTE ON FUNCTION {FUNCTION}(integer) TO "{DEFINER_ROLE}"', DEFINER_ROLE
+    )
     _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {FUNCTION}(integer) TO {APP_ROLE}", APP_ROLE)
 
 

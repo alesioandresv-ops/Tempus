@@ -24,6 +24,8 @@ from collections.abc import Sequence
 
 from alembic import op
 
+from migrations.rls_safe import revoke_if_exists
+
 revision: str = "0002_rls_triggers_grants"
 down_revision: str | None = "0001_initial_schema"
 branch_labels: str | Sequence[str] | None = None
@@ -113,7 +115,7 @@ _TENANT_GUC = "app.current_business_id"
 def _enable_rls() -> None:
     """Activa y fuerza la RLS en las tablas de tenant, con su politica."""
     for table in TENANT_TABLES:
-        _grant_if_exists(f'ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY')
+        op.execute(f'ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY')
         # `FORCE` no es opcional. Sin el, el dueño de la tabla la bypasea, y el rol
         # de migraciones ES el dueño: un `SET app.current_business_id` olvidado
         # dejaria ver todo. Con `FORCE` el aislamiento deja de depender de que el
@@ -187,9 +189,9 @@ def _restrict_update_to_columns(table: str, writable: tuple[str, ...]) -> None:
     se acumulan con los de tabla, no los reemplazan, asi que un
     `REVOKE UPDATE (col)` sobre una tabla con `UPDATE` concedido no restringe nada.
     """
-    op.execute(f'REVOKE UPDATE ON TABLE "{table}" FROM "{APP_ROLE}"', APP_ROLE)
+    revoke_if_exists(f'REVOKE UPDATE ON TABLE "{table}" FROM "{APP_ROLE}"', APP_ROLE)
     columns = ", ".join(f'"{column}"' for column in writable)
-    _grant_if_exists(f"GRANT UPDATE ({columns}) ON TABLE \"{table}\" TO \"{APP_ROLE}\"", APP_ROLE)
+    _grant_if_exists(f'GRANT UPDATE ({columns}) ON TABLE "{table}" TO "{APP_ROLE}"', APP_ROLE)
 
 
 def _grant_app_role() -> None:
@@ -204,13 +206,24 @@ def _grant_app_role() -> None:
     que un deploy se revierta.
     """
     _grant_if_exists(f'GRANT USAGE ON SCHEMA public TO "{APP_ROLE}"', APP_ROLE)
-    _grant_if_exists(f'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{APP_ROLE}"', APP_ROLE)
-    _grant_if_exists(f'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "{APP_ROLE}"', APP_ROLE)
+    _grant_if_exists(
+        f'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{APP_ROLE}"',
+        APP_ROLE,
+    )
+    _grant_if_exists(
+        f'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "{APP_ROLE}"', APP_ROLE
+    )
 
-    _grant_if_exists(f'ALTER DEFAULT PRIVILEGES FOR ROLE "{MIGRATION_ROLE}" IN SCHEMA public '
-        f'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "{APP_ROLE}"', APP_ROLE)
-    _grant_if_exists(f'ALTER DEFAULT PRIVILEGES FOR ROLE "{MIGRATION_ROLE}" IN SCHEMA public '
-        f'GRANT USAGE, SELECT ON SEQUENCES TO "{APP_ROLE}"', APP_ROLE)
+    _grant_if_exists(
+        f'ALTER DEFAULT PRIVILEGES FOR ROLE "{MIGRATION_ROLE}" IN SCHEMA public '
+        f'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "{APP_ROLE}"',
+        APP_ROLE,
+    )
+    _grant_if_exists(
+        f'ALTER DEFAULT PRIVILEGES FOR ROLE "{MIGRATION_ROLE}" IN SCHEMA public '
+        f'GRANT USAGE, SELECT ON SEQUENCES TO "{APP_ROLE}"',
+        APP_ROLE,
+    )
 
     # `REVOKE CREATE` explicito, noporque sobre en una base de PG15+ el schema
     # `public` ya no le da CREATE a PUBLIC, sino por lo contrario: justamente por
@@ -226,7 +239,7 @@ def _grant_app_role() -> None:
     # En produccion con un solo rol (owner == app), NO revocar CREATE del propio owner
     # porque rompe las migraciones siguientes que crean funciones.
     if APP_ROLE != MIGRATION_ROLE:
-        _grant_if_exists(f'REVOKE CREATE ON SCHEMA public FROM "{APP_ROLE}"', APP_ROLE)
+        revoke_if_exists(f'REVOKE CREATE ON SCHEMA public FROM "{APP_ROLE}"', APP_ROLE)
         op.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
     else:
         print(f"[_grant_app_role] Skipping REVOKE CREATE, single-role env (owner==app=={APP_ROLE})")
@@ -234,7 +247,7 @@ def _grant_app_role() -> None:
     # Se revoca despues de conceder, en este orden, y no al reves: revocar sobre
     # un privilege que no existe da error y aborta la migracion.
     for table in FORBIDDEN_FOR_APP_ROLE:
-        _grant_if_exists(f'REVOKE ALL ON TABLE "{table}" FROM "{APP_ROLE}"', APP_ROLE)
+        revoke_if_exists(f'REVOKE ALL ON TABLE "{table}" FROM "{APP_ROLE}"', APP_ROLE)
 
     # `businesses` necesita SELECT porque el sitio publico resuelve el negocio por
     # `slug` **antes** de tener tenant. Es el unico momento legitimo en que se lee
@@ -268,20 +281,26 @@ def _grant_app_role() -> None:
     # la funcion solo reescribe `NEW.updated_at` de la fila que se esta
     # modificando, no lee ni escribe nada mas, asi que no cambia el nivel de
     # privilegio de quien la dispara. Marcarla como definer seria ruido.
-    _grant_if_exists(f'ALTER FUNCTION set_updated_at() OWNER TO "{MIGRATION_ROLE}"')
+    _grant_if_exists(f'ALTER FUNCTION set_updated_at() OWNER TO "{MIGRATION_ROLE}"', MIGRATION_ROLE)
 
 
 def _revoke_app_role() -> None:
     # Primero se deshace la restriccion por columnas. Si se invirtiera el orden,
     # el `GRANT UPDATE` de tabla volveria a abrir `role` y `password_hash` en el
     # camino de salida, que es justo lo que esta migracion vino a cerrar.
-    op.execute(f'REVOKE UPDATE ON TABLE "business_users" FROM "{APP_ROLE}"', APP_ROLE)
+    revoke_if_exists(f'REVOKE UPDATE ON TABLE "business_users" FROM "{APP_ROLE}"', APP_ROLE)
     for table in FORBIDDEN_FOR_APP_ROLE:
-        _grant_if_exists(f'REVOKE ALL ON TABLE "{table}" FROM "{APP_ROLE}"', APP_ROLE)
-    _grant_if_exists(f'ALTER DEFAULT PRIVILEGES FOR ROLE "{MIGRATION_ROLE}" IN SCHEMA public '
-        f'REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM "{APP_ROLE}"', APP_ROLE)
-    _grant_if_exists(f'ALTER DEFAULT PRIVILEGES FOR ROLE "{MIGRATION_ROLE}" IN SCHEMA public '
-        f'REVOKE USAGE, SELECT ON SEQUENCES FROM "{APP_ROLE}"', APP_ROLE)
+        revoke_if_exists(f'REVOKE ALL ON TABLE "{table}" FROM "{APP_ROLE}"', APP_ROLE)
+    _grant_if_exists(
+        f'ALTER DEFAULT PRIVILEGES FOR ROLE "{MIGRATION_ROLE}" IN SCHEMA public '
+        f'REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM "{APP_ROLE}"',
+        APP_ROLE,
+    )
+    _grant_if_exists(
+        f'ALTER DEFAULT PRIVILEGES FOR ROLE "{MIGRATION_ROLE}" IN SCHEMA public '
+        f'REVOKE USAGE, SELECT ON SEQUENCES FROM "{APP_ROLE}"',
+        APP_ROLE,
+    )
     # El `REVOKE CREATE ON SCHEMA public` del upgrade **no** se revierte. Un
     # downgrade devuelve el esquema a un estado anterior, no reintroduce un
     # privilegio: si se devolviera, un rollback de emergencia abriria DDL a la
@@ -298,6 +317,7 @@ def _grant_if_exists(sql_grant: str, role_name: str):
         END
         $do$;
     """)
+
 
 def upgrade() -> None:
     _enable_rls()

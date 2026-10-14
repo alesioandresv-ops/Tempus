@@ -1,4 +1,4 @@
-﻿"""politica de INSERT en `businesses` para el rol de onboarding"""
+"""politica de INSERT en `businesses` para el rol de onboarding"""
 
 from __future__ import annotations
 from collections.abc import Sequence
@@ -8,6 +8,7 @@ revision: str = "0012_businesses_insert_policy"
 down_revision: str | None = "0011_businesses_rls_write"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
+
 
 def upgrade() -> None:
     op.execute("""
@@ -33,8 +34,9 @@ def upgrade() -> None:
         $do$;
     """)
 
+
 def downgrade() -> None:
-    op.execute("DROP POLICY IF EXISTS businesses_insert ON businesses");
+    op.execute("DROP POLICY IF EXISTS businesses_insert ON businesses")
     op.execute("""
         DO $do$
         BEGIN

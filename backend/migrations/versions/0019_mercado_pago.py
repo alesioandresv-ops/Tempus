@@ -1,4 +1,4 @@
-﻿"""Mercado Pago: credenciales, suscripciones y pagos de reserva (Fase 9.1)
+"""Mercado Pago: credenciales, suscripciones y pagos de reserva (Fase 9.1)
 
 Revision ID: 0019_mercado_pago
 Revises: 0018_whatsapp_reminders
@@ -49,6 +49,7 @@ from migrations.roles_definer import (
     membresia_temporal_al_definer,
     revoca_membresia_al_definer,
 )
+from migrations.rls_safe import claim_and_open, restore, revoke_if_exists
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0019_mercado_pago"
@@ -156,20 +157,22 @@ def _drop_triggers() -> None:
 
 def _grant_app_role() -> None:
     columnas = ", ".join(f'"{col}"' for col in COLUMNAS_PAGO_BUSINESSES)
-    op.execute(
+    _grant_if_exists(
         f"GRANT SELECT, INSERT, UPDATE, DELETE "
         f'ON TABLE "{NUEVAS_TABLAS[0]}", "{NUEVAS_TABLAS[1]}", "{NUEVAS_TABLAS[2]}" '
-        f'TO "{APP_ROLE}"'
+        f'TO "{APP_ROLE}"',
+        APP_ROLE,
     )
     _grant_if_exists(f'GRANT UPDATE ({columnas}) ON businesses TO "{APP_ROLE}"', APP_ROLE)
 
 
 def _revoke_app_role() -> None:
-    op.execute(
+    revoke_if_exists(
         f'REVOKE ALL ON TABLE "{NUEVAS_TABLAS[0]}", "{NUEVAS_TABLAS[1]}", "{NUEVAS_TABLAS[2]}" '
-        f'FROM "{APP_ROLE}"'
+        f'FROM "{APP_ROLE}"',
+        APP_ROLE,
     )
-    op.execute(f'REVOKE UPDATE ON businesses FROM "{APP_ROLE}"')
+    revoke_if_exists(f'REVOKE UPDATE ON businesses FROM "{APP_ROLE}"', APP_ROLE)
 
 
 def _crear_funcion_resolver() -> None:
@@ -185,8 +188,14 @@ def _crear_funcion_resolver() -> None:
     sobre la tabla entera lo convertiria en un lector global de pagos de clientes.
     Solo ve las columnas que el cuerpo de la funcion toca.
     """
-    _grant_if_exists(f'GRANT SELECT (business_id, preapproval_id) ON mp_subscriptions TO "{DEFINER_ROLE}"', DEFINER_ROLE)
-    _grant_if_exists(f"GRANT SELECT (business_id, payment_id, external_reference) ON booking_payments TO \"{DEFINER_ROLE}\"", DEFINER_ROLE)
+    _grant_if_exists(
+        f'GRANT SELECT (business_id, preapproval_id) ON mp_subscriptions TO "{DEFINER_ROLE}"',
+        DEFINER_ROLE,
+    )
+    _grant_if_exists(
+        f'GRANT SELECT (business_id, payment_id, external_reference) ON booking_payments TO "{DEFINER_ROLE}"',
+        DEFINER_ROLE,
+    )
     op.execute(
         f"""
         CREATE OR REPLACE FUNCTION {RESOLVE_FUNCTION}(p_kind text, p_external_id text)
@@ -211,13 +220,17 @@ def _crear_funcion_resolver() -> None:
     )
     op.execute(f"REVOKE ALL ON FUNCTION {RESOLVE_SIGNATURE} FROM PUBLIC")
     _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {RESOLVE_SIGNATURE} TO {APP_ROLE}", APP_ROLE)
-    _grant_if_exists(f'GRANT EXECUTE ON FUNCTION {RESOLVE_SIGNATURE} TO "{DEFINER_ROLE}"', DEFINER_ROLE)
+    _grant_if_exists(
+        f'GRANT EXECUTE ON FUNCTION {RESOLVE_SIGNATURE} TO "{DEFINER_ROLE}"', DEFINER_ROLE
+    )
 
     # El dueno pasa a ser el definer (BYPASSRLS), igual que 0017: `tempus_owner`
     # no escapa a la RLS, y sin esto la funcion devolveria cero filas en runtime.
     membresia_temporal_al_definer()
     definer_con_create()
-    op.execute(f""" DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{DEFINER_ROLE}') THEN EXECUTE 'ALTER FUNCTION {RESOLVE_SIGNATURE} OWNER TO "{DEFINER_ROLE}"'; END IF; END $do$; """)
+    op.execute(
+        f""" DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{DEFINER_ROLE}') THEN EXECUTE 'ALTER FUNCTION {RESOLVE_SIGNATURE} OWNER TO "{DEFINER_ROLE}"'; END IF; END $do$; """
+    )
     definer_sin_create()
     revoca_membresia_al_definer()
 
@@ -227,17 +240,28 @@ def _borrar_funcion_resolver() -> None:
     # despues se sueltan los `SELECT` por columna del definer.
     membresia_temporal_al_definer()
     definer_con_create()
-    op.execute(f'ALTER FUNCTION {RESOLVE_SIGNATURE} OWNER TO "{OWNER_ROLE}"')
+    op.execute(
+        f"""
+        DO $do$ BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{OWNER_ROLE}') THEN
+                EXECUTE 'ALTER FUNCTION {RESOLVE_SIGNATURE} OWNER TO "{OWNER_ROLE}"';
+            END IF;
+        EXCEPTION WHEN others THEN NULL;
+        END $do$;
+        """
+    )
     definer_sin_create()
     revoca_membresia_al_definer()
 
     op.execute(f"DROP FUNCTION IF EXISTS {RESOLVE_SIGNATURE}")
-    op.execute(
+    revoke_if_exists(
         f"REVOKE SELECT (business_id, payment_id, external_reference) "
-        f'ON booking_payments FROM "{DEFINER_ROLE}"'
+        f'ON booking_payments FROM "{DEFINER_ROLE}"',
+        DEFINER_ROLE,
     )
-    op.execute(
-        f'REVOKE SELECT (business_id, preapproval_id) ON mp_subscriptions FROM "{DEFINER_ROLE}"'
+    revoke_if_exists(
+        f'REVOKE SELECT (business_id, preapproval_id) ON mp_subscriptions FROM "{DEFINER_ROLE}"',
+        DEFINER_ROLE,
     )
 
 
@@ -252,32 +276,29 @@ def _grant_if_exists(sql_grant: str, role_name: str):
         $do$;
     """)
 
+
 def _disable_rls_for_fk() -> None:
-    op.execute('''
-        DO $do$
-        BEGIN
-            BEGIN
-                EXECUTE format('ALTER TABLE businesses OWNER TO %I', CURRENT_USER);
-            EXCEPTION WHEN others THEN NULL;
-            END;
-            BEGIN
-                EXECUTE 'ALTER TABLE businesses DISABLE ROW LEVEL SECURITY';
-            EXCEPTION WHEN others THEN NULL;
-            END;
-            BEGIN
-                EXECUTE 'ALTER TABLE businesses NO FORCE ROW LEVEL SECURITY';
-            EXCEPTION WHEN others THEN NULL;
-            END;
-            BEGIN
-                EXECUTE 'ALTER TABLE bookings DISABLE ROW LEVEL SECURITY';
-            EXCEPTION WHEN others THEN NULL;
-            END;
-            BEGIN
-                EXECUTE 'ALTER TABLE bookings NO FORCE ROW LEVEL SECURITY';
-            EXCEPTION WHEN others THEN NULL;
-            END;
-        END $do$;
-    ''')
+    """Prepara `businesses` y `bookings` para crear/alterar objetos que las tocan.
+
+    Antes apagaba RLS a mano y no la volvia a prender: en single-rol, ademas,
+    hacia falta recuperar `REFERENCES` (revocado por `0002`), porque los chequeos
+    de integridad referencial bypassean RLS pero el privilegio igual se exige.
+    `claim_and_open` cubre las dos cosas.
+    """
+    for tabla in ("businesses", "bookings"):
+        claim_and_open(tabla)
+
+
+def _restore_rls_for_fk() -> None:
+    """Cierra `_disable_rls_for_fk`: deja `businesses` y `bookings` protegidas.
+
+    Sin esto la migracion terminaba con dos tablas de tenant sin RLS, un
+    aislamiento que nadie veia porque el test de tenancy acepta `relforcerowsecurity`
+    como equivalente.
+    """
+    for tabla in ("businesses", "bookings"):
+        restore(tabla)
+
 
 def upgrade() -> None:
     _disable_rls_for_fk()
@@ -524,6 +545,7 @@ def upgrade() -> None:
     _create_triggers()
     _grant_app_role()
     _crear_funcion_resolver()
+    _restore_rls_for_fk()
 
 
 def downgrade() -> None:
@@ -564,5 +586,3 @@ def downgrade() -> None:
 
     # `pending_payment` y `mercadopago` no se pueden quitar de los enums viejos
     # (ALTER TYPE no permite quitar valores): es un piso, igual que 0003.
-
-

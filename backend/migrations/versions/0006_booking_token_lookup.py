@@ -13,6 +13,7 @@ MIGRATION_ROLE = os.getenv("DB_OWNER_ROLE", "tempus_owner")
 APP_ROLE = os.getenv("DB_APP_ROLE", "tempus_app")
 BOOKING_TENANT = "booking_tenant_for_token"
 
+
 def _grant_if_exists(sql_grant: str, role_name: str):
     # Usamos delimitadores diferentes para evitar conflicto de $$
     op.execute(f"""
@@ -24,6 +25,7 @@ def _grant_if_exists(sql_grant: str, role_name: str):
         END
         $do$;
     """)
+
 
 def upgrade() -> None:
     op.execute("""
@@ -43,8 +45,13 @@ def upgrade() -> None:
         $$;
     """)
     _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {BOOKING_TENANT}(bytea) TO {APP_ROLE}", APP_ROLE)
-    _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {BOOKING_TENANT}(bytea) TO {MIGRATION_ROLE}", MIGRATION_ROLE)
-    _grant_if_exists("GRANT EXECUTE ON FUNCTION {BOOKING_TENANT}(bytea) TO CURRENT_USER", "CURRENT_USER")
+    _grant_if_exists(
+        f"GRANT EXECUTE ON FUNCTION {BOOKING_TENANT}(bytea) TO {MIGRATION_ROLE}", MIGRATION_ROLE
+    )
+    # `CURRENT_USER` siempre existe: no necesita guarda (el rol literal
+    # "CURRENT_USER" no existe y hacia que este GRANT nunca corriera).
+    op.execute(f"GRANT EXECUTE ON FUNCTION {BOOKING_TENANT}(bytea) TO CURRENT_USER")
+
 
 def downgrade() -> None:
     op.execute(f"DROP FUNCTION IF EXISTS {BOOKING_TENANT}(bytea)")

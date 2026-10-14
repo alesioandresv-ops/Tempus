@@ -61,6 +61,7 @@ def _grant_if_exists(sql_grant: str, role_name: str):
         $do$;
     """)
 
+
 def upgrade() -> None:
     # Misma forma que `auth_business_user_for_login` de 0004, sin `password_hash`:
     # la rotacion no verifica contrasena, y por lo tanto no deberia poder leerla.

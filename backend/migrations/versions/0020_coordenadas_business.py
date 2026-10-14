@@ -17,6 +17,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from migrations.rls_safe import revoke_if_exists
 
 revision: str = "0020_coordenadas_business_v2"
 down_revision: str | None = "0019_mercado_pago"
@@ -37,6 +38,7 @@ def _grant_if_exists(sql_grant: str, role_name: str):
         $do$;
     """)
 
+
 def upgrade() -> None:
     #: Los comments coinciden con el modelo `Business` (la ordenada geografica
     #: en decimal); `alembic check` los compara y falla si faltan.
@@ -52,10 +54,14 @@ def upgrade() -> None:
             "longitude", sa.Float(), nullable=True, comment="Coordenada geográfica en decimal"
         ),
     )
-    _grant_if_exists(f'GRANT UPDATE ("latitude", "longitude") ON businesses TO "{APP_ROLE}"', APP_ROLE)
+    _grant_if_exists(
+        f'GRANT UPDATE ("latitude", "longitude") ON businesses TO "{APP_ROLE}"', APP_ROLE
+    )
 
 
 def downgrade() -> None:
-    op.execute(f'REVOKE UPDATE ("latitude", "longitude") ON businesses FROM "{APP_ROLE}"')
+    revoke_if_exists(
+        f'REVOKE UPDATE ("latitude", "longitude") ON businesses FROM "{APP_ROLE}"', APP_ROLE
+    )
     op.drop_column("businesses", "longitude")
     op.drop_column("businesses", "latitude")

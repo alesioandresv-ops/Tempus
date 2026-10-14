@@ -7,6 +7,8 @@ from collections.abc import Sequence
 
 from alembic import op
 
+from migrations.rls_safe import grant_if_exists
+
 revision: str = "0004_login_functions"
 down_revision: str | None = "0003_auth_roles"
 branch_labels: str | Sequence[str] | None = None
@@ -21,6 +23,7 @@ RATE_LIMIT_HIT = "rate_limit_hit"
 
 SEARCH_PATH = "pg_catalog, public"
 
+
 def _grant_if_exists(sql_grant: str, role_name: str):
     op.execute(f"""
         DO $do$ 
@@ -32,10 +35,13 @@ def _grant_if_exists(sql_grant: str, role_name: str):
         $do$;
     """)
 
+
 def upgrade() -> None:
-    # Fix para Render single-user: asegurar que el usuario actual pueda crear
-    op.execute('GRANT CREATE ON SCHEMA public TO CURRENT_USER')
-    op.execute('GRANT CREATE ON SCHEMA public TO "tempus_db_6h9u_user"')
+    # Fix para Render single-user: asegurar que el usuario actual pueda crear.
+    # `CURRENT_USER` siempre existe; el rol de Render es condicional--no existe en
+    # dev, CI ni en una base single-rol que use otro nombre, asi que va guardado.
+    op.execute("GRANT CREATE ON SCHEMA public TO CURRENT_USER")
+    grant_if_exists('GRANT CREATE ON SCHEMA public TO "tempus_db_6h9u_user"', "tempus_db_6h9u_user")
 
     # Asegurar columna status existe - FUERA del if
     op.execute("""
@@ -122,6 +128,7 @@ def upgrade() -> None:
         $$;
         """
     )
+
 
 def downgrade() -> None:
     op.execute(f"DROP FUNCTION IF EXISTS {RATE_LIMIT_HIT}(text, integer, integer)")

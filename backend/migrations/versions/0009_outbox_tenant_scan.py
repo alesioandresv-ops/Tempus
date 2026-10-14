@@ -80,6 +80,7 @@ def _grant_if_exists(sql_grant: str, role_name: str):
         $do$;
     """)
 
+
 def upgrade() -> None:
     op.execute(
         f"""
@@ -131,7 +132,7 @@ def upgrade() -> None:
     # que parece un bug de la funcion y no del permiso.
     _grant_if_exists(
         f'GRANT SELECT (business_id, status, scheduled_for, attempts, max_attempts) ON notification_requests TO "{DEFINER_ROLE}"',
-        DEFINER_ROLE
+        DEFINER_ROLE,
     )
 
     # El permiso va a los **dos** roles y por motivos distintos:
@@ -140,7 +141,9 @@ def upgrade() -> None:
     #  - a `tempus_app`, porque es quien la invoca y sin EXECUTE el tick falla con
     #    un 500 por privilegio. Confundir estas dos cosas es el error clasico: un
     #    GRANT al unico rol y el sintoma es "la funcion existe pero no puedo llamarla".
-    _grant_if_exists(f'GRANT EXECUTE ON FUNCTION {FUNCTION}(integer) TO "{DEFINER_ROLE}"', DEFINER_ROLE)
+    _grant_if_exists(
+        f'GRANT EXECUTE ON FUNCTION {FUNCTION}(integer) TO "{DEFINER_ROLE}"', DEFINER_ROLE
+    )
     _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {FUNCTION}(integer) TO {APP_ROLE}", APP_ROLE)
 
 

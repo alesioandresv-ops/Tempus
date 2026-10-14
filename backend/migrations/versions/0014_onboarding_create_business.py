@@ -1,7 +1,9 @@
-﻿"""alta de tenants: la funcion que si puede crear un negocio"""
+"""alta de tenants: la funcion que si puede crear un negocio"""
+
 from __future__ import annotations
 from collections.abc import Sequence
 from alembic import op
+
 revision: str = "0014_onboarding_create_business"
 down_revision: str | None = "0013_rate_limit_deslizante"
 branch_labels: str | Sequence[str] | None = None
@@ -45,10 +47,14 @@ AS $cuerpo$
        AND NOT EXISTS (SELECT 1 FROM businesses WHERE slug = p_slug);
 $cuerpo$
 """
+
+
 def _grant_if_exists(sql_grant: str, role_name: str):
     op.execute(f"""
         DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role_name}') THEN EXECUTE $g${sql_grant}$g$; END IF; END $do$;
     """)
+
+
 def upgrade() -> None:
     op.execute(_CREAR_FUNCION)
     op.execute(_CREAR_DISPONIBLE)
@@ -72,6 +78,8 @@ def upgrade() -> None:
     op.execute(f"REVOKE ALL ON FUNCTION {_FIRMA_DISPONIBLE} FROM PUBLIC")
     _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {_FIRMA} TO {_APP_ROLE}", _APP_ROLE)
     _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {_FIRMA_DISPONIBLE} TO {_APP_ROLE}", _APP_ROLE)
+
+
 def downgrade() -> None:
     op.execute("""
         DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tempus_app') THEN EXECUTE 'REVOKE ALL ON FUNCTION tempus_create_business(citext, text, text, text) FROM tempus_app'; END IF; END $do$;

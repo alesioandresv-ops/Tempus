@@ -1,4 +1,4 @@
-﻿"""Pruebas masivas de validacion del sistema (post-Fase 10).
+"""Pruebas masivas de validacion del sistema (post-Fase 10).
 
 Cinco suites (100 tests) que cubren el camino que se valido a mano despues de
 la Fase 10--pagina publica con ubicacion, configuracion del mapa en el panel,
