@@ -6,7 +6,6 @@ import os
 from collections.abc import Sequence
 
 from alembic import op
-from alembic.util import CommandError
 
 revision: str = "0004_login_functions"
 down_revision: str | None = "0003_auth_roles"
@@ -23,10 +22,14 @@ RATE_LIMIT_HIT = "rate_limit_hit"
 SEARCH_PATH = "pg_catalog, public"
 
 def upgrade() -> None:
-    # Fix para Render: la 0002 pudo haber revocado CREATE en single-role env
-    op.execute(f'GRANT CREATE ON SCHEMA public TO "{MIGRATION_ROLE}"')
-    if APP_ROLE!= MIGRATION_ROLE:
-        op.execute(f'GRANT CREATE ON SCHEMA public TO "{APP_ROLE}"')
+    # Fix para Render single-user: asegurar que el usuario actual pueda crear
+    op.execute('GRANT CREATE ON SCHEMA public TO CURRENT_USER')
+    op.execute('GRANT CREATE ON SCHEMA public TO "tempus_db_6h9u_user"')
+
+    # Asegurar columna status existe - FUERA del if
+    op.execute("""
+        ALTER TABLE platform_users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+    """)
 
     # Funcion de login de negocio
     op.execute(
