@@ -182,8 +182,12 @@ def upgrade() -> None:
     # archivo. Si alguien corre el alta con otro rol, el permiso de abajo no alcanza
     # y el endpoint falla con `permission denied`--que es el sintoma correcto-- en
     # vez de crear el negocio con el dueno equivocado.
-    op.execute(f"ALTER FUNCTION {_FIRMA} OWNER TO {_MIGRATION_ROLE}")
-    op.execute(f"ALTER FUNCTION {_FIRMA_DISPONIBLE} OWNER TO {_MIGRATION_ROLE}")
+    op.execute("""
+        DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tempus_owner') THEN EXECUTE 'ALTER FUNCTION {_FIRMA} OWNER TO tempus_owner'; END IF; END $do$;
+    """)
+    op.execute("""
+        DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tempus_owner') THEN EXECUTE 'ALTER FUNCTION {_FIRMA_DISPONIBLE} OWNER TO tempus_owner'; END IF; END $do$;
+    """)
 
     # `PUBLIC` primero y sin excepciones: `EXECUTE` sobre funciones es publico por
     # defecto en PostgreSQL, asi que sin este `REVOKE` cualquier rol futuro de la
