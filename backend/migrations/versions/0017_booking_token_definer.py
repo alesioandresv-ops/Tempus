@@ -62,7 +62,7 @@ COLUMNAS = ("id", "business_id", "secure_token_hash")
 def upgrade() -> None:
     cols = ", ".join(COLUMNAS)
 
-    op.execute(f'GRANT SELECT ({cols}) ON bookings TO "{DEFINER_ROLE}"')
+    _grant_if_exists(f'GRANT SELECT ({cols}) ON bookings TO "{DEFINER_ROLE}"', DEFINER_ROLE)
 
     membresia_temporal_al_definer()
     definer_con_create()
