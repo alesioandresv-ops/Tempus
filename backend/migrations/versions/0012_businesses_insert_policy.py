@@ -107,7 +107,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("DROP POLICY IF EXISTS businesses_insert ON businesses")
-    op.execute("GRANT INSERT ON businesses TO tempus_owner")
+    _grant_if_exists("GRANT INSERT ON businesses TO tempus_owner", "tempus_owner")
 
 
 __all__ = ["downgrade", "upgrade"]

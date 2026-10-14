@@ -161,7 +161,7 @@ def _grant_app_role() -> None:
         f'ON TABLE "{NUEVAS_TABLAS[0]}", "{NUEVAS_TABLAS[1]}", "{NUEVAS_TABLAS[2]}" '
         f'TO "{APP_ROLE}"'
     )
-    op.execute(f'GRANT UPDATE ({columnas}) ON businesses TO "{APP_ROLE}"')
+    _grant_if_exists(f"GRANT UPDATE ({columnas}) ON businesses TO {APP_ROLE}", APP_ROLE)
 
 
 def _revoke_app_role() -> None:
@@ -216,7 +216,7 @@ def _crear_funcion_resolver() -> None:
     )
     op.execute(f"REVOKE ALL ON FUNCTION {RESOLVE_SIGNATURE} FROM PUBLIC")
     _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {RESOLVE_SIGNATURE} TO {APP_ROLE}", APP_ROLE)
-    op.execute(f'GRANT EXECUTE ON FUNCTION {RESOLVE_SIGNATURE} TO "{DEFINER_ROLE}"')
+    _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {RESOLVE_SIGNATURE} TO {DEFINER_ROLE}", DEFINER_ROLE)
 
     # El dueno pasa a ser el definer (BYPASSRLS), igual que 0017: `tempus_owner`
     # no escapa a la RLS, y sin esto la funcion devolveria cero filas en runtime.

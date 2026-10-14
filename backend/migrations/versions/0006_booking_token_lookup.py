@@ -44,7 +44,7 @@ def upgrade() -> None:
     """)
     _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {BOOKING_TENANT}(bytea) TO {APP_ROLE}", APP_ROLE)
     _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {BOOKING_TENANT}(bytea) TO {MIGRATION_ROLE}", MIGRATION_ROLE)
-    op.execute(f"GRANT EXECUTE ON FUNCTION {BOOKING_TENANT}(bytea) TO CURRENT_USER")
+    _grant_if_exists("GRANT EXECUTE ON FUNCTION {BOOKING_TENANT}(bytea) TO CURRENT_USER", "CURRENT_USER")
 
 def downgrade() -> None:
     op.execute(f"DROP FUNCTION IF EXISTS {BOOKING_TENANT}(bytea)")

@@ -35,9 +35,22 @@ PLATFORM_BY_ID = "auth_platform_user_by_id"
 COLUMNAS = ("id", "business_id", "password_hash", "role", "status", "full_name", "email")
 
 
+def _grant_if_exists(sql_grant: str, role_name: str):
+    # role_name viene con o sin comillas
+    clean = role_name.strip().strip('"').strip("'")
+    op.execute(f"""
+        DO $do$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{clean}') THEN
+                EXECUTE $g${sql_grant}$g$;
+            END IF;
+        END
+        $do$;
+    """)
+
 def upgrade() -> None:
     cols = ", ".join(COLUMNAS)
-    op.execute(f'GRANT SELECT ({cols}) ON business_users TO "{DEFINER_ROLE}"')
+    _grant_if_exists(f"GRANT SELECT ({cols}) ON business_users TO {DEFINER_ROLE}", DEFINER_ROLE)
 
     membresia_temporal_al_definer()
     definer_con_create()
@@ -46,7 +59,7 @@ def upgrade() -> None:
     definer_sin_create()
     revoca_membresia_al_definer()
 
-    op.execute(f'GRANT SELECT ON platform_users TO "{DEFINER_ROLE}"')
+    _grant_if_exists(f"GRANT SELECT ON platform_users TO {DEFINER_ROLE}", DEFINER_ROLE)
 
 
 def downgrade() -> None:

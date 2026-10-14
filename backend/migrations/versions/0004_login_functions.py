@@ -34,8 +34,8 @@ def _grant_if_exists(sql_grant: str, role_name: str):
 
 def upgrade() -> None:
     # Fix para Render single-user: asegurar que el usuario actual pueda crear
-    op.execute('GRANT CREATE ON SCHEMA public TO CURRENT_USER')
-    op.execute('GRANT CREATE ON SCHEMA public TO "tempus_db_6h9u_user"')
+    _grant_if_exists("GRANT CREATE ON SCHEMA public TO CURRENT_USER", "CURRENT_USER")
+    _grant_if_exists("GRANT CREATE ON SCHEMA public TO "tempus_db_6h9u_user"", "tempus_db_6h9u_user")
 
     # Asegurar columna status existe - FUERA del if
     op.execute("""

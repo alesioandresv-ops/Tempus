@@ -129,7 +129,7 @@ def upgrade() -> None:
     )
 
     columnas = ", ".join(_EDITABLES)
-    op.execute(f"GRANT UPDATE ({columnas}) ON businesses TO tempus_app")
+    _grant_if_exists("GRANT UPDATE ({columnas}) ON businesses TO tempus_app", "tempus_app")
 
 
 def downgrade() -> None:

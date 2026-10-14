@@ -194,8 +194,8 @@ def upgrade() -> None:
     # podria no serlo, y el costo de cubrirla es una linea.
     op.execute(f"REVOKE ALL ON FUNCTION {_FIRMA} FROM PUBLIC")
     op.execute(f"REVOKE ALL ON FUNCTION {_FIRMA_DISPONIBLE} FROM PUBLIC")
-    op.execute(f"GRANT EXECUTE ON FUNCTION {_FIRMA} TO {_APP_ROLE}")
-    op.execute(f"GRANT EXECUTE ON FUNCTION {_FIRMA_DISPONIBLE} TO {_APP_ROLE}")
+    _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {_FIRMA} TO {_APP_ROLE}", _APP_ROLE)
+    _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {_FIRMA_DISPONIBLE} TO {_APP_ROLE}", _APP_ROLE)
 
 
 def downgrade() -> None:
