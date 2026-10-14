@@ -60,7 +60,7 @@ def upgrade() -> None:
     )
     reset_role()
     definer_sin_create()
-    op.execute(f'GRANT EXECUTE ON FUNCTION {FUNCTION}(integer) TO "{DEFINER_ROLE}"')
+ _grant_if_exists(f"""GRANT EXECUTE ON FUNCTION {FUNCTION}(integer) TO "{DEFINER_ROLE}"""", DEFINER_ROLE)
     _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {FUNCTION}(integer) TO {APP_ROLE}", APP_ROLE)
 
 

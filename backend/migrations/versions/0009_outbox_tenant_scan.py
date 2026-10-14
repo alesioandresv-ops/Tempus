@@ -140,7 +140,7 @@ def upgrade() -> None:
     #  - a `tempus_app`, porque es quien la invoca y sin EXECUTE el tick falla con
     #    un 500 por privilegio. Confundir estas dos cosas es el error clasico: un
     #    GRANT al unico rol y el sintoma es "la funcion existe pero no puedo llamarla".
-    op.execute(f'GRANT EXECUTE ON FUNCTION {FUNCTION}(integer) TO "{DEFINER_ROLE}"')
+ _grant_if_exists(f"""GRANT EXECUTE ON FUNCTION {FUNCTION}(integer) TO "{DEFINER_ROLE}"""", DEFINER_ROLE)
     _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {FUNCTION}(integer) TO {APP_ROLE}", APP_ROLE)
 
 
