@@ -1,4 +1,4 @@
-"""Mercado Pago: credenciales, suscripciones y pagos de reserva (Fase 9.1)
+﻿"""Mercado Pago: credenciales, suscripciones y pagos de reserva (Fase 9.1)
 
 Revision ID: 0019_mercado_pago
 Revises: 0018_whatsapp_reminders
@@ -111,7 +111,7 @@ def _crear_enums_nuevos() -> None:
         lista = ", ".join(f"'{v}'" for v in valores)
         op.execute(
             f"DO $do$ BEGIN CREATE TYPE {tipo} AS ENUM ({lista}); "
-            f"EXCEPTION WHEN duplicate_object THEN NULL; END $$;"
+            f"EXCEPTION WHEN duplicate_object THEN NULL; END $do$;"
         )
 
 
@@ -536,3 +536,4 @@ def downgrade() -> None:
 
     # `pending_payment` y `mercadopago` no se pueden quitar de los enums viejos
     # (ALTER TYPE no permite quitar valores): es un piso, igual que 0003.
+
