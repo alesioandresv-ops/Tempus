@@ -1,9 +1,10 @@
-"""booking token lookup"""
+"""booking token lookup - fix for clean DB"""
 
 from __future__ import annotations
 import os
 from collections.abc import Sequence
 from alembic import op
+import sqlalchemy as sa
 
 revision: str = "0006_booking_token_lookup"
 down_revision: str = "0005_login_definer_role"
@@ -26,6 +27,16 @@ def _grant_if_exists(sql_grant: str, role_name: str):
     """)
 
 def upgrade() -> None:
+    # Asegurar que la tabla exista antes de crear la funcion (para DBs limpias)
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS booking_tokens (
+            token bytea PRIMARY KEY,
+            business_id uuid NOT NULL,
+            location_id uuid,
+            created_at timestamptz DEFAULT now()
+        );
+    """)
+
     op.execute(f"""
         CREATE OR REPLACE FUNCTION {BOOKING_TENANT}(p_token bytea)
         RETURNS TABLE (business_id uuid, location_id uuid)
