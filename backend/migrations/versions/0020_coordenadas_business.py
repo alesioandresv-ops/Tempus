@@ -52,7 +52,7 @@ def upgrade() -> None:
             "longitude", sa.Float(), nullable=True, comment="Coordenada geográfica en decimal"
         ),
     )
-    op.execute(f'GRANT UPDATE ("latitude", "longitude") ON businesses TO "{APP_ROLE}"')
+    _grant_if_exists(f\'GRANT UPDATE ("latitude", "longitude") ON businesses TO "{APP_ROLE}"\', APP_ROLE)
 
 
 def downgrade() -> None:
