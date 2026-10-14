@@ -129,9 +129,9 @@ def upgrade() -> None:
     # Sin este GRANT la funcion se crea sin error y falla en el primer SELECT con
     # "permiso denegado a la tabla notification_requests", o sea un 500 en el tick
     # que parece un bug de la funcion y no del permiso.
-    op.execute(
-        f"GRANT SELECT (business_id, status, scheduled_for, attempts, max_attempts) "
-        f'ON notification_requests TO "{DEFINER_ROLE}"'
+    _grant_if_exists(
+        f'GRANT SELECT (business_id, status, scheduled_for, attempts, max_attempts) ON notification_requests TO "{DEFINER_ROLE}"',
+        DEFINER_ROLE
     )
 
     # El permiso va a los **dos** roles y por motivos distintos:
