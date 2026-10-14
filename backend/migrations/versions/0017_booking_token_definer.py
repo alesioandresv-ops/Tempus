@@ -39,18 +39,6 @@ from collections.abc import Sequence
 
 from alembic import op
 
-def _grant_if_exists(sql_grant: str, role_name: str):
- op.execute(f"""
- DO $do$ 
- BEGIN
- IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role_name}') THEN
- EXECUTE $g${sql_grant}$g$;
- END IF;
- END
- $do$;
- """)
-
-
 from migrations.roles_definer import (
     definer_con_create,
     definer_sin_create,
@@ -74,7 +62,7 @@ COLUMNAS = ("id", "business_id", "secure_token_hash")
 def upgrade() -> None:
     cols = ", ".join(COLUMNAS)
 
- _grant_if_exists(f"""GRANT SELECT ({cols}) ON bookings TO "{DEFINER_ROLE}"""", DEFINER_ROLE)
+    op.execute(f'GRANT SELECT ({cols}) ON bookings TO "{DEFINER_ROLE}"')
 
     membresia_temporal_al_definer()
     definer_con_create()

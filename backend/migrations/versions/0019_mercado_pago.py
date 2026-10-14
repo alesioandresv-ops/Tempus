@@ -185,13 +185,8 @@ def _crear_funcion_resolver() -> None:
     sobre la tabla entera lo convertiria en un lector global de pagos de clientes.
     Solo ve las columnas que el cuerpo de la funcion toca.
     """
-    op.execute(
-        f'GRANT SELECT (business_id, preapproval_id) ON mp_subscriptions TO "{DEFINER_ROLE}"'
-    )
-    op.execute(
-        f"GRANT SELECT (business_id, payment_id, external_reference) ON booking_payments "
-        f'TO "{DEFINER_ROLE}"'
-    )
+    _grant_if_exists(f'GRANT SELECT (business_id, preapproval_id) ON mp_subscriptions TO "{DEFINER_ROLE}"', DEFINER_ROLE)
+    _grant_if_exists(f"GRANT SELECT (business_id, payment_id, external_reference) ON booking_payments TO \"{DEFINER_ROLE}\"", DEFINER_ROLE)
     op.execute(
         f"""
         CREATE OR REPLACE FUNCTION {RESOLVE_FUNCTION}(p_kind text, p_external_id text)
@@ -216,7 +211,7 @@ def _crear_funcion_resolver() -> None:
     )
     op.execute(f"REVOKE ALL ON FUNCTION {RESOLVE_SIGNATURE} FROM PUBLIC")
     _grant_if_exists(f"GRANT EXECUTE ON FUNCTION {RESOLVE_SIGNATURE} TO {APP_ROLE}", APP_ROLE)
- _grant_if_exists(f"""GRANT EXECUTE ON FUNCTION {RESOLVE_SIGNATURE} TO "{DEFINER_ROLE}"""", DEFINER_ROLE)
+    op.execute(f'GRANT EXECUTE ON FUNCTION {RESOLVE_SIGNATURE} TO "{DEFINER_ROLE}"')
 
     # El dueno pasa a ser el definer (BYPASSRLS), igual que 0017: `tempus_owner`
     # no escapa a la RLS, y sin esto la funcion devolveria cero filas en runtime.
