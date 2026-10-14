@@ -189,7 +189,7 @@ def _restrict_update_to_columns(table: str, writable: tuple[str, ...]) -> None:
     """
     op.execute(f'REVOKE UPDATE ON TABLE "{table}" FROM "{APP_ROLE}"')
     columns = ", ".join(f'"{column}"' for column in writable)
-    _grant_if_exists(f"GRANT UPDATE ({columns}) ON TABLE "{table}" TO {APP_ROLE}", APP_ROLE)
+    op.execute(f'GRANT UPDATE ({columns}) ON TABLE "{table}" TO "{APP_ROLE}"')
 
 
 def _grant_app_role() -> None:
@@ -203,11 +203,11 @@ def _grant_app_role() -> None:
     produccion como un 403 en un endpoint recien agregado. Es la falla que hace
     que un deploy se revierta.
     """
-    _grant_if_exists(f"GRANT USAGE ON SCHEMA public TO {APP_ROLE}", APP_ROLE)
+    op.execute(f'GRANT USAGE ON SCHEMA public TO "{APP_ROLE}"')
     op.execute(
         f'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{APP_ROLE}"'
     )
-    _grant_if_exists(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {APP_ROLE}", APP_ROLE)
+    op.execute(f'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "{APP_ROLE}"')
 
     op.execute(
         f'ALTER DEFAULT PRIVILEGES FOR ROLE "{MIGRATION_ROLE}" IN SCHEMA public '
@@ -248,7 +248,7 @@ def _grant_app_role() -> None:
     # la app y no a `PUBLIC`: en este monolitipo el sitio publico lo sirve la misma
     # app, asi que abrirlo a `PUBLIC` solo le daria lectura a cualquier rol futuro
     # (incluidos los de migraciones o de tests) sin que nadie lo pidiera.
-    _grant_if_exists(f"GRANT SELECT ON TABLE "businesses" TO {APP_ROLE}", APP_ROLE)
+    op.execute(f'GRANT SELECT ON TABLE "businesses" TO "{APP_ROLE}"')
 
     # El rol de la app no puede cambiar su propia membresia: si pudiera, un
     # endpoint de perfil con un bug de mass assignment le da rol admin a cualquiera.

@@ -48,7 +48,7 @@ def upgrade() -> None:
         revoca_membresia_al_definer,
     )
 
-    _grant_if_exists(f"GRANT SELECT ({COLUMNAS_LOGIN}) ON business_users TO {DEFINER_ROLE}", DEFINER_ROLE)
+    op.execute(f'GRANT SELECT ({COLUMNAS_LOGIN}) ON business_users TO "{DEFINER_ROLE}"')
     membresia_temporal_al_definer()
     definer_con_create()
     op.execute(f'ALTER FUNCTION {BUSINESS_LOGIN}(citext) OWNER TO "{DEFINER_ROLE}"')

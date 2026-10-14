@@ -59,23 +59,10 @@ BOOKING_TENANT = "booking_tenant_for_token"
 COLUMNAS = ("id", "business_id", "secure_token_hash")
 
 
-def _grant_if_exists(sql_grant: str, role_name: str):
-    # role_name viene con o sin comillas
-    clean = role_name.strip().strip('"').strip("'")
-    op.execute(f"""
-        DO $do$
-        BEGIN
-            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{clean}') THEN
-                EXECUTE $g${sql_grant}$g$;
-            END IF;
-        END
-        $do$;
-    """)
-
 def upgrade() -> None:
     cols = ", ".join(COLUMNAS)
 
-    _grant_if_exists(f"GRANT SELECT ({cols}) ON bookings TO {DEFINER_ROLE}", DEFINER_ROLE)
+    op.execute(f'GRANT SELECT ({cols}) ON bookings TO "{DEFINER_ROLE}"')
 
     membresia_temporal_al_definer()
     definer_con_create()
