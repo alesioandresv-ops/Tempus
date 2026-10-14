@@ -1,4 +1,4 @@
-"""Rol dedicado para login pre-tenant (BYPASSRLS minimo) - VERSION PROD"""
+﻿"""Rol dedicado para login pre-tenant (BYPASSRLS minimo) - VERSION PROD"""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def _grant_if_exists(sql_grant: str, role_name: str):
 
 def upgrade() -> None:
     # En Render/produccion con un solo rol, no hay roles definer que crear.
-    # Si OWNER y APP son el mismo usuario, salteamos toda esta lógica.
+    # Si OWNER y APP son el mismo usuario, salteamos toda esta lÃ³gica.
     owner = os.getenv("DB_OWNER_ROLE", "")
     app = os.getenv("DB_APP_ROLE", "")
     if owner and owner == app:
@@ -51,7 +51,16 @@ def upgrade() -> None:
     op.execute(f'GRANT SELECT ({COLUMNAS_LOGIN}) ON business_users TO "{DEFINER_ROLE}"')
     membresia_temporal_al_definer()
     definer_con_create()
-    op.execute(f" DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{DEFINER_ROLE}') THEN EXECUTE 'ALTER FUNCTION {BUSINESS_LOGIN}(citext) OWNER TO "{DEFINER_ROLE}"'; END IF; END $do$; """)
+    op.execute(
+        sa.text(
+            f"DO $do$ "
+            f"BEGIN "
+            f"  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{DEFINER_ROLE}') THEN "
+            f"    EXECUTE 'ALTER FUNCTION {BUSINESS_LOGIN}(citext) OWNER TO \"{DEFINER_ROLE}\"'; "
+            f"  END IF; "
+            f"END $do$;"
+        )
+    )
     definer_sin_create()
     revoca_membresia_al_definer()
 
