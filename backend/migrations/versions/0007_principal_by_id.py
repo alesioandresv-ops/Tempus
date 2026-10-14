@@ -52,13 +52,13 @@ SEARCH_PATH = "pg_catalog, public"
 
 def _grant_if_exists(sql_grant: str, role_name: str):
     op.execute(f"""
-        DO $$ 
+        DO $do$ 
         BEGIN
             IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role_name}') THEN
-                EXECUTE $$"{sql_grant}"$$;
+                EXECUTE $g${sql_grant}$g$;
             END IF;
         END
-        $$;
+        $do$;
     """)
 
 def upgrade() -> None:

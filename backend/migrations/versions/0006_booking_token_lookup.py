@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 import os
-from collections.abc import Sequence
 from alembic import op
-import sqlalchemy as sa
 
 revision: str = "0006_booking_token_lookup"
 down_revision: str = "0005_login_definer_role"
@@ -16,18 +14,18 @@ APP_ROLE = os.getenv("DB_APP_ROLE", "tempus_app")
 BOOKING_TENANT = "booking_tenant_for_token"
 
 def _grant_if_exists(sql_grant: str, role_name: str):
+    # Usamos delimitadores diferentes para evitar conflicto de $$
     op.execute(f"""
-        DO $$
+        DO $do$
         BEGIN
             IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role_name}') THEN
-                EXECUTE $${sql_grant}$$;
+                EXECUTE $g${sql_grant}$g$;
             END IF;
         END
-        $$;
+        $do$;
     """)
 
 def upgrade() -> None:
-    # Asegurar que la tabla exista antes de crear la funcion (para DBs limpias)
     op.execute("""
         CREATE TABLE IF NOT EXISTS booking_tokens (
             token bytea PRIMARY KEY,
@@ -36,7 +34,6 @@ def upgrade() -> None:
             created_at timestamptz DEFAULT now()
         );
     """)
-
     op.execute(f"""
         CREATE OR REPLACE FUNCTION {BOOKING_TENANT}(p_token bytea)
         RETURNS TABLE (business_id uuid, location_id uuid)

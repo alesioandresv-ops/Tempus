@@ -110,7 +110,7 @@ def _crear_enums_nuevos() -> None:
     for tipo, valores in definiciones:
         lista = ", ".join(f"'{v}'" for v in valores)
         op.execute(
-            f"DO $$ BEGIN CREATE TYPE {tipo} AS ENUM ({lista}); "
+            f"DO $do$ BEGIN CREATE TYPE {tipo} AS ENUM ({lista}); "
             f"EXCEPTION WHEN duplicate_object THEN NULL; END $$;"
         )
 
@@ -248,13 +248,13 @@ def _borrar_funcion_resolver() -> None:
 
 def _grant_if_exists(sql_grant: str, role_name: str):
     op.execute(f"""
-        DO $$ 
+        DO $do$ 
         BEGIN
             IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role_name}') THEN
-                EXECUTE $$"{sql_grant}"$$;
+                EXECUTE $g${sql_grant}$g$;
             END IF;
         END
-        $$;
+        $do$;
     """)
 
 def upgrade() -> None:
