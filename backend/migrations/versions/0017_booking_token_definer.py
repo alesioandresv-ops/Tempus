@@ -66,7 +66,7 @@ def upgrade() -> None:
 
     membresia_temporal_al_definer()
     definer_con_create()
-    op.execute(f'ALTER FUNCTION {BOOKING_TENANT}(bytea) OWNER TO "{DEFINER_ROLE}"')
+    op.execute(f""" DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{DEFINER_ROLE}') THEN EXECUTE 'ALTER FUNCTION {BOOKING_TENANT}(bytea) OWNER TO "{DEFINER_ROLE}"'; END IF; END $do$; """)
     definer_sin_create()
     revoca_membresia_al_definer()
 

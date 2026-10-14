@@ -222,7 +222,7 @@ def _crear_funcion_resolver() -> None:
     # no escapa a la RLS, y sin esto la funcion devolveria cero filas en runtime.
     membresia_temporal_al_definer()
     definer_con_create()
-    op.execute(f'ALTER FUNCTION {RESOLVE_SIGNATURE} OWNER TO "{DEFINER_ROLE}"')
+    op.execute(f""" DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{DEFINER_ROLE}') THEN EXECUTE 'ALTER FUNCTION {RESOLVE_SIGNATURE} OWNER TO "{DEFINER_ROLE}"'; END IF; END $do$; """)
     definer_sin_create()
     revoca_membresia_al_definer()
 
