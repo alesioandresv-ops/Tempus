@@ -252,7 +252,35 @@ def _grant_if_exists(sql_grant: str, role_name: str):
         $do$;
     """)
 
+def _disable_rls_for_fk() -> None:
+    op.execute('''
+        DO $do$
+        BEGIN
+            BEGIN
+                EXECUTE format('ALTER TABLE businesses OWNER TO %I', CURRENT_USER);
+            EXCEPTION WHEN others THEN NULL;
+            END;
+            BEGIN
+                EXECUTE 'ALTER TABLE businesses DISABLE ROW LEVEL SECURITY';
+            EXCEPTION WHEN others THEN NULL;
+            END;
+            BEGIN
+                EXECUTE 'ALTER TABLE businesses NO FORCE ROW LEVEL SECURITY';
+            EXCEPTION WHEN others THEN NULL;
+            END;
+            BEGIN
+                EXECUTE 'ALTER TABLE bookings DISABLE ROW LEVEL SECURITY';
+            EXCEPTION WHEN others THEN NULL;
+            END;
+            BEGIN
+                EXECUTE 'ALTER TABLE bookings NO FORCE ROW LEVEL SECURITY';
+            EXCEPTION WHEN others THEN NULL;
+            END;
+        END $do$;
+    ''')
+
 def upgrade() -> None:
+    _disable_rls_for_fk()
     _crear_enums_nuevos()
     _agregar_valores_a_enums_existentes()
 
@@ -536,4 +564,5 @@ def downgrade() -> None:
 
     # `pending_payment` y `mercadopago` no se pueden quitar de los enums viejos
     # (ALTER TYPE no permite quitar valores): es un piso, igual que 0003.
+
 
