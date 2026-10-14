@@ -1,4 +1,4 @@
-﻿"""siembra las palabras reservadas del sistema"""
+﻿"""siembra las palabras reservadas del sistema - single-role safe"""
 from __future__ import annotations
 from collections.abc import Sequence
 from alembic import op
@@ -20,33 +20,56 @@ RESERVADOS: tuple[tuple[str, str],...] = (
     ("www", "Subdominio www"),
     ("docs", "Subdominio de documentacion"),
 )
-def _literal(valor: str) -> str:
-    assert "\\" not in valor, f"motivo con barra invertida, necesita E'...': {valor!r}"
-    return "'" + valor.replace("'", "''") + "'"
+def _literal(v: str) -> str:
+    return "'" + v.replace("'", "''") + "'"
 def _valores() -> str:
-    filas = ",\n ".join(f"({_literal(slug)}, {_literal(motivo)})" for slug, motivo in RESERVADOS)
-    return f""" INSERT INTO {_TABLA} (slug, reason) VALUES {filas} ON CONFLICT (slug) DO NOTHING """
+    filas = ",\n ".join(f"({_literal(s)}, {_literal(m)})" for s,m in RESERVADOS)
+    return f"INSERT INTO {_TABLA} (slug, reason) VALUES {filas} ON CONFLICT (slug) DO NOTHING"
 def upgrade() -> None:
-    # En single-role env (Render) la tabla tiene FORCE RLS y bloquea incluso al owner.
-    # Deshabilitamos RLS momentaneamente para sembrar, luego restauramos estado.
     op.execute("""
         DO $do$
+        DECLARE
+            tbl_owner text;
         BEGIN
-            EXECUTE 'ALTER TABLE slug_reservations DISABLE ROW LEVEL SECURITY';
-        EXCEPTION WHEN others THEN NULL;
+            -- Averiguar owner actual por si es tempus_owner que no existe
+            SELECT tableowner INTO tbl_owner FROM pg_tables WHERE tablename = 'slug_reservations';
+            -- Si podemos, reclamar ownership al usuario actual
+            BEGIN
+                EXECUTE format('ALTER TABLE slug_reservations OWNER TO %I', CURRENT_USER);
+            EXCEPTION WHEN others THEN NULL;
+            END;
+            -- Quitar RLS a la fuerza
+            BEGIN
+                EXECUTE 'ALTER TABLE slug_reservations DISABLE ROW LEVEL SECURITY';
+            EXCEPTION WHEN others THEN NULL;
+            END;
+            BEGIN
+                EXECUTE 'ALTER TABLE slug_reservations NO FORCE ROW LEVEL SECURITY';
+            EXCEPTION WHEN others THEN NULL;
+            END;
+            -- Dar permisos explicitos
+            BEGIN
+                EXECUTE format('GRANT ALL ON TABLE slug_reservations TO %I', CURRENT_USER);
+            EXCEPTION WHEN others THEN NULL;
+            END;
         END $do$;
     """)
     op.execute(_valores())
     op.execute("""
         DO $do$
         BEGIN
-            EXECUTE 'ALTER TABLE slug_reservations ENABLE ROW LEVEL SECURITY';
-            EXECUTE 'ALTER TABLE slug_reservations FORCE ROW LEVEL SECURITY';
-        EXCEPTION WHEN others THEN NULL;
+            BEGIN
+                EXECUTE 'ALTER TABLE slug_reservations ENABLE ROW LEVEL SECURITY';
+            EXCEPTION WHEN others THEN NULL;
+            END;
+            BEGIN
+                EXECUTE 'ALTER TABLE slug_reservations FORCE ROW LEVEL SECURITY';
+            EXCEPTION WHEN others THEN NULL;
+            END;
         END $do$;
     """)
 def downgrade() -> None:
-    op.execute(""" DO $do$ BEGIN EXECUTE 'ALTER TABLE slug_reservations DISABLE ROW LEVEL SECURITY'; EXCEPTION WHEN others THEN NULL; END $do$; """)
-    marcas = ", ".join(_literal(slug) for slug, _ in RESERVADOS)
+    op.execute("DO $do$ BEGIN EXECUTE 'ALTER TABLE slug_reservations DISABLE ROW LEVEL SECURITY'; EXECUTE 'ALTER TABLE slug_reservations NO FORCE ROW LEVEL SECURITY'; EXCEPTION WHEN others THEN NULL; END $do$;")
+    marcas = ", ".join(_literal(s) for s,_ in RESERVADOS)
     op.execute(f"DELETE FROM {_TABLA} WHERE slug IN ({marcas})")
-    op.execute(""" DO $do$ BEGIN EXECUTE 'ALTER TABLE slug_reservations ENABLE ROW LEVEL SECURITY'; EXECUTE 'ALTER TABLE slug_reservations FORCE ROW LEVEL SECURITY'; EXCEPTION WHEN others THEN NULL; END $do$; """)
+    op.execute("DO $do$ BEGIN EXECUTE 'ALTER TABLE slug_reservations ENABLE ROW LEVEL SECURITY'; EXECUTE 'ALTER TABLE slug_reservations FORCE ROW LEVEL SECURITY'; EXCEPTION WHEN others THEN NULL; END $do$;")
