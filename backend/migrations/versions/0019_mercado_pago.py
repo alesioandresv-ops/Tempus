@@ -161,7 +161,7 @@ def _grant_app_role() -> None:
         f'ON TABLE "{NUEVAS_TABLAS[0]}", "{NUEVAS_TABLAS[1]}", "{NUEVAS_TABLAS[2]}" '
         f'TO "{APP_ROLE}"'
     )
-    _grant_if_exists(f\'GRANT UPDATE ({columnas}) ON businesses TO "{APP_ROLE}"\', APP_ROLE)
+    _grant_if_exists(f'GRANT UPDATE ({columnas}) ON businesses TO "{APP_ROLE}"', APP_ROLE)
 
 
 def _revoke_app_role() -> None:
