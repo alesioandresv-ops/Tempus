@@ -106,7 +106,13 @@ def upgrade() -> None:
     # se dan y se devuelven dentro de esta misma transaccion.
     membresia_temporal_al_definer()
     definer_con_create()
-    op.execute(f'ALTER FUNCTION {FUNCTION}(integer) OWNER TO "{DEFINER_ROLE}"')
+    op.execute(f'''
+        DO $do$ BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{DEFINER_ROLE}') THEN
+                EXECUTE 'ALTER FUNCTION {FUNCTION}(integer) OWNER TO "{DEFINER_ROLE}"';
+            END IF;
+        END $do$;
+    ''')
     definer_sin_create()
     revoca_membresia_al_definer()
 
