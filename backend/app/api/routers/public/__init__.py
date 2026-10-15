@@ -48,6 +48,7 @@ from app.core.rate_limit import (
 )
 from app.core.security import hash_token_bytes
 from app.core.time import now
+from app.core.turnstile import verificar_turnstile
 from app.db.session import session_scope, tenant_session
 from app.modules.availability.service import get_availability
 from app.modules.bookings.models import Booking
@@ -532,6 +533,15 @@ async def create_booking_endpoint(
         telefono=request.customer_phone_e164,
         ip=client_ip(http_request),
         settings=settings,
+    )
+
+    # La verificacion anti-bot va despues del rate limit y antes de tocar la base:
+    # el rate limit es por IP/telefono (barato, siempre disponible) y Turnstile es la
+    # barrera contra el que rota IPs, que es justo a quien el rate limit no ve.
+    await verificar_turnstile(
+        request.turnstile_token,
+        settings=settings,
+        remote_ip=client_ip(http_request),
     )
 
     effective_key = idempotency_key or request.idempotency_key

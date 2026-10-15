@@ -78,6 +78,13 @@ class BusinessRegisterRequest(BaseModel):
     # numero real y deja margen a los parentesis y los espacios que la gente pega.
     phone: str | None = Field(default=None, max_length=32)
     timezone: str = Field(default="America/Argentina/Buenos_Aires", max_length=64)
+    turnstile_token: str | None = Field(
+        default=None,
+        description=(
+            "Token de Cloudflare Turnstile. Solo se exige cuando el backend tiene "
+            "`TURNSTILE_ENABLED`; con la proteccion apagada se ignora."
+        ),
+    )
 
     @field_validator("phone")
     @classmethod

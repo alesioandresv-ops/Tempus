@@ -137,6 +137,13 @@ class BookingCreateRequest(BaseModel):
         default=None,
         description="Clave de idempotencia (opcional)",
     )
+    turnstile_token: str | None = Field(
+        default=None,
+        description=(
+            "Token de Cloudflare Turnstile. Solo se exige cuando el backend tiene "
+            "`TURNSTILE_ENABLED`; con la proteccion apagada se ignora."
+        ),
+    )
 
 
 class RescheduleRequest(BaseModel):

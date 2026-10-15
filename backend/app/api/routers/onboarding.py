@@ -21,18 +21,22 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
     get_session,
+    get_settings_dep,
     limit_public_per_ip,
     limit_register_business_per_ip,
 )
 from app.api.routers.business.schemas import SlugDisponibleOut
 from app.api.routers.schemas import BusinessRegisterRequest, NegocioRegistradoOut
+from app.core.config import Settings
 from app.core.logging import get_logger
+from app.core.rate_limit import client_ip
+from app.core.turnstile import verificar_turnstile
 from app.modules.businesses import service as negocios
 from app.modules.onboarding.service import registrar_negocio
 
@@ -75,7 +79,9 @@ _SLUG_DISPONIBLE = text("SELECT tempus_slug_disponible(CAST(:slug AS citext)) AS
 )
 async def register_business(
     payload: BusinessRegisterRequest,
+    http_request: Request,
     sesion: Sesion,
+    settings: Settings = Depends(get_settings_dep),
 ) -> NegocioRegistradoOut:
     """Crea negocio + dueno + profesional + horarios, atomico, y responde 201.
 
@@ -88,7 +94,16 @@ async def register_business(
     El limite va **antes** de tocar la base de negocio, por la misma razon que en el
     login: cada intento cuesta un Argon2 completo, asi que si fuera lo ultimo seria
     un detalle economico y no una barrera.
+
+    Turnstile, cuando esta activo, va entre el limite y la base: el limite es por IP
+    (barato, siempre disponible) y Turnstile es la barrera contra el que rota IPs.
     """
+    await verificar_turnstile(
+        payload.turnstile_token,
+        settings=settings,
+        remote_ip=client_ip(http_request),
+    )
+
     resultado = await registrar_negocio(
         sesion,
         business_name=payload.business_name,
