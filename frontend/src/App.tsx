@@ -3,12 +3,6 @@ import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import BusinessPage from './pages/BusinessPage'
 import ManageBookingPage from './pages/ManageBookingPage'
 import AdminPage from './pages/AdminPage'
-import AdminLayout from './app/admin/layout'
-import DashboardPage from './app/admin/page'
-import AppointmentsPage from './app/admin/appointments/page'
-import ClientsPage from './app/admin/clients/page'
-import ServicesPage from './app/admin/services/page'
-import StaffPage from './app/admin/staff/page'
 import ProfessionalPage from './pages/ProfessionalPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
@@ -59,64 +53,15 @@ function App() {
         {/* Gestion de reserva por token */}
         <Route path="/r/:token" element={<ManageBookingPage />} />
 
-        {/* Admin Dashboard (nuevo layout) */}
-        <Route
-          path="/admin/dashboard"
-          element={
-            <ProtectedRoute>
-              <AdminLayout>
-                <DashboardPage />
-              </AdminLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/appointments"
-          element={
-            <ProtectedRoute>
-              <AdminLayout>
-                <AppointmentsPage />
-              </AdminLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/clients"
-          element={
-            <ProtectedRoute>
-              <AdminLayout>
-                <ClientsPage />
-              </AdminLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/services"
-          element={
-            <ProtectedRoute>
-              <AdminLayout>
-                <ServicesPage />
-              </AdminLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/staff"
-          element={
-            <ProtectedRoute>
-              <AdminLayout>
-                <StaffPage />
-              </AdminLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin"
-          element={<Navigate to="/admin/dashboard" replace />}
-        />
-
         {/*
-          Las rutas del panel pasan por `ProtectedRoute`.
+          Panel del negocio. Una sola ruta: `/admin/*` cubre `/admin` y cualquier
+          subruta (la pestaña activa vive en el query param `?tab=`). Antes habia
+          ademas un layout nuevo con datos de ejemplo cableados a mano, que era el
+          destino del login: un admin veia numeros inventados. Se quito; el panel
+          real--el que habla con la API--es el unico.
+
+          Va ANTES que la ruta publica `/:slug` para que `admin` no se interprete
+          como el slug de un negocio.
         */}
         <Route
           path="/admin/*"

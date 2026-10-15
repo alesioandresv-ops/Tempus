@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -1288,8 +1289,38 @@ type Pestaña =
   | 'vacaciones'
   | 'estadisticas'
 
+/** El orden del arreglo es el orden de los botones de la barra. */
+const PESTANAS = [
+  'bookings',
+  'clientes',
+  'reportes',
+  'configuracion',
+  'professionals',
+  'services',
+  'schedules',
+  'bloqueos',
+  'feriados',
+  'vacaciones',
+  'estadisticas',
+] as const satisfies readonly Pestaña[]
+
+/** Un `?tab=` de la URL solo vale si nombra una pestaña conocida. */
+function esPestaña(valor: string | null): valor is Pestaña {
+  return valor !== null && (PESTANAS as readonly string[]).includes(valor)
+}
+
 export default function AdminPage() {
-  const [activeTab, setActiveTab] = useState<Pestaña>('bookings')
+  /*
+   * La pestaña activa vive en el query param (`?tab=`), no en un `useState`: asi
+   * un refresh--o un link que se pasa por WhatsApp--abre la misma pestaña, y el
+   * boton atras/adelante del navegador la mueve. `bookings` es el default y no
+   * escribe el param, para que `/admin` pelado quede prolijo.
+   */
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabDeUrl = searchParams.get('tab')
+  const activeTab: Pestaña = esPestaña(tabDeUrl) ? tabDeUrl : 'bookings'
+  const setActiveTab = (pestaña: Pestaña) =>
+    setSearchParams(pestaña === 'bookings' ? {} : { tab: pestaña }, { replace: true })
 
   /*
    * El nombre del negocio va en el header para que un admin logueado en el
