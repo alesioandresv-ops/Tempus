@@ -198,7 +198,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=resolved.cors_origins,
+        allow_origins=["https://tempus-demo-wine.vercel.app", "http://localhost:5173", "http://localhost:3000", "https://tempus-demo-wine.vercel.app"],
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", REQUEST_ID_HEADER, "Idempotency-Key"],
