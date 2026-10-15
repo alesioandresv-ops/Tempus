@@ -27,6 +27,7 @@ import type {
   ReservaPagina,
   ReservasFiltro,
   ReprogramarReservaRequest,
+  WalkinCreateRequest,
   FeriadoDePanel,
   FeriadoCreateRequest,
   BloqueoCreateRequest,
@@ -671,6 +672,19 @@ export const api = {
   /** Reprograma una reserva desde el panel (sin el secure token del cliente). */
   reprogramarReservaAdmin: (bookingId: string, datos: ReprogramarReservaRequest) =>
     fetchApi<ReservaDePanel>(`/business/reservas/${bookingId}/reprogramar`, {
+      method: 'POST',
+      body: JSON.stringify(datos),
+    }),
+
+  /**
+   * Registra a mano un cliente que llegó al mostrador (§23).
+   *
+   * Es una reserva más (ocupa horario y choca con la EXCLUDE si el hueco ya
+   * estaba tomado); la única diferencia es que no dispara recordatorios por
+   * WhatsApp, porque el cliente ya está ahí.
+   */
+  registrarWalkin: (datos: WalkinCreateRequest) =>
+    fetchApi<ReservaDePanel>('/business/reservas/walkin', {
       method: 'POST',
       body: JSON.stringify(datos),
     }),

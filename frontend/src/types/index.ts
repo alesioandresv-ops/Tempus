@@ -379,6 +379,23 @@ export interface ReprogramarReservaRequest {
   new_duration_minutes: number
 }
 
+/**
+ * Alta a mano de un cliente que llegó al mostrador (§23).
+ *
+ * No lleva `ends_at`: el backend cierra el turno con la duración real del
+ * servicio. `professional_id` es opcional porque el negocio puede no tener
+ * profesionales cargados.
+ */
+export interface WalkinCreateRequest {
+  service_id: string
+  professional_id?: string | null
+  customer_first_name: string
+  customer_last_name?: string
+  customer_phone_e164: string
+  starts_at: string
+  notas?: string | null
+}
+
 /** Un feriado del negocio: un día entero cerrado, con nombre. */
 export interface FeriadoDePanel {
   id: string

@@ -74,7 +74,12 @@ export function ReservasTab() {
       }),
   })
 
-  const exito = () => queryClient.invalidateQueries({ queryKey: ['reservas-admin'] })
+  const exito = () => {
+    queryClient.invalidateQueries({ queryKey: ['reservas-admin'] })
+    // El walk-in puede crear un cliente (o pisar su nombre): el listado de
+    // clientes quedaría viejo si no se invalida también.
+    queryClient.invalidateQueries({ queryKey: ['clientes'] })
+  }
 
   const cancelar = useMutation({
     mutationFn: (pedido: { id: string; motivo?: string }) =>
@@ -83,6 +88,7 @@ export function ReservasTab() {
   })
 
   const [reprogramando, setReprogramando] = useState<ReservaDePanel | null>(null)
+  const [walkinAbierto, setWalkinAbierto] = useState(false)
 
   const aplicarFiltros = () => {
     setQAplicada(q.trim())
@@ -174,13 +180,18 @@ export function ReservasTab() {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Reservas</CardTitle>
-          <CardDescription>
-            {total > 0
-              ? `${comienzo}–${fin} de ${total} reservas`
-              : 'Sin reservas para los filtros elegidos.'}
-          </CardDescription>
+        <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+          <div className="space-y-1.5">
+            <CardTitle>Reservas</CardTitle>
+            <CardDescription>
+              {total > 0
+                ? `${comienzo}–${fin} de ${total} reservas`
+                : 'Sin reservas para los filtros elegidos.'}
+            </CardDescription>
+          </div>
+          <Button size="sm" onClick={() => setWalkinAbierto(true)}>
+            Registrar walk-in
+          </Button>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -286,6 +297,10 @@ export function ReservasTab() {
           onExito={exito}
         />
       )}
+
+      {walkinAbierto && (
+        <WalkinModal onCerrar={() => setWalkinAbierto(false)} onExito={exito} />
+      )}
     </div>
   )
 }
@@ -374,6 +389,192 @@ function ReprogramarModal({
             onClick={() => reprogramar.mutate()}
           >
             {reprogramar.isPending ? 'Reprogramando...' : 'Reprogramar'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Achica lo tipeado a lo que el backend espera: dígitos y, si venía, un `+`
+ * inicial. La base guarda el teléfono E.164--con `+` en el seed, sin `+` en el
+ * alta pública--y el motor lo normaliza igual, así que los espacios, guiones y
+ * paréntesis de la persona no son problema.
+ */
+function normalizarTelefono(valor: string): string {
+  const digitos = valor.replace(/\D/g, '')
+  return valor.trim().startsWith('+') ? `+${digitos}` : digitos
+}
+
+/**
+ * El `value` de un `datetime-local` a la próxima marca de 5 minutos.
+ *
+ * El default no puede ser "ahora mismo": el backend rechaza un walk-in en el
+ * pasado, y entre que se abre el modal y se aprieta Registrar pasan segundos--o
+ * el reloj del navegador va unos segundos atrás del servidor. Redondear para
+ * arriba deja margen sin que la persona tenga que corregir la hora.
+ */
+function proximoBloqueDeCinco(): string {
+  const d = new Date()
+  d.setSeconds(0, 0)
+  d.setMinutes(d.getMinutes() + (5 - (d.getMinutes() % 5)))
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+}
+
+/**
+ * Alta a mano de un cliente que llegó al mostrador (§23).
+ *
+ * `POST /business/reservas/walkin` vivía en el backend desde la Fase C sin
+ * ninguna pantalla que lo llamara: el panel podía ver la agenda pero no
+ * registrar a quien entraba sin reserva. No pide `ends_at`--el backend cierra
+ * con la duración del servicio--y no dispara WhatsApp, porque el cliente ya
+ * está ahí.
+ *
+ * El profesional es opcional y por defecto va "automático": asignar el que esté
+ * libre es lo que hace el motor para las reservas online, y obligar a elegir uno
+ * con el cliente esperando en el mostrador es tiempo perdido.
+ */
+function WalkinModal({ onCerrar, onExito }: { onCerrar: () => void; onExito: () => void }) {
+  const { data: servicios } = useQuery({ queryKey: ['servicios'], queryFn: api.listarServicios })
+  const { data: profesionales } = useQuery({
+    queryKey: ['profesionales'],
+    queryFn: api.listarProfesionales,
+  })
+
+  const serviciosActivos = (servicios ?? []).filter((s) => s.is_active)
+  const profesionalesActivos = (profesionales ?? []).filter((p) => p.is_active)
+
+  const [serviceId, setServiceId] = useState('')
+  const [professionalId, setProfessionalId] = useState('')
+  const [nombre, setNombre] = useState('')
+  const [apellido, setApellido] = useState('')
+  const [telefono, setTelefono] = useState('')
+  const [inicioLocal, setInicioLocal] = useState(proximoBloqueDeCinco)
+  const [notas, setNotas] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const servicio = serviciosActivos.find((s) => s.id === serviceId)
+
+  const registrar = useMutation({
+    mutationFn: () =>
+      api.registrarWalkin({
+        service_id: serviceId,
+        professional_id: professionalId || null,
+        customer_first_name: nombre.trim(),
+        customer_last_name: apellido.trim(),
+        customer_phone_e164: normalizarTelefono(telefono),
+        starts_at: desdeDatetimeLocal(inicioLocal),
+        notas: notas.trim() || null,
+      }),
+    onSuccess: () => {
+      onExito()
+      onCerrar()
+    },
+    onError: (e) => setError(mensajeDeError(e)),
+  })
+
+  const listo =
+    serviceId !== '' &&
+    nombre.trim() !== '' &&
+    normalizarTelefono(telefono).length >= 8 &&
+    inicioLocal !== ''
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md space-y-4 rounded-lg border bg-background p-6 shadow-lg">
+        <h2 className="text-lg font-semibold">Registrar walk-in</h2>
+        <p className="text-sm text-muted-foreground">
+          Para el cliente que llegó sin reserva. No envía recordatorios por WhatsApp: ya está
+          acá.
+        </p>
+
+        <label className="block space-y-1">
+          <span className="text-sm font-medium">Servicio</span>
+          <select
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            value={serviceId}
+            onChange={(e) => setServiceId(e.target.value)}
+          >
+            <option value="">Elegí un servicio…</option>
+            {serviciosActivos.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} · {s.duration_minutes} min
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block space-y-1">
+            <span className="text-sm font-medium">Nombre</span>
+            <Input value={nombre} onChange={(e) => setNombre(e.target.value)} />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-sm font-medium">Apellido</span>
+            <Input value={apellido} onChange={(e) => setApellido(e.target.value)} />
+          </label>
+        </div>
+
+        <label className="block space-y-1">
+          <span className="text-sm font-medium">Teléfono</span>
+          <Input
+            placeholder="+5491100000000"
+            value={telefono}
+            onChange={(e) => setTelefono(e.target.value)}
+          />
+        </label>
+
+        <label className="block space-y-1">
+          <span className="text-sm font-medium">Profesional</span>
+          <select
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            value={professionalId}
+            onChange={(e) => setProfessionalId(e.target.value)}
+          >
+            <option value="">Automático (el que esté libre)</option>
+            {profesionalesActivos.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.display_name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="block space-y-1">
+          <span className="text-sm font-medium">Inicio</span>
+          <Input
+            type="datetime-local"
+            value={inicioLocal}
+            onChange={(e) => setInicioLocal(e.target.value)}
+          />
+        </label>
+
+        {servicio && inicioLocal && (
+          <p className="text-xs text-muted-foreground">
+            Termina a las{' '}
+            {formatearFechaHora(
+              new Date(
+                new Date(desdeDatetimeLocal(inicioLocal)).getTime() +
+                  servicio.duration_minutes * 60000
+              ).toISOString()
+            ).slice(6)}
+          </p>
+        )}
+
+        <label className="block space-y-1">
+          <span className="text-sm font-medium">Notas (opcional)</span>
+          <Input value={notas} onChange={(e) => setNotas(e.target.value)} />
+        </label>
+
+        <MensajeDeError error={error} />
+
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onCerrar}>
+            Cancelar
+          </Button>
+          <Button disabled={!listo || registrar.isPending} onClick={() => registrar.mutate()}>
+            {registrar.isPending ? 'Registrando…' : 'Registrar'}
           </Button>
         </div>
       </div>
