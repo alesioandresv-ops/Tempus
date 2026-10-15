@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Turnstile, turnstileHabilitado } from '@/components/ui/Turnstile'
 import { api, ApiError } from '@/services/api'
 import type { BusinessRegisterRequest } from '@/types'
 
@@ -53,6 +54,7 @@ const LARGO_MINIMO_SLUG = 3
 export default function RegisterPage() {
   const navigate = useNavigate()
   const [slugParaConsultar, setSlugParaConsultar] = useState('')
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
 
   const {
     register,
@@ -147,7 +149,7 @@ export default function RegisterPage() {
       return
     }
     const telefono = (datos.phone || "").trim()
-    altaMutation.mutate({ ...datos, phone: telefono ? telefono : null })
+    altaMutation.mutate({ ...datos, phone: telefono ? telefono : null, turnstile_token: turnstileToken })
   })
 
   return (
@@ -261,6 +263,10 @@ export default function RegisterPage() {
               )}
             </div>
 
+            {/* Sin sitekey configurada no renderiza nada; el backend tampoco exige el
+                token, y los dos lados se prenden con la misma bandera. */}
+            <Turnstile onVerify={setTurnstileToken} />
+
             {/* Un error que no es de un campo--500, o un 409 que no se pudo
                 atribuir-- va arriba, no escondido al lado de un input. */}
             {altaMutation.isError && Object.keys(errors).length === 0 && (
@@ -271,7 +277,11 @@ export default function RegisterPage() {
               </p>
             )}
 
-            <Button type="submit" className="w-full" disabled={altaMutation.isPending}>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={altaMutation.isPending || (turnstileHabilitado && !turnstileToken)}
+            >
               {altaMutation.isPending ? 'Creando...' : 'Crear negocio'}
             </Button>
           </form>

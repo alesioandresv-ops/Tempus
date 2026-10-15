@@ -58,6 +58,8 @@ export interface BookingCreateRequest {
   ends_at: string
   local_date: string
   idempotency_key?: string | null
+  /** Token de Cloudflare Turnstile. Solo lo exige el backend con `TURNSTILE_ENABLED`. */
+  turnstile_token?: string | null
 }
 
 /**
@@ -76,6 +78,8 @@ export interface BusinessRegisterRequest {
   password: string
   phone?: string | null
   timezone: string
+  /** Token de Cloudflare Turnstile. Solo lo exige el backend con `TURNSTILE_ENABLED`. */
+  turnstile_token?: string | null
 }
 
 /**

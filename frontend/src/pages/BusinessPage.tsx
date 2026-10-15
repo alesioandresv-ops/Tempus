@@ -2,10 +2,11 @@ import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { MapPin } from 'lucide-react'
-import { api } from '@/services/api'
+import { api, ApiError } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Turnstile, turnstileHabilitado } from '@/components/ui/Turnstile'
 import type { Service, Professional, Slot } from '@/types'
 
 export default function BusinessPage() {
@@ -21,6 +22,9 @@ export default function BusinessPage() {
     phone: '',
   })
   const [bookingResult, setBookingResult] = useState<{ secure_token: string } | null>(null)
+  const [enviando, setEnviando] = useState(false)
+  const [errorReserva, setErrorReserva] = useState<string | null>(null)
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
 
   const { data: business } = useQuery({
     queryKey: ['business', slug],
@@ -54,8 +58,16 @@ export default function BusinessPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedService || !selectedSlot || !selectedDate) return
+    if (!selectedService || !selectedSlot || !selectedDate || enviando) return
+    // Con Turnstile montado, no se manda sin su token: el backend responde 403 y el
+    // viaje de ida y vuelta solo agrega un error que ya se sabe de antemano.
+    if (turnstileHabilitado && !turnstileToken) {
+      setErrorReserva('Completa la verificacion anti-bot para confirmar.')
+      return
+    }
 
+    setEnviando(true)
+    setErrorReserva(null)
     try {
       const result = await api.createBooking({
         slug: slug!,
@@ -67,11 +79,22 @@ export default function BusinessPage() {
         starts_at: selectedSlot.starts_at,
         ends_at: selectedSlot.ends_at,
         local_date: selectedDate,
+        turnstile_token: turnstileToken,
       })
       setBookingResult(result)
       setStep(5)
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Error al crear la reserva')
+      // Un 409 en este flujo es casi siempre "ese horario ya no esta": el mensaje del
+      // backend ya lo explica, asi que se muestra tal cual en vez de un generico.
+      setErrorReserva(
+        error instanceof ApiError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : 'Error al crear la reserva'
+      )
+    } finally {
+      setEnviando(false)
     }
   }
 
@@ -252,8 +275,8 @@ export default function BusinessPage() {
             )}
 
             {/* Paso 5: Datos del cliente */}
-            {step === 5 && (
-              <form onSubmit={handleSubmit} className="space-y-4">
+            {step === 5 && !bookingResult && (
+              <form onSubmit={handleSubmit} className="space-y-4" noValidate>
                 <h3 className="text-lg font-semibold">Tus datos</h3>
                 <div className="space-y-2">
                   <Input
@@ -275,11 +298,29 @@ export default function BusinessPage() {
                     required
                   />
                 </div>
+
+                {/* Sin sitekey configurada no renderiza nada, y el backend tampoco
+                    exige el token: los dos lados comparten la misma bandera. */}
+                <Turnstile onVerify={setTurnstileToken} />
+
+                {errorReserva && (
+                  <p role="alert" className="text-sm text-red-600">
+                    {errorReserva}
+                  </p>
+                )}
+
                 <div className="flex gap-2">
-                  <Button variant="outline" type="button" onClick={() => setStep(4)}>
+                  <Button
+                    variant="outline"
+                    type="button"
+                    onClick={() => setStep(4)}
+                    disabled={enviando}
+                  >
                     Volver
                   </Button>
-                  <Button type="submit">Confirmar reserva</Button>
+                  <Button type="submit" disabled={enviando || (turnstileHabilitado && !turnstileToken)}>
+                    {enviando ? 'Confirmando...' : 'Confirmar reserva'}
+                  </Button>
                 </div>
               </form>
             )}
