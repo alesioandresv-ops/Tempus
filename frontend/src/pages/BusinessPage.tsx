@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { MapPin } from 'lucide-react'
 import { api, ApiError } from '@/services/api'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Turnstile, turnstileHabilitado } from '@/components/ui/Turnstile'
@@ -25,6 +25,7 @@ export default function BusinessPage() {
   const [enviando, setEnviando] = useState(false)
   const [errorReserva, setErrorReserva] = useState<string | null>(null)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const [enlaceCopiado, setEnlaceCopiado] = useState(false)
 
   const { data: business } = useQuery({
     queryKey: ['business', slug],
@@ -329,11 +330,38 @@ export default function BusinessPage() {
             {step === 5 && bookingResult && (
               <div className="space-y-4 text-center">
                 <h3 className="text-lg font-semibold text-green-600">¡Reserva confirmada!</h3>
+                {/*
+                  Se muestra el enlace de gestion, no el token crudo. Con el token suelto
+                  el cliente no tenia como llegar a `/r/:token`--cancelar o reprogramar
+                  era inalcanzable desde aca--, y el texto prometia un WhatsApp que sin
+                  proveedor configurado nunca sale. El enlace depende solo de la reserva
+                  recien creada, asi que es verdad siempre.
+                */}
                 <p className="text-sm text-gray-500">
-                  Te enviamos un WhatsApp con los detalles y el enlace para gestionar tu reserva.
+                  Guardá este enlace para ver, reprogramar o cancelar tu reserva.
                 </p>
-                <p className="text-xs text-gray-400">
-                  Token: {bookingResult.secure_token}
+                <div className="space-y-2">
+                  <a
+                    href={`/r/${bookingResult.secure_token}`}
+                    className={buttonVariants({ className: 'w-full' })}
+                  >
+                    Gestionar mi reserva
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard
+                        ?.writeText(`${window.location.origin}/r/${bookingResult.secure_token}`)
+                        .then(() => setEnlaceCopiado(true))
+                        .catch(() => setEnlaceCopiado(false))
+                    }}
+                    className="text-xs text-gray-500 underline underline-offset-2"
+                  >
+                    {enlaceCopiado ? 'Enlace copiado' : 'Copiar enlace'}
+                  </button>
+                </div>
+                <p className="break-all text-xs text-gray-400">
+                  {window.location.origin}/r/{bookingResult.secure_token}
                 </p>
               </div>
             )}
