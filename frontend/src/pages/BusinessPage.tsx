@@ -164,6 +164,11 @@ export default function BusinessPage() {
                       key={service.id}
                       onClick={() => {
                         setSelectedService(service)
+                        // Cambiar de servicio reencuadra la disponibilidad entera:
+                        // el profesional (filtrado por servicio) y el horario
+                        // elegidos antes dejan de corresponder, asi que se sueltan.
+                        setSelectedProfessional(null)
+                        setSelectedSlot(null)
                         setStep(2)
                       }}
                       className="w-full p-4 text-left border rounded-lg hover:bg-gray-50 transition-colors"
@@ -186,6 +191,7 @@ export default function BusinessPage() {
                   <button
                     onClick={() => {
                       setSelectedProfessional(null)
+                      setSelectedSlot(null)
                       setStep(3)
                     }}
                     className="w-full p-4 text-left border rounded-lg hover:bg-gray-50 transition-colors"
@@ -197,6 +203,7 @@ export default function BusinessPage() {
                       key={prof.id}
                       onClick={() => {
                         setSelectedProfessional(prof)
+                        setSelectedSlot(null)
                         setStep(3)
                       }}
                       className="w-full p-4 text-left border rounded-lg hover:bg-gray-50 transition-colors"
@@ -218,7 +225,12 @@ export default function BusinessPage() {
                 <Input
                   type="date"
                   value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedDate(e.target.value)
+                    // El horario es de la fecha anterior: al cambiarla deja de ser
+                    // valido y no puede quedar elegido.
+                    setSelectedSlot(null)
+                  }}
                   min={new Date().toISOString().split('T')[0]}
                 />
                 <div className="flex gap-2">
