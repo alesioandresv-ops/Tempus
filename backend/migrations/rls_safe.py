@@ -46,7 +46,7 @@ def grant_if_exists(sql_grant: str, role_name: str) -> None:
                 EXECUTE $g${sql_grant}$g$;
             END IF;
         END
-        $do$;
+        $do$
         """
     )
 
@@ -68,7 +68,7 @@ def revoke_if_exists(sql_revoke: str, role_name: str) -> None:
                 EXECUTE $g${sql_revoke}$g$;
             END IF;
         END
-        $do$;
+        $do$
         """
     )
 
@@ -80,11 +80,6 @@ def claim_and_open(tabla: str) -> None:
     re-otorga todos los privilegios al usuario actual. Cualquiera de los pasos
     que no se pueda hacer (por ejemplo, en multi-rol el `ALTER OWNER` es no-op o
     falla si el rol nuevo no tiene `CREATE`) se ignora con `EXCEPTION`.
-
-    Es lo que necesita una migración que hace `INSERT` o crea una FK sobre una
-    tabla global o de tenant. El `GRANT ALL` es imprescindible en single-rol: la
-    FK exige `REFERENCES` y el `INSERT` exige `INSERT`, y una migración previa
-    (`0002`) los pudo haber revocado del propio dueño.
     """
     op.execute(
         f"""
@@ -106,31 +101,42 @@ def claim_and_open(tabla: str) -> None:
                 EXECUTE 'GRANT ALL ON TABLE "{tabla}" TO CURRENT_USER';
             EXCEPTION WHEN others THEN NULL;
             END;
-        END $do$;
+        END $do$
         """
     )
 
 
 def restore(tabla: str) -> None:
-    """Reenciende `ENABLE` + `FORCE ROW LEVEL SECURITY` sobre `tabla`.
+    """Reenciende RLS. Solo lo hace si la tabla realmente tiene alguna política.
 
-    Es el cierre obligatorio de `claim_and_open`: deja la tabla como estaba
-    (protegida) después de la operación puntual que necesitaba RLS apagada.
-    Idempotente y tolerante a fallos.
+    Esto evita volver a encender RLS en tablas que nunca debieron tenerla (ej.
+    `slug_reservations`), donde quedar con RLS activada sin políticas es letal
+    incluso para el dueño bajo `FORCE ROW LEVEL SECURITY`.
     """
     op.execute(
         f"""
         DO $do$
+        DECLARE v_tiene_politica boolean;
         BEGIN
-            BEGIN
-                EXECUTE 'ALTER TABLE "{tabla}" ENABLE ROW LEVEL SECURITY';
-            EXCEPTION WHEN others THEN NULL;
-            END;
-            BEGIN
-                EXECUTE 'ALTER TABLE "{tabla}" FORCE ROW LEVEL SECURITY';
-            EXCEPTION WHEN others THEN NULL;
-            END;
-        END $do$;
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN pg_policies p ON p.schemaname = n.nspname AND p.tablename = c.relname
+                WHERE n.nspname = 'public' AND c.relname = {_literal(tabla)}
+            ) INTO v_tiene_politica;
+
+            IF v_tiene_politica THEN
+                BEGIN
+                    EXECUTE 'ALTER TABLE "{tabla}" ENABLE ROW LEVEL SECURITY';
+                EXCEPTION WHEN others THEN NULL;
+                END;
+                BEGIN
+                    EXECUTE 'ALTER TABLE "{tabla}" FORCE ROW LEVEL SECURITY';
+                EXCEPTION WHEN others THEN NULL;
+                END;
+            END IF;
+        END $do$
         """
     )
 
