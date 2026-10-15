@@ -229,6 +229,11 @@ class TestPublicTokenFlow:
         assert data["booking_id"] == creada["booking_id"]
         assert data["service_name"] == "Corte"
         assert data["professional_name"] == "Profe"
+        # La pantalla de gestion pide disponibilidad para reprogramar: sin el
+        # `service_id` no tiene con que, y sin la zona no sabe que dia es "hoy"
+        # donde atiende el negocio.
+        assert data["service_id"] == str(SERVICE)
+        assert data["business_timezone"] == TIMEZONE
 
     async def test_cancelar_por_token(self, http_client: AsyncClient, negocio_token: str) -> None:
         creada = await _crear_reserva(http_client, "+54911000002")

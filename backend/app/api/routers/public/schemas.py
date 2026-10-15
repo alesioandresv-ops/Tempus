@@ -201,6 +201,14 @@ class BookingResponse(BaseModel):
     ends_at: dt.datetime
     professional_id: UUID
     status: str
+    service_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Servicio reservado. Lo necesita la pantalla de gestion para pedir "
+            "disponibilidad real al reprogramar; sin el, la unica salida era que "
+            "el cliente tipeara una fecha y hora a mano."
+        ),
+    )
     service_name: str | None = None
     professional_name: str | None = None
     customer_first_name: str | None = Field(
@@ -210,6 +218,14 @@ class BookingResponse(BaseModel):
     business_name: str | None = None
     business_phone: str | None = None
     business_slug: str | None = None
+    business_timezone: str | None = Field(
+        default=None,
+        description=(
+            "Zona IANA del negocio. La pantalla de gestion la usa para saber que "
+            "fecha es 'hoy' donde atiende el negocio, que es lo que pide la "
+            "disponibilidad; sin ella dependia de la zona del navegador."
+        ),
+    )
     local_date: dt.date | None = None
     price: Decimal | None = None
     currency: str | None = None

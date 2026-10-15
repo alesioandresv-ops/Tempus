@@ -794,6 +794,7 @@ async def _booking_response(session: AsyncSession, booking: Booking, token: str)
         ends_at=booking.ends_at,
         professional_id=booking.professional_id,
         status=str(booking.status),
+        service_id=booking.service_id,
         service_name=service.name if service else None,
         professional_name=professional.display_name if professional else None,
         # Solo el nombre, nunca email ni telefono: la misma regla que aplica al
@@ -806,6 +807,7 @@ async def _booking_response(session: AsyncSession, booking: Booking, token: str)
         business_name=business.name if business else None,
         business_phone=business.phone_e164 if business else None,
         business_slug=business.slug if business else None,
+        business_timezone=business.timezone if business else None,
         pago=pago,
     )
 

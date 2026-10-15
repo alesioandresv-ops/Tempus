@@ -45,6 +45,19 @@ export interface Booking {
   ends_at: string
   professional_id: string
   status: string
+  /** Servicio reservado. Necesario para pedir disponibilidad al reprogramar. */
+  service_id?: string | null
+  service_name?: string | null
+  professional_name?: string | null
+  customer_first_name?: string | null
+  business_name?: string | null
+  business_phone?: string | null
+  business_slug?: string | null
+  business_timezone?: string | null
+  local_date?: string | null
+  price?: string | null
+  currency?: string | null
+  cancelled_at?: string | null
 }
 
 export interface BookingCreateRequest {
