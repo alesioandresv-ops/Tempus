@@ -140,7 +140,7 @@ servidor arriba.
 ```bash
 cd backend
 
-# 1. La suite completa. ~25 minutos, 1249 tests.
+# 1. La suite completa. 1907 tests; ~4,5 min en CI, ~25 min en Windows.
 python -m pytest
 
 # 2. Los tipos de lo critico: seguridad y auth limpios.
@@ -175,6 +175,14 @@ reservas por IP `[404×10, 429]`, por teléfono `[404×5, 429]`, panel 200, tick
 compose y la local (ambas en head `0018_whatsapp_reminders`). Los 6 tests de
 `test_whatsapp_connect.py` (Fase 0.5) corren dentro de la suite.
 
+> **Nota (2026-10-15):** esa corrida es de cuando el head era `0018_whatsapp_reminders`.
+> El esquema hoy llega a `0023_reconcile_schema` (pagos de Mercado Pago, coordenadas
+> del negocio, ACL de `platform_users` y el reconciliado de esquema single/multi-rol),
+> así que **los dos scripts hay que volver a correrlos contra el head actual** antes de
+> publicar. Lo que comprueban --`rate_limit_hit` INVOKER, `search_path` sin `pg_temp`,
+> tokens, enmascarado de secretos-- no cambió con esas migraciones, pero la corrida no
+> está repetida.
+
 Los dos scripts de arriba tardan: cada uno espera a que expiren las ventanas de las
 corridas anteriores.
 
@@ -184,7 +192,7 @@ corridas anteriores.
 |---|---|---|
 | [`PROJECT_MASTER.md`](PROJECT_MASTER.md) | Especificación de producto y requirements. Fuente de verdad del *qué*. | Completo |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Diseño técnico: datos, API, dominio, despliegue, testing, roadmap. Fuente de verdad del *cómo*. | Completo |
-| [`docs/adr/`](docs/adr/README.md) | 15 decisiones arquitectónicas con sus alternativas descartadas. | Completo |
+| [`docs/adr/`](docs/adr/README.md) | 16 decisiones arquitectónicas con sus alternativas descartadas. | Completo |
 | [`.env.example`](.env.example) | Inventario de variables de entorno, agrupadas por dominio. Cubierto por tests. | Completo |
 | [`infra/postgres/init/`](infra/postgres/init/01-roles-and-extensions.sql) | Roles, privilegios y extensiones. | Completo |
 

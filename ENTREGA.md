@@ -49,6 +49,37 @@ nuevos de `test_whatsapp_connect.py` + 8 comprobaciones de higiene por los dos `
 nuevos (`meta_signup.py`, el propio test). Corrió completa contra `tempus_test` en
 PostgreSQL, con cero omitidos.
 
+**Actualizado 2026-10-15 (HEAD `75a1da8`):** la suite es **1907 passed, 0 failed, 0
+skipped** y el CI está verde en los cuatro jobs (`calidad`, `migraciones`, `test`,
+`deploy-check`) con el `test` en 272 s. El esquema pasó de `0018_whatsapp_reminders` a
+**`0023_reconcile_schema`**. Lo que cambió desde el 2026-10-09:
+
+- **Login en single-rol (Render).** `0022_single_role_definer` y
+  `0023_reconcile_schema` dejan el login pre-tenant funcionando también cuando toda la
+  base corre bajo un único rol de app (Render), sin `BYPASSRLS` para el rol que sirve
+  requests. Es una corrección de esquema/RLS, no una feature: el detalle está en las
+  migraciones y en ADR-0016.
+- **Turnstile cableado de verdad.** Los campos existían en `Settings` y `.env.example`
+  pero no se usaban en ninguna ruta. Ahora `POST /public/bookings` y
+  `POST /auth/register-business` verifican el token cuando `TURNSTILE_ENABLED=true`
+  (apagado por defecto; 403 sin token, 503 si Cloudflare no responde). El widget del
+  frontend (`components/ui/Turnstile.tsx`) no renderiza nada sin `VITE_TURNSTILE_SITE_KEY`.
+- **El panel admin de datos mock, eliminado.** El login caía en `/admin/dashboard`, un
+  layout con KPIs, turnos, clientes y equipo cableados a mano (no llamaba a la API): un
+  cliente veía números inventados. Ese layout se quitó y `/admin/*` renderiza el panel
+  real (`AdminPage`), con la pestaña activa en `?tab=`.
+- **Walk-in con pantalla.** `POST /business/reservas/walkin` existía sin UI; ahora el
+  botón y el modal están en la pestaña Reservas.
+- **Gestión de la reserva por token (`/r/{token}`).** La confirmación ya no muestra el
+  token crudo (daba un enlace real + copiar) ni promete un WhatsApp que sin proveedor no
+  sale; reprogramar elige de la disponibilidad real en vez de tipear fecha/hora como si
+  fueran UTC.
+
+**Sigue pendiente (sin cambios):** la validación viva de Meta con el chip; las
+credenciales productivas de WhatsApp y Mercado Pago; re-correr `verificar_limites.py` y
+`verificar_produccion.py` contra el head `0023`; y los tests del frontend (ni Vitest ni
+Playwright están cableados).
+
 ### Verificación final (2026-10-09, v1.0.0-rc1, HEAD `9ab2ab4`)
 
 Los dos scripts de verificación corrieron contra el entorno real —no en memoria— y
@@ -77,7 +108,7 @@ timestamp y `request_id`.
 
 ## 2. Migraciones
 
-- **Head único:** `0018_whatsapp_reminders`. No hay ramas.
+- **Head único:** `0023_reconcile_schema`. No hay ramas.
 - **Idempotencia verificada:** tres `alembic upgrade head` seguidos → código de
   salida `0 0 0`, versión sin cambios, ninguna migración aplicada.
 - `docker-entrypoint.sh` corre `alembic upgrade head` en cada arranque, así que no

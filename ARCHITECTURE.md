@@ -170,7 +170,7 @@ POST /api/v1/public/bookings/{token}/reschedule
 Slugs reservados: api, admin, panel, r, assets, static, login, register, www, app, docs
 
 ## 16. Testing
-Pytest, Vitest, Playwright. Casos: doble reserva concurrente, cancel libera, reschedule, any profesional, vacaciones, bloqueo, cerrado, duración 90min, IDOR, token inválido.
+Pytest sobre PostgreSQL real (unit, integration, tenancy, concurrency, slow). Casos: doble reserva concurrente, cancel libera, reschedule, any profesional, vacaciones, bloqueo, cerrado, duración 90min, IDOR, token inválido. El frontend **todavía no tiene tests automatizados** (ni Vitest ni Playwright cableados); el CI construye el bundle pero no ejecuta tests de frontend.
 
 ## 17. Seguridad
 JWT, refresh rotation, Argon2, RBAC, rate limit PG, Zod/Pydantic, RLS + token hash, CORS strict, Turnstile.
@@ -185,7 +185,7 @@ Docker Compose dev. Prod Free: Render Free + Neon Free + Cloudflare Free + R2 Fr
 Double-booking: EXCLUDE + FOR UPDATE. RLS bypass login: rol dedicado. Slug hijacking: SELECT FOR UPDATE. Pooler fuga: SET LOCAL.
 
 ## 21. Decisiones
-ADR-0001 Monolito modular, ADR-0002 RLS+FK compuesta, ADR-0017 WhatsApp Cloud API oficial, ADR-0018 Onboarding pre-tenant, ADR-0019 Horarios ventanas múltiples, ADR-0020 Slug vs business_id
+ADR-0001 Monolito modular, ADR-0002 RLS+FK compuesta, ADR-0008 EXCLUDE anti-doble-reserva, ADR-0010 tenant desde el JWT, ADR-0012 outbox transaccional, ADR-0013 un WABA por negocio, ADR-0016 rol dedicado para el login pre-tenant. Índice completo en docs/adr/README.md.
 
 ## 22. Decisiones aplazadas
-Mercado Pago, MapLibre, dominios personalizados, marketplace, email.
+Sigue aplazado: dominios personalizados, marketplace, email al cliente, retenciones `pending_hold`, particionado de `bookings`, localización de la UI y analytics. **Ya implementados** (código y tests, aunque sin credenciales productivas): Mercado Pago (pago de la reserva y suscripción Pro, migración `0019`) y MapLibre (mapa de ubicación del negocio con raster de OSM).

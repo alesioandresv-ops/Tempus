@@ -33,6 +33,7 @@ nuevo que marque al anterior como `Reemplazada por ADR-XXXX`. No se editan a pos
 | [0013](0013-whatsapp-per-business-waba.md) | Un WABA por negocio con OAuth Embedded Signup | Aceptada | Integraciones |
 | [0014](0014-free-tier-deployment-profile.md) | Perfil de despliegue gratuito y heartbeat de Cloudflare | Aceptada | Infraestructura |
 | [0015](0015-openapi-generated-frontend-types.md) | Tipos del frontend generados desde OpenAPI | Aceptada | Frontend |
+| [0016](0016-pre-tenant-login-definer.md) | Rol dedicado para el login pre-tenant (antes de resolver el tenant) | Aceptada | Seguridad |
 
 ## Decisiones agrupadas por lo que protegen
 
@@ -82,9 +83,10 @@ nuevo que marque al anterior como `Reemplazada por ADR-XXXX`. No se editan a pos
 ## Decisiones aplazadas
 
 Están en la [sección 22 de ARCHITECTURE.md](../../ARCHITECTURE.md#22-decisiones-aplazadas)
-con su motivo: pagos, marketplace, dominios personalizados, mapas, email al cliente,
-retenciones `pending_hold`, particionado de `bookings`, localización de la UI y
-analytics.
+con su motivo: dominios personalizados, marketplace, email al cliente, retenciones
+`pending_hold`, particionado de `bookings`, localización de la UI y analytics. Mercado
+Pago y MapLibre estuvieron en esa lista y ya se implementaron (sin credenciales
+productivas todavía).
 
 Una decisión aplazada no es una decisión pendiente: es una decisión de no decidir
 todavía, por una razón concreta.
