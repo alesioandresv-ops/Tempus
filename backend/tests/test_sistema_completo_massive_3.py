@@ -45,12 +45,12 @@ class TestWebhooksMP30:
 # ========= B: STORAGE 20 =========
 class TestStorage20:
     async def test_storage_module_import(self):
-        from backend.app.integrations.storage import client as sc
+        from app.integrations.storage import client as sc
 
         assert sc is not None
 
     async def test_storage_client_any(self):
-        from backend.app.integrations.storage import client as sc
+        from app.integrations.storage import client as sc
 
         # intenta instanciar cualquier clase que tenga Client
         for name in dir(sc):
@@ -76,7 +76,7 @@ class TestStorage20:
 # ========= C: CUSTOMERS 25 =========
 class TestCustomers25:
     async def test_customer_service_import(self):
-        from backend.app.modules.customers import service as cs
+        from app.modules.customers import service as cs
 
         assert cs is not None
 
