@@ -75,10 +75,14 @@ skipped** y el CI está verde en los cuatro jobs (`calidad`, `migraciones`, `tes
   sale; reprogramar elige de la disponibilidad real en vez de tipear fecha/hora como si
   fueran UTC.
 
+**Verificado 2026-10-15 contra el head `0023`:** `verificar_produccion.py` → **15/15
+PASS** (base local en `0023`) y `verificar_limites.py` → **13/13 PASS** contra un uvicorn
+real en :8002 (login 5/min por IP, reserva 10/min por IP y 5/hora por teléfono, el
+límite público no alcanza al panel, y el tick del scheduler da 401 antes que 429).
+
 **Sigue pendiente (sin cambios):** la validación viva de Meta con el chip; las
-credenciales productivas de WhatsApp y Mercado Pago; re-correr `verificar_limites.py` y
-`verificar_produccion.py` contra el head `0023`; y los tests del frontend (ni Vitest ni
-Playwright están cableados).
+credenciales productivas de WhatsApp y Mercado Pago; y los tests del frontend (ni Vitest
+ni Playwright están cableados).
 
 ### Verificación final (2026-10-09, v1.0.0-rc1, HEAD `9ab2ab4`)
 

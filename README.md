@@ -175,13 +175,14 @@ reservas por IP `[404×10, 429]`, por teléfono `[404×5, 429]`, panel 200, tick
 compose y la local (ambas en head `0018_whatsapp_reminders`). Los 6 tests de
 `test_whatsapp_connect.py` (Fase 0.5) corren dentro de la suite.
 
-> **Nota (2026-10-15):** esa corrida es de cuando el head era `0018_whatsapp_reminders`.
-> El esquema hoy llega a `0023_reconcile_schema` (pagos de Mercado Pago, coordenadas
-> del negocio, ACL de `platform_users` y el reconciliado de esquema single/multi-rol),
-> así que **los dos scripts hay que volver a correrlos contra el head actual** antes de
-> publicar. Lo que comprueban --`rate_limit_hit` INVOKER, `search_path` sin `pg_temp`,
-> tokens, enmascarado de secretos-- no cambió con esas migraciones, pero la corrida no
-> está repetida.
+> **Nota (2026-10-15):** esa corrida es la del head `0018_whatsapp_reminders`. El
+> esquema hoy llega a `0023_reconcile_schema` (pagos de Mercado Pago, coordenadas del
+> negocio, ACL de `platform_users` y el reconciliado de esquema single/multi-rol), así
+> que los dos scripts se volvieron a correr contra ese head: `verificar_produccion.py`
+> → **15/15 PASS** (base local en `0023`) y `verificar_limites.py` → **13/13 PASS**
+> contra un uvicorn real en :8002. Lo que comprueban --`rate_limit_hit` INVOKER,
+> `search_path` sin `pg_temp`, tokens, enmascarado de secretos y los cinco límites del
+> §10.5-- no cambió con esas migraciones.
 
 Los dos scripts de arriba tardan: cada uno espera a que expiren las ventanas de las
 corridas anteriores.
