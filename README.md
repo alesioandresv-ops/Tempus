@@ -140,7 +140,8 @@ servidor arriba.
 ```bash
 cd backend
 
-# 1. La suite completa. 1907 tests; ~4,5 min en CI, ~25 min en Windows.
+# 1. La suite completa. 1907 tests (272 s en CI; en Windows tarda bastante
+#    mas por los tests marcados `slow`).
 python -m pytest
 
 # 2. Los tipos de lo critico: seguridad y auth limpios.
