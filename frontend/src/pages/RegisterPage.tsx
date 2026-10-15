@@ -79,7 +79,7 @@ export default function RegisterPage() {
    * la cancelacion la hace el.
    */
   useEffect(() => {
-    const limpio = slugEscrito.trim()
+    const limpio = (slugEscrito || "").trim()
     if (limpio.length < LARGO_MINIMO_SLUG) {
       setSlugParaConsultar('')
       return
@@ -146,7 +146,7 @@ export default function RegisterPage() {
       setError('slug', { message: 'Esa URL no esta disponible' })
       return
     }
-    const telefono = datos.phone?.trim()
+    const telefono = (datos.phone || "").trim()
     altaMutation.mutate({ ...datos, phone: telefono ? telefono : null })
   })
 
