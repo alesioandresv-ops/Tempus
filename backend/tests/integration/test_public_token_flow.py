@@ -85,7 +85,7 @@ async def _sembrar_migration(conn: AsyncConnection) -> None:
             """
             INSERT INTO businesses (id, name, slug, timezone, status)
             VALUES (:id, 'Negocio Token Flow', :slug, :tz, 'active')
-            ON CONFLICT (slug) DO UPDATE SET status = 'active'
+            ON CONFLICT (slug) DO UPDATE SET status = 'active', created_at = now()
             """
         ),
         {"id": BUSINESS, "slug": SLUG, "tz": TIMEZONE},

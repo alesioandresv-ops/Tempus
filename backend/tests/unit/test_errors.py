@@ -26,6 +26,7 @@ from app.api.errors import (
     AuthorizationError,
     ConflictError,
     NotFoundError,
+    PaymentRequiredError,
     RateLimitError,
     SlotUnavailableError,
     ValidationError,
@@ -180,6 +181,7 @@ class TestCodigosPorTipo:
             (ValidationError("x"), 422),
             (AuthenticationError("x"), 401),
             (AuthorizationError("x"), 403),
+            (PaymentRequiredError("x"), 402),
             (RateLimitError("x"), 429),
         ],
     )

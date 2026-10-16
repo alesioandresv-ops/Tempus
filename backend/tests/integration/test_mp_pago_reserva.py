@@ -102,7 +102,7 @@ async def negocio_pago(
                     """
                     INSERT INTO businesses (id, name, slug, timezone, status)
                     VALUES (:id, 'Negocio Pago MP', :slug, :tz, 'active')
-                    ON CONFLICT (slug) DO UPDATE SET status = 'active'
+                    ON CONFLICT (slug) DO UPDATE SET status = 'active', created_at = now()
                     """
                 ),
                 {"id": BUSINESS, "slug": SLUG, "tz": TIMEZONE},

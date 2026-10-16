@@ -59,6 +59,7 @@ from app.modules.bookings.service import (
     reschedule_booking,
 )
 from app.modules.businesses.models import Business
+from app.modules.businesses.publicacion import es_publicable
 from app.modules.customers.models import Customer
 from app.modules.payments.mercadopago import MercadoPagoError
 from app.modules.payments.models import BookingPayment
@@ -139,16 +140,24 @@ async def limitar_reserva(*, telefono: str, ip: str, settings: Settings) -> None
 
 
 async def _resolve_business_by_slug(session: AsyncSession, slug: str) -> Business | None:
-    """Negocio activo por slug, o `None`.
+    """Negocio publicable por slug, o `None`.
 
     `businesses` es una tabla global sin RLS, asi que se puede leer sin contexto
     de tenant. Por eso la busqueda va en una sesion propia y no en la del
     endpoint: el `business_id` todavia no se conoce cuando hay que buscarlo.
+
+    El filtro ya **no** es `status == 'active'` en SQL: la publicabilidad depende
+    del plan y de la ventana del mes gratis, y esa regla es una sola
+    (`publicacion.es_publicable`). Se resuelve por `slug` (UNIQUE, a lo sumo una
+    fila) y se aplica la regla en memoria. Un negocio vencido o suspendido da
+    `None`, que el endpoint traduce a 404: no se toman reservas para un negocio
+    que ya no se publica.
     """
-    result = await session.execute(
-        select(Business).where(Business.slug == slug, Business.status == "active")
-    )
-    return result.scalar_one_or_none()
+    result = await session.execute(select(Business).where(Business.slug == slug))
+    business = result.scalar_one_or_none()
+    if business is None or not es_publicable(business):
+        return None
+    return business
 
 
 @asynccontextmanager

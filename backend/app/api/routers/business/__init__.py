@@ -45,6 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_tenant_session, limit_panel_por_usuario, require_scopes
 from app.api.errors import ConflictError, NotFoundError, ValidationError
+from app.api.routers.business.gating import exigir_plan_vigente, url_de_pago
 from app.api.routers.business.schemas import (
     AsignacionesIn,
     AsignacionServicioOut,
@@ -120,7 +121,24 @@ from app.modules.services import service as servicios
 
 #: 600/min por usuario (§10.5), por `user_id` del token y no por IP. El criterio esta
 #: en `api.dependencies.limit_panel_por_usuario`.
+#:
+#: Ademas de la cuota, este router lleva la guardia de plan: cuando el mes gratis
+#: del negocio vence, sus rutas de **escritura** responden 402 y las de lectura
+#: siguen andando. Ver `gating.exigir_plan_vigente`.
 router = APIRouter(
+    prefix="/business",
+    tags=["Panel del negocio"],
+    dependencies=[Depends(limit_panel_por_usuario), Depends(exigir_plan_vigente)],
+)
+
+#: El mismo prefijo y el mismo rate limit, **sin** la guardia de plan.
+#:
+#: Es para los endpoints de suscripcion, que tienen que poder usarse precisamente
+#: cuando el plan vencio: son la salida del 402, no otra cosa que bloquear. Van en
+#: un router propio y no en una excepcion dentro de la guardia porque la guardia
+#: corta por metodo HTTP (toda `POST` cae), y meterle una lista de rutas exentas
+#: seria volver a enumerar endpoints a mano.
+billing_router = APIRouter(
     prefix="/business",
     tags=["Panel del negocio"],
     dependencies=[Depends(limit_panel_por_usuario)],
@@ -1744,7 +1762,7 @@ async def guardar_politica_pago(
     return PaymentPolicyOut(**politica)
 
 
-@router.get(
+@billing_router.get(
     "/suscripcion",
     response_model=SubscriptionStatusOut,
     summary="Ver el estado de la suscripcion del negocio",
@@ -1758,12 +1776,17 @@ async def ver_suscripcion(
     `status="none"` cuando nunca se activo Pro. El plan sale de `businesses.plan`
     y el estado del registro de `mp_subscriptions`: son dos datos y pueden no
     coincidir, que es justamente lo que el panel necesita ver.
+
+    Ademas expone la ventana del mes gratis (`trial_ends_at`, `dias_restantes`,
+    `es_publicable`) y `checkout_url`, para que el panel muestre el aviso de
+    vencimiento sin reimplementar la regla de `publicacion`. Este endpoint vive en
+    `billing_router`, **sin** la guardia de plan: es la salida del 402.
     """
     estado = await suscripciones.estado_suscripcion(sesion, _bid(principal))
-    return SubscriptionStatusOut(**estado)
+    return SubscriptionStatusOut(**estado, checkout_url=url_de_pago())
 
 
-@router.post(
+@billing_router.post(
     "/suscripcion/activar",
     response_model=SubscriptionActivateOut,
     summary="Activar el plan Pro (suscripcion Mercado Pago)",
@@ -1808,7 +1831,7 @@ async def activar_suscripcion(
     )
 
 
-@router.post(
+@billing_router.post(
     "/suscripcion/cancelar",
     response_model=SubscriptionCancelOut,
     summary="Cancelar la suscripcion Pro",

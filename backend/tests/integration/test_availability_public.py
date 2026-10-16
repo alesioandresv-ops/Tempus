@@ -21,16 +21,16 @@ bookings crean su servicio y su profesional sobre `test-business` en
 su transaccion, y nada de eso tiene que ver con la disponibilidad de
 este archivo.
 
-**El negocio se siembra `active`, y por el `status`, no por capricio.**
-La columna tiene default `'trial'`, y `_resolve_business_by_slug`--el
-unico lugar por donde pasa toda peticion publica-- filtra por
-`status = 'active'`: un `trial` se configura pero no se publica. Un
-negocio `trial` invisible para el endpoint publico daria 404 en vez de
-la grilla de slots, y el test pasaria por un problema de visibilidad
-cuando lo que esta en juego es el calculo de disponibilidad. Ojo con
-el `ON CONFLICT`: hace falta `DO UPDATE SET status`, porque una fila
-que una corrida anterior dejo en `trial` no se corrige sola con `DO
-NOTHING` y el fallo seria dificil de ver--parece un endpoint roto.
+**El negocio se siembra `active` y con `created_at` fresco, y por eso, no
+por capricio.** `_resolve_business_by_slug`--el unico lugar por donde pasa
+toda peticion publica-- sirve un negocio solo si es publicable:
+`status = 'active'` y, si no tiene plan Pro, dentro del mes de trial. Un
+negocio no publicable daria 404 en vez de la grilla de slots, y el test
+pasaria por un problema de visibilidad cuando lo que esta en juego es el
+calculo de disponibilidad. Ojo con el `ON CONFLICT`: hace falta `DO UPDATE
+SET status, created_at`, porque una fila que una corrida anterior dejo en
+`trial`--o con `created_at` viejo, ya vencido el mes-- no se corrige sola
+con `DO NOTHING` y el fallo seria dificil de ver--parece un endpoint roto.
 """
 
 from __future__ import annotations
@@ -106,7 +106,7 @@ async def _sembrar(conn: AsyncConnection) -> None:
             """
             INSERT INTO businesses (id, name, slug, timezone, status)
             VALUES (:id, 'Negocio Disponibilidad', :slug, :tz, 'active')
-            ON CONFLICT (slug) DO UPDATE SET status = 'active'
+            ON CONFLICT (slug) DO UPDATE SET status = 'active', created_at = now()
             """
         ),
         {"id": BUSINESS, "slug": SLUG, "tz": TIMEZONE},

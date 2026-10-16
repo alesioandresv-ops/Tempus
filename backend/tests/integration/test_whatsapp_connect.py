@@ -79,7 +79,7 @@ async def negocio_connect(
                     """
                     INSERT INTO businesses (id, name, slug, timezone, status)
                     VALUES (:id, 'Peluqueria Connect', :slug, 'America/Argentina/Buenos_Aires', 'active')
-                    ON CONFLICT (slug) DO UPDATE SET status = 'active'
+                    ON CONFLICT (slug) DO UPDATE SET status = 'active', created_at = now()
                     """
                 ),
                 {"id": BUSINESS_WS, "slug": SLUG},

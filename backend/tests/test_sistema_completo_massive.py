@@ -157,6 +157,7 @@ async def _sembrar_publicos(conn: AsyncConnection) -> None:
                 VALUES (:id, :name, :slug, :tz, :status, :desc, :address, :lat, :lng)
                 ON CONFLICT (slug) DO UPDATE SET
                     status = EXCLUDED.status,
+                    created_at = now(),
                     description = EXCLUDED.description,
                     address_text = EXCLUDED.address_text,
                     latitude = EXCLUDED.latitude,
@@ -566,7 +567,7 @@ async def _sembrar_booking_migration(conn: AsyncConnection) -> None:
             """
             INSERT INTO businesses (id, name, slug, timezone, status)
             VALUES (:id, 'Massive Booking', :slug, :tz, 'active')
-            ON CONFLICT (slug) DO UPDATE SET status = 'active'
+            ON CONFLICT (slug) DO UPDATE SET status = 'active', created_at = now()
             """
         ),
         {"id": BUSINESS_BOOKING, "slug": SLUG_BOOKING, "tz": TIMEZONE},
@@ -1326,7 +1327,7 @@ async def _sembrar_sin_asignacion(conn: AsyncConnection) -> None:
             """
             INSERT INTO businesses (id, name, slug, timezone, status)
             VALUES (:id, 'Massive Sin Asignacion', :slug, :tz, 'active')
-            ON CONFLICT (slug) DO UPDATE SET status = 'active'
+            ON CONFLICT (slug) DO UPDATE SET status = 'active', created_at = now()
             """
         ),
         {"id": BUSINESS_SIN_ASIGNACION, "slug": SLUG_SIN_ASIGNACION, "tz": TIMEZONE},
@@ -2293,6 +2294,7 @@ async def _sembrar_agenda(conn: AsyncConnection) -> None:
                 slug = EXCLUDED.slug,
                 timezone = EXCLUDED.timezone,
                 status = 'active',
+                created_at = now(),
                 slot_interval_minutes = 30,
                 min_lead_minutes = 0
             """
@@ -3050,6 +3052,7 @@ async def _sembrar_clientes(conn: AsyncConnection) -> None:
                 slug = EXCLUDED.slug,
                 timezone = EXCLUDED.timezone,
                 status = 'active',
+                created_at = now(),
                 slot_interval_minutes = 30,
                 min_lead_minutes = 0
             """
@@ -3100,7 +3103,7 @@ async def _sembrar_clientes(conn: AsyncConnection) -> None:
         text(
             "INSERT INTO businesses (id, name, slug, timezone, status) "
             "VALUES (:id, 'Massive Ajeno', 'massive-ajeno', :tz, 'active') "
-            "ON CONFLICT (id) DO UPDATE SET status = 'active'"
+            "ON CONFLICT (id) DO UPDATE SET status = 'active', created_at = now()"
         ),
         {"id": BUSINESS_AJENO, "tz": TIMEZONE},
     )
@@ -3457,12 +3460,13 @@ class TestClientes:
 #   email es 201. El 409 real del alta es el slug, por el indice
 #   UNIQUE de `businesses.slug`.
 # - Activacion: la consigna pedia un endpoint trial -> active; **no
-#   existe**. El alta deja `trial` (default de la columna) y el paso a
-#   `active` es decision de la plataforma, fuera de la API. El test de
-#   "publica" usa un negocio `active` sembrado con el rol de
-#   migraciones, como las suites anteriores.
-# - Trial no publicado: la ruta publica solo resuelve negocios
-#   `active`, asi que un `trial` responde 404 (no 403 ni 410).
+#   existe**. El alta deja el negocio `active` (migracion 0024): nace
+#   publicable y el corte del mes gratis lo decide la regla de
+#   publicacion (plan + `created_at`), no el `status`. El `status`
+#   queda como estado administrativo (la plataforma puede suspender).
+# - Trial no publicado: la ruta publica resuelve negocios publicables;
+#   un negocio con `status` administrativo distinto de `active` responde
+#   404 (no 403 ni 410).
 
 URL_NEGOCIO = "/api/v1/business/negocio"
 
@@ -3522,7 +3526,7 @@ async def _sembrar_publicos_onboarding(conn: AsyncConnection) -> None:
         text(
             "INSERT INTO businesses (id, name, slug, timezone, status) "
             "VALUES (:id, 'Massive Active O', :slug, :tz, 'active') "
-            "ON CONFLICT (id) DO UPDATE SET status = 'active'"
+            "ON CONFLICT (id) DO UPDATE SET status = 'active', created_at = now()"
         ),
         {"id": BUSINESS_ACTIVE_O, "slug": SLUG_ACTIVE_O, "tz": TIMEZONE},
     )
@@ -3594,14 +3598,18 @@ class TestOnboarding:
         assert respuesta.status_code == 201, respuesta.text
         assert respuesta.json()["slug"] == "peluquer-a-caf"
 
-    async def test_el_negocio_nace_en_trial(
+    async def test_el_negocio_nace_publicado(
         self, http_client: AsyncClient, negocio_onboarding: tuple[uuid.UUID, str]
     ) -> None:
-        """El default de la columna es `trial`; no hay que pedirlo."""
+        """El alta lo deja `active` (migracion 0024): nace publicable.
+
+        El corte del mes gratis no vive en `status`: lo decide la regla de
+        publicacion a partir del plan y de `created_at`.
+        """
         _, token = negocio_onboarding
         respuesta = await http_client.get(URL_NEGOCIO, headers=_auth(token))
         assert respuesta.status_code == 200, respuesta.text
-        assert respuesta.json()["status"] == "trial"
+        assert respuesta.json()["status"] == "active"
 
     async def test_el_dueno_nace_admin(
         self, http_client: AsyncClient, negocio_onboarding: tuple[uuid.UUID, str]
@@ -3854,6 +3862,7 @@ async def _sembrar_negocio_whatsapp(
                 slug = EXCLUDED.slug,
                 timezone = EXCLUDED.timezone,
                 status = 'active',
+                created_at = now(),
                 slot_interval_minutes = 30,
                 min_lead_minutes = 0
             """

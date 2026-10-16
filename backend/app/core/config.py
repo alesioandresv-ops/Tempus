@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import datetime as dt
 import json
 from enum import StrEnum
 from functools import lru_cache
@@ -130,6 +131,27 @@ class Settings(BaseSettings):
         description=(
             "Precio mensual del plan Pro en la moneda del negocio. 0 desactiva la "
             "activacion autoservicio (el endpoint responde 422 con el motivo)."
+        ),
+    )
+
+    # --- Periodo de gracia del trial (Fase 9.2) ---------------------------
+    trial_dias: int = Field(
+        default=30,
+        ge=1,
+        description=(
+            "Dias de mes gratis desde que nace el negocio. Vencido el plazo sin plan "
+            "Pro, el negocio deja de ser publico (no acepta reservas online) y el "
+            "panel pasa a solo lectura."
+        ),
+    )
+    trial_grace_from: dt.datetime = Field(
+        default=dt.datetime(1970, 1, 1, tzinfo=dt.UTC),
+        description=(
+            "Piso del comienzo del trial. El corte se calcula como "
+            "`max(created_at, trial_grace_from) + trial_dias`: el default (epoch) "
+            "significa 'contar desde created_at'. Se fija a la fecha de despliegue "
+            "para que los negocios que ya existian no venzan el primer dia. Debe "
+            "incluir timezone (por ejemplo 2026-10-16T00:00:00Z)."
         ),
     )
 
@@ -322,6 +344,19 @@ class Settings(BaseSettings):
         if value.lower() not in allowed:
             raise ValueError(f"COOKIE_SAMESITE debe ser uno de {sorted(allowed)}")
         return value.lower()
+
+    @field_validator("trial_grace_from")
+    @classmethod
+    def _trial_grace_con_tz(cls, value: dt.datetime) -> dt.datetime:
+        """Un piso naive romperia la comparacion contra `created_at` (que es aware).
+
+        La comparacion `max(created_at, trial_grace_from)` explota con un TypeError
+        en runtime; mejor normalizar aca, asumiendo UTC, que dejar que el endpoint
+        publico falle con 500 el dia del corte.
+        """
+        if value.tzinfo is None:
+            return value.replace(tzinfo=dt.UTC)
+        return value.astimezone(dt.UTC)
 
     @model_validator(mode="after")
     def _validate_secrets(self) -> Self:

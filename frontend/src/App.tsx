@@ -1,11 +1,12 @@
 ﻿import { useEffect } from 'react'
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { Routes, Route, useNavigate } from 'react-router-dom'
 import BusinessPage from './pages/BusinessPage'
 import ManageBookingPage from './pages/ManageBookingPage'
 import AdminPage from './pages/AdminPage'
 import ProfessionalPage from './pages/ProfessionalPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
+import LandingPage from './pages/landing/LandingPage'
 import ProtectedRoute from './components/ProtectedRoute'
 import { avisarFinDeSesion } from './services/api'
 
@@ -41,8 +42,9 @@ function App() {
     <>
       <AvisoDeFinDeSesion />
       <Routes>
-        {/* Redirect raiz -> login */}
-        <Route path="/" element={<Navigate to="/login" replace />} />
+        {/* Raiz: landing de captacion. El login vive en /login.
+            Para comparar los tres estilos: /?tema=aurora | calido | minimal */}
+        <Route path="/" element={<LandingPage />} />
 
         {/* Register */}
         <Route path="/register" element={<RegisterPage />} />

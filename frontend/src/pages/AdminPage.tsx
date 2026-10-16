@@ -44,6 +44,7 @@ import { FeriadosTab } from './admin/FeriadosTab'
 import { ReportesTab } from './admin/ReportesTab'
 import { ReservasTab } from './admin/ReservasTab'
 import { VacacionesTab } from './admin/VacacionesTab'
+import { BloqueoVencimiento } from './admin/BloqueoVencimiento'
 import { AdminLayout, esPestana, type Pestana } from './admin/AdminLayout'
 import { PanelTab } from './admin/PanelTab'
 import { PagosTab } from './admin/PagosTab'
@@ -1329,6 +1330,7 @@ export default function AdminPage() {
       busqueda={busqueda}
       onBuscar={buscar}
     >
+      <BloqueoVencimiento />
       {activeTab === 'panel' && (
         <PanelTab onIrAReservas={() => setActiveTab('bookings')} />
       )}

@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.time import now
 from app.models.enums import BusinessPlan, MpSubscriptionStatus
+from app.modules.businesses import publicacion
 from app.modules.businesses.models import Business
 from app.modules.payments.config import decrypt_access_token, obtener_cuenta
 from app.modules.payments.mercadopago import (
@@ -99,6 +100,17 @@ async def estado_suscripcion(session: AsyncSession, business_id: uuid.UUID) -> d
     """
     negocio = await session.get(Business, business_id)
     suscripcion = await _suscripcion(session, business_id)
+    # La ventana del mes gratis se calcula aca, con las funciones de `publicacion`,
+    # y no se reimplementa en el router: el numero que ve el dueno y la puerta que
+    # lo deja pasar tienen que salir del mismo `fin_del_trial`.
+    if negocio is not None:
+        trial_ends_at = publicacion.fin_del_trial(negocio).isoformat()
+        restantes = publicacion.dias_restantes(negocio)
+        publicable = publicacion.es_publicable(negocio)
+    else:
+        trial_ends_at = None
+        restantes = 0
+        publicable = False
     return {
         "plan": str(negocio.plan if negocio is not None else BusinessPlan.FREE),
         "status": str(suscripcion.status) if suscripcion is not None else "none",
@@ -106,6 +118,9 @@ async def estado_suscripcion(session: AsyncSession, business_id: uuid.UUID) -> d
         "next_billing_at": _iso(suscripcion.next_billing_at if suscripcion else None),
         "activated_at": _iso(suscripcion.activated_at if suscripcion else None),
         "cancelled_at": _iso(suscripcion.cancelled_at if suscripcion else None),
+        "trial_ends_at": trial_ends_at,
+        "dias_restantes": restantes,
+        "es_publicable": publicable,
     }
 
 

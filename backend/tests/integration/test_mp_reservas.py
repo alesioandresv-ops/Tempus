@@ -89,7 +89,7 @@ async def reserva_mp(
                     """
                     INSERT INTO businesses (id, name, slug, timezone, status)
                     VALUES (:id, 'Reservas con Pago', :slug, 'America/Argentina/Buenos_Aires', 'active')
-                    ON CONFLICT (slug) DO UPDATE SET status = 'active'
+                    ON CONFLICT (slug) DO UPDATE SET status = 'active', created_at = now()
                     """
                 ),
                 {"id": BUSINESS, "slug": SLUG},

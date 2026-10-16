@@ -605,6 +605,10 @@ export interface SubscriptionStatus {
   next_billing_at: string | null
   activated_at: string | null
   cancelled_at: string | null
+  trial_ends_at: string | null
+  dias_restantes: number
+  es_publicable: boolean
+  checkout_url: string
 }
 
 /** Activar Pro: MP devuelve un `init_point` y el admin autoriza ahí. */

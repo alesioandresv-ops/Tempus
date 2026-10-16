@@ -30,8 +30,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import NotFoundError, ValidationError
-from app.models.enums import BusinessStatus
 from app.modules.businesses.models import Business
+from app.modules.businesses.publicacion import es_publicable
 
 #: Campos que un administrador puede cambiar sobre su negocio. Es una lista
 #: blanca explicita y no "todos los que no sean id/created_at": con una lista negra,
@@ -286,11 +286,11 @@ def cambiar_slug(session_business: Business, nuevo_slug: str) -> str:
 def es_negocio_reservable(business: Business) -> bool:
     """Si el negocio acepta reservas publicas.
 
-    Delegado a la propiedad del modelo en vez de repetir el `status == 'active'`
-    aca: si el modelo cambia la regla, este modulo dejaria de estar de acuerdo sin
-    que ninguna prueba lo note.
+    Delegado a la regla unica (`publicacion.es_publicable`) en vez de repetir la
+    condicion aca: si la regla cambia (plan, ventana del mes gratis, suspension),
+    este modulo dejaria de estar de acuerdo sin que ninguna prueba lo note.
     """
-    return business.status == BusinessStatus.ACTIVE
+    return es_publicable(business)
 
 
 __all__ = [

@@ -116,8 +116,15 @@ class Business(GlobalBase, Base):
 
     @property
     def is_bookable(self) -> bool:
-        """Solo `active` acepta reservas. Un `trial` se configura, no se publica."""
-        return self.status is BusinessStatus.ACTIVE
+        """Si el negocio acepta reservas online ahora.
+
+        Delega en la regla unica (`publicacion.es_publicable`): `status` es estado
+        administrativo y el plan + la ventana del mes gratis son la regla de negocio.
+        No reimplementar la condicion aca.
+        """
+        from app.modules.businesses.publicacion import es_publicable
+
+        return es_publicable(self)
 
 
 class Media(TenantBase, Base):

@@ -236,6 +236,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # exigen un principal, y registrarlo al final deja claro en esta lista que es
     # la superficie autenticada del producto.
     app.include_router(business_router.router, prefix="/api/v1")
+    # Y la parte de facturacion del panel, que va sin la guardia de plan: es la
+    # salida del 402, no una ruta mas que bloquear. Mismo prefijo, sin choque de
+    # paths con `router`.
+    app.include_router(business_router.billing_router, prefix="/api/v1")
 
     @app.get("/", include_in_schema=False)
     async def root() -> dict[str, Any]:

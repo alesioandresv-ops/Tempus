@@ -113,6 +113,20 @@ class RateLimitError(AppError):
     error_type = "about:blank"
 
 
+class PaymentRequiredError(AppError):
+    """402: falta pagar para seguir operando (mes gratis vencido).
+
+    Es 402 y no 403 a proposito. Un 403 dice "no tenes permiso" y no se arregla
+    pagando; un vencimiento si. El cliente necesita poder distinguirlos para
+    mostrar la pantalla de pago en vez de "acceso denegado", y por eso el status
+    HTTP hace el trabajo y no un `detail` que habria que parsear.
+    """
+
+    status_code = status.HTTP_402_PAYMENT_REQUIRED
+    title = "Suscripcion requerida"
+    error_type = "about:blank"
+
+
 def problem_response(
     *,
     status_code: int,

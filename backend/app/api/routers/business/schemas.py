@@ -917,6 +917,17 @@ class SubscriptionStatusOut(BaseModel):
     next_billing_at: str | None  # ISO format
     activated_at: str | None
     cancelled_at: str | None
+    #: Fin del mes gratis (ISO). `None` si el negocio ya no existe.
+    trial_ends_at: str | None
+    #: Dias enteros que le quedan al mes gratis; `0` si ya vencio o si es Pro.
+    dias_restantes: int
+    #: Si la pagina publica sirve al negocio hoy (status activo y mes vigente o Pro).
+    #: Es lo que el panel usa para mostrar el aviso de vencimiento sin reimplementar
+    #: la regla: la decide el backend en `publicacion.es_publicable`.
+    es_publicable: bool
+    #: A donde ir a activar Pro. Igual al `checkout_url` que trae el 402, para que el
+    #: panel tenga una sola nocion de "adonde se paga".
+    checkout_url: str
 
 
 class SubscriptionActivateIn(BaseModel):

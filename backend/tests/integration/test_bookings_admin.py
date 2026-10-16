@@ -74,13 +74,14 @@ async def _sembrar_migration(conn: AsyncConnection) -> None:
     )
     # `status` es parte de la prueba y no del detalle: `booking_futuro`
     # se crea por la ruta **publica**, que solo resuelve negocios
-    # `active` (default de la columna: `trial`, que no se publica).
+    # publicables: `status = 'active'` y, sin plan Pro, dentro del mes de
+    # trial. Por eso se siembra `active` y con `created_at` fresco.
     await conn.execute(
         text(
             """
             INSERT INTO businesses (id, name, slug, timezone, status)
             VALUES (:id, 'Negocio Admin Bookings', :slug, :tz, 'active')
-            ON CONFLICT (slug) DO UPDATE SET status = 'active'
+            ON CONFLICT (slug) DO UPDATE SET status = 'active', created_at = now()
             """
         ),
         {"id": BUSINESS, "slug": SLUG, "tz": TIMEZONE},

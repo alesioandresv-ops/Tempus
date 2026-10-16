@@ -147,7 +147,7 @@ async def negocio_whatsapp(
                     """
                     INSERT INTO businesses (id, name, slug, timezone, status)
                     VALUES (:id, 'Test WhatsApp', :slug, :tz, 'active')
-                    ON CONFLICT (slug) DO UPDATE SET status = 'active'
+                    ON CONFLICT (slug) DO UPDATE SET status = 'active', created_at = now()
                     """
                 ),
                 {"id": BUSINESS_WS, "slug": SLUG, "tz": ZONA.key},

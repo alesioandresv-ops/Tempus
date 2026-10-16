@@ -138,6 +138,7 @@ async def _sembrar_publicos(conn: AsyncConnection) -> None:
                 VALUES (:id, :name, :slug, :tz, :status, :desc, :address, :lat, :lng)
                 ON CONFLICT (slug) DO UPDATE SET
                     status = EXCLUDED.status,
+                    created_at = now(),
                     description = EXCLUDED.description,
                     address_text = EXCLUDED.address_text,
                     latitude = EXCLUDED.latitude,

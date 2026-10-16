@@ -127,6 +127,14 @@ async def negocio_activo(migration_database_url: str, business_c: uuid.UUID) -> 
     `active` para el resto de la corrida, y los tests de reserva--que asumen que el
     negocio no existe porque esta en `trial`-- empezarian a fallar por un motivo que
     no tiene que ver con lo que prueban.
+
+    Ademas refresca `created_at`. Con la regla de publicacion (plan + mes de trial),
+    un negocio `active` sin plan Pro solo se publica durante su mes. `test-business`
+    se siembra una vez y se commitea, asi que su `created_at` envejece y la corrida
+    empezaria a dar 404 por antiguedad--un fallo que aparece recien 30 dias despues
+    de preparar la base, cuando ya nadie relaciona una cosa con la otra. Refrescar la
+    fecha hace que el `active` de este test siga significando "publicable" sin
+    depender de cuando se creo la base.
     """
     from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -139,7 +147,7 @@ async def negocio_activo(migration_database_url: str, business_c: uuid.UUID) -> 
                 {"id": str(business_c)},
             )
             await conn.execute(
-                text("UPDATE businesses SET status = :estado WHERE id = :id"),
+                text("UPDATE businesses SET status = :estado, created_at = now() WHERE id = :id"),
                 {"id": str(business_c), "estado": estado},
             )
 

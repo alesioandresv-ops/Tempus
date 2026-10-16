@@ -86,7 +86,7 @@ async def negocio_activo(migration_database_url: str, business_c: uuid.UUID) -> 
                 {"id": str(business_c)},
             )
             await conn.execute(
-                text("UPDATE businesses SET status = :estado WHERE id = :id"),
+                text("UPDATE businesses SET status = :estado, created_at = now() WHERE id = :id"),
                 {"id": str(business_c), "estado": estado},
             )
 
