@@ -1,5 +1,6 @@
 name = "tempus"
 compatibility_date = "2025-01-01"
+main = "worker.ts"
 
 [assets]
 directory = "dist"
