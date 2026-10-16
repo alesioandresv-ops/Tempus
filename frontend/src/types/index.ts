@@ -368,6 +368,16 @@ export interface ReservasFiltro {
   professional_id?: string
   estado?: string
   q?: string
+  /**
+   * "Turnos todavía cerrables": `confirmed`/`pending_hold` cuyo `ends_at` no pasó
+   * (incluye el que está en curso ahora). Es el filtro del dashboard para
+   * "próximos turnos".
+   *
+   * **Ojo con el orden**: el listado vuelve ordenado por `starts_at`
+   * *descendente*, así que el turno más próximo está al final de la página, no al
+   * principio. El dashboard pide la última página y reordena.
+   */
+  solo_pendientes?: boolean
   limite?: number
   offset?: number
 }
@@ -528,4 +538,95 @@ export interface WhatsappConfigSave {
   access_token?: string
   reminder_24h_template?: string
   reminder_2h_template?: string
+}
+
+// --------------------------------------------------------------------------- //
+// Pagos y suscripción (Fase D-2)
+//
+// La cuenta de Mercado Pago del negocio, la política que exige al reservar y
+// la suscripción al plan Pro. Todo bajo `/business` con el token del admin.
+// --------------------------------------------------------------------------- //
+
+/**
+ * Estado de la cuenta de Mercado Pago, tal como lo ve el panel.
+ *
+ * **El access token nunca vuelve en claro**: `token_masked` muestra solo los
+ * últimos 4 caracteres y `has_token` dice si hay uno guardado. Por eso el
+ * formulario no puede precargar el token: se pega solo al configurarlo o al
+ * cambiarlo, y un guardado sin token conserva el que ya está.
+ */
+export interface PaymentConfig {
+  activo: boolean
+  token_masked: string | null
+  has_token: boolean
+  created_at: string | null
+  updated_at: string | null
+}
+
+/**
+ * Cuerpo del PUT. `access_token`/`public_key`/`sandbox` omitidos conservan lo
+ * guardado; `activo` es obligatorio porque guardar una cuenta apagada es válido
+ * (volver a encenderla es un click, no volver a pegar el secreto).
+ */
+export interface PaymentConfigSave {
+  activo: boolean
+  access_token?: string
+  public_key?: string
+  sandbox?: boolean
+}
+
+/** Qué se exige al reservar online: nada, seña o pago completo. */
+export type PaymentPolicy = 'none' | 'deposit' | 'full'
+
+/** La seña: monto fijo o porcentaje del precio del servicio. */
+export type DepositMode = 'fixed' | 'percent'
+
+/** Política de pago del negocio. `deposit_*` solo aplica con `policy: 'deposit'`. */
+export interface PaymentPolicyConfig {
+  policy: PaymentPolicy
+  deposit_mode: DepositMode | null
+  deposit_value: number | null
+  deposit_non_refundable: boolean
+}
+
+export type SubscriptionPlan = 'free' | 'pro'
+
+/**
+ * Estado de la suscripción al plan Pro.
+ *
+ * `plan` sale de `businesses.plan` y `status` del registro de `mp_subscriptions`:
+ * son dos datos distintos y pueden no coincidir, que es justo lo que el panel
+ * necesita mostrar (p. ej. plan `pro` esperando la confirmación del webhook).
+ */
+export interface SubscriptionStatus {
+  plan: SubscriptionPlan
+  status: string
+  preapproval_id: string | null
+  next_billing_at: string | null
+  activated_at: string | null
+  cancelled_at: string | null
+}
+
+/** Activar Pro: MP devuelve un `init_point` y el admin autoriza ahí. */
+export interface SubscriptionActivateRequest {
+  back_url: string
+  reason?: string
+  frequency_type?: 'months' | 'days'
+}
+
+export interface SubscriptionActivateResponse {
+  subscription_id: string
+  preapproval_id: string
+  status: string
+  init_point: string
+  next_billing_at: string | null
+  transaction_amount: number
+  currency: string
+}
+
+export interface SubscriptionCancelResponse {
+  subscription_id: string
+  status: string
+  cancelled_at: string
+  plan: SubscriptionPlan
 }

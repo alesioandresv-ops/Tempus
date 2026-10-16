@@ -44,6 +44,9 @@ import { FeriadosTab } from './admin/FeriadosTab'
 import { ReportesTab } from './admin/ReportesTab'
 import { ReservasTab } from './admin/ReservasTab'
 import { VacacionesTab } from './admin/VacacionesTab'
+import { AdminLayout, esPestana, type Pestana } from './admin/AdminLayout'
+import { PanelTab } from './admin/PanelTab'
+import { PagosTab } from './admin/PagosTab'
 
 /**
  * Panel de administración del negocio (Fase 4 + Fase C).
@@ -1276,51 +1279,33 @@ function HorariosTab() {
 // Página
 // --------------------------------------------------------------------------- //
 
-type Pestaña =
-  | 'bookings'
-  | 'clientes'
-  | 'reportes'
-  | 'configuracion'
-  | 'professionals'
-  | 'services'
-  | 'schedules'
-  | 'bloqueos'
-  | 'feriados'
-  | 'vacaciones'
-  | 'estadisticas'
-
-/** El orden del arreglo es el orden de los botones de la barra. */
-const PESTANAS = [
-  'bookings',
-  'clientes',
-  'reportes',
-  'configuracion',
-  'professionals',
-  'services',
-  'schedules',
-  'bloqueos',
-  'feriados',
-  'vacaciones',
-  'estadisticas',
-] as const satisfies readonly Pestaña[]
-
-/** Un `?tab=` de la URL solo vale si nombra una pestaña conocida. */
-function esPestaña(valor: string | null): valor is Pestaña {
-  return valor !== null && (PESTANAS as readonly string[]).includes(valor)
-}
-
 export default function AdminPage() {
   /*
    * La pestaña activa vive en el query param (`?tab=`), no en un `useState`: asi
    * un refresh--o un link que se pasa por WhatsApp--abre la misma pestaña, y el
-   * boton atras/adelante del navegador la mueve. `bookings` es el default y no
-   * escribe el param, para que `/admin` pelado quede prolijo.
+   * boton atras/adelante del navegador la mueve. `panel` es el default y no
+   * escribe el param, para que `/admin` pelado abra el resumen con una URL limpia.
    */
   const [searchParams, setSearchParams] = useSearchParams()
   const tabDeUrl = searchParams.get('tab')
-  const activeTab: Pestaña = esPestaña(tabDeUrl) ? tabDeUrl : 'bookings'
-  const setActiveTab = (pestaña: Pestaña) =>
-    setSearchParams(pestaña === 'bookings' ? {} : { tab: pestaña }, { replace: true })
+  const activeTab: Pestana = esPestana(tabDeUrl) ? tabDeUrl : 'panel'
+
+  /*
+   * `q` es la busqueda que llega desde el buscador del header. El layout no
+   * conoce la URL--solo avisa por `onBuscar`--y aca se traduce a la pestaña
+   * Clientes. Es lo que hace que buscar desde cualquier pestaña no pierda lo
+   * escrito y sea un link compartible.
+   */
+  const busqueda = searchParams.get('q') ?? ''
+
+  const setActiveTab = (pestana: Pestana) =>
+    setSearchParams(pestana === 'panel' ? {} : { tab: pestana }, { replace: true })
+
+  const buscar = (termino: string) =>
+    setSearchParams(
+      termino ? { tab: 'clientes', q: termino } : { tab: 'clientes' },
+      { replace: true }
+    )
 
   /*
    * El nombre del negocio va en el header para que un admin logueado en el
@@ -1337,99 +1322,35 @@ export default function AdminPage() {
   })
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-2xl font-bold mb-6">
-          Panel de Administración
-          {perfil?.business_name ? (
-            <span className="ml-3 align-middle text-lg font-semibold text-gray-500">
-              · {perfil.business_name}
-            </span>
-          ) : null}
-        </h1>
-
-        <div className="flex flex-wrap gap-2 mb-6" role="tablist">
-          <Button
-            variant={activeTab === 'bookings' ? 'default' : 'outline'}
-            onClick={() => setActiveTab('bookings')}
-          >
-            Reservas
-          </Button>
-          <Button
-            variant={activeTab === 'clientes' ? 'default' : 'outline'}
-            onClick={() => setActiveTab('clientes')}
-          >
-            Clientes
-          </Button>
-          <Button
-            variant={activeTab === 'reportes' ? 'default' : 'outline'}
-            onClick={() => setActiveTab('reportes')}
-          >
-            Reportes
-          </Button>
-          <Button
-            variant={activeTab === 'configuracion' ? 'default' : 'outline'}
-            onClick={() => setActiveTab('configuracion')}
-          >
-            Configuración
-          </Button>
-          <Button
-            variant={activeTab === 'professionals' ? 'default' : 'outline'}
-            onClick={() => setActiveTab('professionals')}
-          >
-            Profesionales
-          </Button>
-          <Button
-            variant={activeTab === 'services' ? 'default' : 'outline'}
-            onClick={() => setActiveTab('services')}
-          >
-            Servicios
-          </Button>
-          <Button
-            variant={activeTab === 'schedules' ? 'default' : 'outline'}
-            onClick={() => setActiveTab('schedules')}
-          >
-            Horarios
-          </Button>
-          <Button
-            variant={activeTab === 'bloqueos' ? 'default' : 'outline'}
-            onClick={() => setActiveTab('bloqueos')}
-          >
-            Bloqueos
-          </Button>
-          <Button
-            variant={activeTab === 'feriados' ? 'default' : 'outline'}
-            onClick={() => setActiveTab('feriados')}
-          >
-            Feriados
-          </Button>
-          <Button
-            variant={activeTab === 'vacaciones' ? 'default' : 'outline'}
-            onClick={() => setActiveTab('vacaciones')}
-          >
-            Vacaciones
-          </Button>
-          <Button
-            variant={activeTab === 'estadisticas' ? 'default' : 'outline'}
-            onClick={() => setActiveTab('estadisticas')}
-          >
-            Estadísticas
-          </Button>
-        </div>
-
-        {activeTab === 'bookings' && <ReservasTab />}
-        {activeTab === 'clientes' && <ClientesTab />}
-        {activeTab === 'reportes' && <ReportesTab />}
-        {activeTab === 'configuracion' && <ConfiguracionTab />}
-        {activeTab === 'bloqueos' && <BloqueosTab />}
-        {activeTab === 'feriados' && <FeriadosTab />}
-        {activeTab === 'vacaciones' && <VacacionesTab />}
-        {activeTab === 'estadisticas' && <EstadisticasTab />}
-
-        {activeTab === 'professionals' && <ProfesionalesTab />}
-        {activeTab === 'services' && <ServiciosTab />}
-        {activeTab === 'schedules' && <HorariosTab />}
-      </div>
-    </div>
+    <AdminLayout
+      activa={activeTab}
+      onSeleccionar={setActiveTab}
+      perfil={perfil}
+      busqueda={busqueda}
+      onBuscar={buscar}
+    >
+      {activeTab === 'panel' && (
+        <PanelTab onIrAReservas={() => setActiveTab('bookings')} />
+      )}
+      {activeTab === 'bookings' && <ReservasTab />}
+      {/*
+       * La `key` remonta Clientes cada vez que cambia la busqueda del header. Sin
+       * ella, buscar dos veces seguidas desde otra pestaña dejaria el input con el
+       * termino viejo: el estado local solo se siembra al montar, y ya estaria montado.
+       */}
+      {activeTab === 'clientes' && (
+        <ClientesTab key={busqueda} busquedaInicial={busqueda} />
+      )}
+      {activeTab === 'services' && <ServiciosTab />}
+      {activeTab === 'professionals' && <ProfesionalesTab />}
+      {activeTab === 'schedules' && <HorariosTab />}
+      {activeTab === 'bloqueos' && <BloqueosTab />}
+      {activeTab === 'feriados' && <FeriadosTab />}
+      {activeTab === 'vacaciones' && <VacacionesTab />}
+      {activeTab === 'estadisticas' && <EstadisticasTab />}
+      {activeTab === 'reportes' && <ReportesTab />}
+      {activeTab === 'pagos' && <PagosTab />}
+      {activeTab === 'configuracion' && <ConfiguracionTab />}
+    </AdminLayout>
   )
 }

@@ -38,6 +38,13 @@ import type {
   WhatsappConfig,
   WhatsappConfigSave,
   WhatsappConnectResult,
+  PaymentConfig,
+  PaymentConfigSave,
+  PaymentPolicyConfig,
+  SubscriptionStatus,
+  SubscriptionActivateRequest,
+  SubscriptionActivateResponse,
+  SubscriptionCancelResponse,
 } from '@/types'
 
 // En dev (sin `VITE_API_URL`) usa la ruta relativa, que el proxy de Vite manda al
@@ -656,6 +663,7 @@ export const api = {
     if (filtros.hasta) params.set('hasta', filtros.hasta)
     if (filtros.professional_id) params.set('professional_id', filtros.professional_id)
     if (filtros.estado) params.set('estado', filtros.estado)
+    if (filtros.solo_pendientes) params.set('solo_pendientes', 'true')
     if (filtros.q) params.set('q', filtros.q)
     if (filtros.limite) params.set('limite', String(filtros.limite))
     if (filtros.offset) params.set('offset', String(filtros.offset))
@@ -802,5 +810,49 @@ export const api = {
     fetchApi<WhatsappConnectResult>('/business/config/whatsapp/connect', {
       method: 'POST',
       body: JSON.stringify({ code, redirect_uri: redirectUri }),
+    }),
+
+  // --- Pagos y suscripción (Fase D-2) ---
+
+  /** Estado de la cuenta de Mercado Pago. El token vuelve enmascarado. */
+  getPaymentConfig: () => fetchApi<PaymentConfig>('/business/config/payments'),
+
+  /** Guarda la cuenta. Sin `access_token` conserva el token ya guardado. */
+  guardarPaymentConfig: (datos: PaymentConfigSave) =>
+    fetchApi<PaymentConfig>('/business/config/payments', {
+      method: 'PUT',
+      body: JSON.stringify(datos),
+    }),
+
+  /** Política de pago que el negocio exige al reservar online. */
+  getPaymentPolicy: () =>
+    fetchApi<PaymentPolicyConfig>('/business/config/payments/policy'),
+
+  guardarPaymentPolicy: (datos: PaymentPolicyConfig) =>
+    fetchApi<PaymentPolicyConfig>('/business/config/payments/policy', {
+      method: 'PUT',
+      body: JSON.stringify(datos),
+    }),
+
+  /** Plan actual y estado de la suscripción Pro. */
+  getSuscripcion: () => fetchApi<SubscriptionStatus>('/business/suscripcion'),
+
+  /**
+   * Crea el preapproval de Pro en MP y devuelve el `init_point`.
+   *
+   * El plan **no** cambia acá: pasa a `pro` cuando MP confirma por webhook.
+   * Esta respuesta es solo a dónde mandar al admin para autorizar el cobro.
+   */
+  activarSuscripcion: (datos: SubscriptionActivateRequest) =>
+    fetchApi<SubscriptionActivateResponse>('/business/suscripcion/activar', {
+      method: 'POST',
+      body: JSON.stringify(datos),
+    }),
+
+  /** Baja el preapproval y devuelve el negocio a `free`. */
+  cancelarSuscripcion: (motivo?: string) =>
+    fetchApi<SubscriptionCancelResponse>('/business/suscripcion/cancelar', {
+      method: 'POST',
+      body: JSON.stringify(motivo ? { motivo } : {}),
     }),
 }

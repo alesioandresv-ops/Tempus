@@ -38,10 +38,15 @@ const LIMITE = 50
  * última visita, profesional más frecuente) y, al hacer click en una fila, el
  * historial completo del cliente desde `/business/clientes/{id}/reservas`:
  * fecha, profesional, servicio, precio y estado.
+ *
+ * `busquedaInicial` es el término que llega desde el buscador del header (el
+ * `?q=` de la URL). Se siembra el estado local al montar; el padre remonta el
+ * componente con una `key` cuando cambia, así una búsqueda nueva no queda pisada
+ * por el estado de la anterior.
  */
-export function ClientesTab() {
-  const [busqueda, setBusqueda] = useState('')
-  const [busquedaAplicada, setBusquedaAplicada] = useState('')
+export function ClientesTab({ busquedaInicial = '' }: { busquedaInicial?: string }) {
+  const [busqueda, setBusqueda] = useState(busquedaInicial)
+  const [busquedaAplicada, setBusquedaAplicada] = useState(busquedaInicial.trim())
   const [detalle, setDetalle] = useState<ClienteDePanel | null>(null)
 
   const { data: clientes, isLoading, isError, error } = useQuery({
