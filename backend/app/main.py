@@ -175,9 +175,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # 1. `PROJECT_MASTER`, `ARCHITECTURE` §... y los ADR nombran `/api/v1/...` en
         #    cada ruta. Un codigo en `/api` obliga a editar mas de noventa lineas de
         #    documentacion para que cuadren.
-        # 2. `COOKIE_PATH` y `VITE_API_BASE_URL` apuntan a `/api/v1`, asi que el
-        #    prefijo corto hace que la cookie de refresh se envie en TODAS las
-        #    peticiones en vez de solo las de autenticacion. Eso no es un detalle
+        # 2. `COOKIE_PATH` apunta a `/api/v1` y el frontend arma su base como
+        #    `VITE_API_URL` + `/api/v1`, asi que el prefijo corto hace que la cookie
+        #    de refresh se envie en TODAS las peticiones en vez de solo las de
+        #    autenticacion. Eso no es un detalle
         #    cosmético: es exactamente la mitigacion de superficie que ese campo
         #    declara hacer, y queda anulada sin que nada falle.
         docs_url="/api/v1/docs",

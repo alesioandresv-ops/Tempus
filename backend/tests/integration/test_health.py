@@ -146,12 +146,12 @@ class TestOpenApi:
         "simplifique" moviendo el esquema a la raiz sin darse cuenta de que cambia la
         URL publica.
 
-        La version forma parte del prefijo y no es un detalle: `COOKIE_PATH` y
-        `VITE_API_BASE_URL` apuntan a `/api/v1`, asi que con el prefijo corto la
-        cookie de refresh se envia en todas las peticiones en lugar de solo en las de
-        autenticacion. La mitigacion de superficie que ese campo declara hacer queda
-        anulada, y ningun test de comportamiento lo detectaria: la cookie se sigue
-        enviando, solo que a todos lados.
+        La version forma parte del prefijo y no es un detalle: `COOKIE_PATH` apunta a
+        `/api/v1` y el frontend arma su base como `VITE_API_URL` + `/api/v1`. Con el
+        prefijo corto la cookie de refresh se envia en todas las peticiones en lugar
+        de solo en las de autenticacion. La mitigacion de superficie que ese campo
+        declara hacer queda anulada, y ningun test de comportamiento lo detectaria:
+        la cookie se sigue enviando, solo que a todos lados.
         """
         assert app.openapi_url == "/api/v1/openapi.json"
         assert app.docs_url == "/api/v1/docs"

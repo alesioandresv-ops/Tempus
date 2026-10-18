@@ -119,6 +119,23 @@ dejarlo implícito:
 
 **Total: de las 30 tablas, 23 con RLS y 7 sin ella.**
 
+### 5.9 Publicabilidad del negocio
+
+`businesses.status` (`trial`, `active`, `suspended`) es **estado administrativo**: dice si
+la plataforma dejó circular al negocio, no si pagó. Que un negocio acepte reservas online
+lo decide una sola función, `publicacion.es_publicable(business)`:
+
+```
+publicable     = status == active  Y  (plan == pro  O  ahora < fin_del_trial)
+fin_del_trial  = max(created_at, trial_grace_from) + trial_dias    # defaults 30 días, epoch
+```
+
+El alta nace `active` (migración `0024`, ADR-0017). Vencida la ventana sin plan Pro, el
+negocio deja de publicarse (la ruta pública responde 404) y el panel pasa a **solo
+lectura**: las escrituras reciben HTTP **402** (`code="plan_vencido"`). Los endpoints de
+suscripción quedan exentos para que un negocio vencido pueda pagar. El detalle y las
+alternativas están en ADR-0017.
+
 ## 6. Relaciones
 Business 1--N Professional, Service, Customer, Booking
 Professional N--N Service via professional_services FK compuesta
@@ -179,13 +196,13 @@ JWT, refresh rotation, Argon2, RBAC, rate limit PG, Zod/Pydantic, RLS + token ha
 Docker Compose dev. Prod Free: Render Free + Neon Free + Cloudflare Free + R2 Free + Worker cron.
 
 ## 19. Roadmap
-0.1 Spec DONE, 0.2 Onboarding /register, 1 Auth + RLS, 2 Negocios/profesionales/servicios/horarios configurables, 3 Motor disponibilidad, 4 Reservas sin cuenta + any professional, 5 Frontend /{slug}, 6 WhatsApp, 7 Panel, 8 Tests, 9 Pagos/mapas/dominios
+0.1 Spec DONE, 0.2 Onboarding /register, 1 Auth + RLS, 2 Negocios/profesionales/servicios/horarios configurables, 3 Motor disponibilidad, 4 Reservas sin cuenta + any professional, 5 Frontend /{slug}, 6 WhatsApp, 7 Panel, 8 Tests, 9 Pagos/mapas/dominios, 9.2 mes gratis de 30 días y gate 402 del panel (ADR-0017)
 
 ## 20. Riesgos
 Double-booking: EXCLUDE + FOR UPDATE. RLS bypass login: rol dedicado. Slug hijacking: SELECT FOR UPDATE. Pooler fuga: SET LOCAL.
 
 ## 21. Decisiones
-ADR-0001 Monolito modular, ADR-0002 RLS+FK compuesta, ADR-0008 EXCLUDE anti-doble-reserva, ADR-0010 tenant desde el JWT, ADR-0012 outbox transaccional, ADR-0013 un WABA por negocio, ADR-0016 rol dedicado para el login pre-tenant. Índice completo en docs/adr/README.md.
+ADR-0001 Monolito modular, ADR-0002 RLS+FK compuesta, ADR-0008 EXCLUDE anti-doble-reserva, ADR-0010 tenant desde el JWT, ADR-0012 outbox transaccional, ADR-0013 un WABA por negocio, ADR-0016 rol dedicado para el login pre-tenant, ADR-0017 estado administrativo vs. publicabilidad por plan y vigencia. Índice completo en docs/adr/README.md.
 
 ## 22. Decisiones aplazadas
 Sigue aplazado: dominios personalizados, marketplace, email al cliente, retenciones `pending_hold`, particionado de `bookings`, localización de la UI y analytics. **Ya implementados** (código y tests, aunque sin credenciales productivas): Mercado Pago (pago de la reserva y suscripción Pro, migración `0019`) y MapLibre (mapa de ubicación del negocio con raster de OSM).

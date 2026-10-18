@@ -8,6 +8,12 @@ Mercado inicial: Latinoamérica, en español.
 > verificados contra PostgreSQL real; la suite completa y el checklist de la
 > entrega viven en [`ENTREGA.md`](ENTREGA.md#entrega--tempus-v100-rc1).
 >
+> El alta es **autoservicio**: el negocio nace publicable con **30 días de mes gratis**.
+> Vencido el plazo sin plan Pro deja de aceptar reservas online y el panel pasa a solo
+> lectura (HTTP 402) hasta que active el pago (ver
+> [ADR-0017](docs/adr/0017-publicabilidad-y-plan.md)). La portada pública es la **landing**
+> en `/`.
+>
 > En curso: la **Fase 0.5 — Meta** (WhatsApp Business Platform). El arranque sin
 > chip (Embedded Signup, webhook) está implementado; el registro del número y la
 > validación viva dependen del chip. Runbook: [`docs/fase-05-meta.md`](docs/fase-05-meta.md).
@@ -140,8 +146,8 @@ servidor arriba.
 ```bash
 cd backend
 
-# 1. La suite completa. 1907 tests (272 s en CI; en Windows tarda bastante
-#    mas por los tests marcados `slow`).
+# 1. La suite completa. 1944 tests (en Windows, 1461 s ~ 24 min por los tests
+#    marcados `slow`; en CI corre mucho mas rapido).
 python -m pytest
 
 # 2. Los tipos de lo critico: seguridad y auth limpios.
@@ -176,14 +182,14 @@ reservas por IP `[404×10, 429]`, por teléfono `[404×5, 429]`, panel 200, tick
 compose y la local (ambas en head `0018_whatsapp_reminders`). Los 6 tests de
 `test_whatsapp_connect.py` (Fase 0.5) corren dentro de la suite.
 
-> **Nota (2026-10-15):** esa corrida es la del head `0018_whatsapp_reminders`. El
-> esquema hoy llega a `0023_reconcile_schema` (pagos de Mercado Pago, coordenadas del
-> negocio, ACL de `platform_users` y el reconciliado de esquema single/multi-rol), así
-> que los dos scripts se volvieron a correr contra ese head: `verificar_produccion.py`
-> → **15/15 PASS** (base local en `0023`) y `verificar_limites.py` → **13/13 PASS**
+> **Nota (2026-10-16):** el esquema llega a `0024_activar_al_alta` y los dos scripts se
+> volvieron a correr contra ese head, en la base local: `verificar_produccion.py` →
+> **15/15 PASS**, exit 0 (PostgreSQL 18.0) y `verificar_limites.py` → **13/13 PASS**
 > contra un uvicorn real en :8002. Lo que comprueban --`rate_limit_hit` INVOKER,
 > `search_path` sin `pg_temp`, tokens, enmascarado de secretos y los cinco límites del
-> §10.5-- no cambió con esas migraciones.
+> §10.5-- no cambió con `0024` (que solo ajusta el `status` con el que nace el negocio).
+> La corrida de 2026-10-15 había sido en `0023`; la de arriba (2026-10-09), en
+> `0018_whatsapp_reminders`.
 
 Los dos scripts de arriba tardan: cada uno espera a que expiren las ventanas de las
 corridas anteriores.
@@ -194,7 +200,7 @@ corridas anteriores.
 |---|---|---|
 | [`PROJECT_MASTER.md`](PROJECT_MASTER.md) | Especificación de producto y requirements. Fuente de verdad del *qué*. | Completo |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Diseño técnico: datos, API, dominio, despliegue, testing, roadmap. Fuente de verdad del *cómo*. | Completo |
-| [`docs/adr/`](docs/adr/README.md) | 16 decisiones arquitectónicas con sus alternativas descartadas. | Completo |
+| [`docs/adr/`](docs/adr/README.md) | 17 decisiones arquitectónicas con sus alternativas descartadas. | Completo |
 | [`.env.example`](.env.example) | Inventario de variables de entorno, agrupadas por dominio. Cubierto por tests. | Completo |
 | [`infra/postgres/init/`](infra/postgres/init/01-roles-and-extensions.sql) | Roles, privilegios y extensiones. | Completo |
 

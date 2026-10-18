@@ -34,6 +34,7 @@ nuevo que marque al anterior como `Reemplazada por ADR-XXXX`. No se editan a pos
 | [0014](0014-free-tier-deployment-profile.md) | Perfil de despliegue gratuito y heartbeat de Cloudflare | Aceptada | Infraestructura |
 | [0015](0015-openapi-generated-frontend-types.md) | Tipos del frontend generados desde OpenAPI | Aceptada | Frontend |
 | [0016](0016-pre-tenant-login-definer.md) | Rol dedicado para el login pre-tenant (antes de resolver el tenant) | Aceptada | Seguridad |
+| [0017](0017-publicabilidad-y-plan.md) | Estado administrativo y publicabilidad por plan y vigencia | Aceptada | Producto |
 
 ## Decisiones agrupadas por lo que protegen
 
@@ -63,6 +64,8 @@ nuevo que marque al anterior como `Reemplazada por ADR-XXXX`. No se editan a pos
   describir por teléfono.
 - [0001](0001-modular-monolith.md) — las fronteras de dominio, para que una función
   nueva no se escriba en el lugar equivocado.
+- [0017](0017-publicabilidad-y-plan.md) — un solo lugar decide si un negocio se publica;
+  `status` no carga el vencimiento del plan.
 
 **Consistencia y entrega**
 

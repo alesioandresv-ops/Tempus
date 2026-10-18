@@ -251,7 +251,22 @@ class Settings(BaseSettings):
     )
 
     # --- Frontend ----------------------------------------------------------
-    vite_api_base_url: str = Field(default="http://localhost:8000/api/v1")
+    #: Variables del build del frontend. El backend las declara para documentarlas
+    #: en `.env.example` (el test de config exige la paridad) pero no las lee.
+    vite_api_url: str = Field(
+        default="http://localhost:8000",
+        description=(
+            "Origen del backend para el frontend, SIN el prefijo `/api/v1`: "
+            "`frontend/src/services/api.ts` arma `${VITE_API_URL}/api/v1`."
+        ),
+    )
+    vite_root_domain: str = Field(
+        default="localhost",
+        description=(
+            "Dominio raiz para detectar el subdominio de negocio en el login. "
+            "Hoy no hay subdominios, asi que casi siempre es un no-op."
+        ),
+    )
     public_site_base_url: str = Field(
         default="http://localhost:5173",
         description=(
@@ -357,6 +372,22 @@ class Settings(BaseSettings):
         if value.tzinfo is None:
             return value.replace(tzinfo=dt.UTC)
         return value.astimezone(dt.UTC)
+
+    @field_validator("vite_api_url")
+    @classmethod
+    def _vite_api_url_sin_prefijo(cls, value: str) -> str:
+        """`VITE_API_URL` es un origen, no la URL con el prefijo de la API.
+
+        El frontend le agrega `/api/v1` (`frontend/src/services/api.ts`). Si el
+        valor ya trae el prefijo, el frontend pide a `/api/v1/api/v1` y no
+        encuentra la API: es el tipo de error que no falla al arrancar.
+        """
+        if value.rstrip("/").endswith("/api/v1"):
+            raise ValueError(
+                "VITE_API_URL debe ser el origen SIN `/api/v1` (ej: "
+                "http://localhost:8000): el frontend agrega el prefijo."
+            )
+        return value
 
     @model_validator(mode="after")
     def _validate_secrets(self) -> Self:

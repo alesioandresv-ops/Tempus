@@ -12,13 +12,13 @@ importa: un checklist que solo lista lo que funciona no sirve para decidir.
 
 | Qué | Resultado | Cómo se comprueba |
 |---|---|---|
-| Suite completa | **1249 passed, 0 failed, 0 skipped** (1489 s) | `cd backend; python -m pytest` |
-| Formato | 152 archivos, sin diferencias | `python -m ruff format --check .` |
+| Suite completa | **1944 passed, 0 failed, 0 skipped** (1461 s ≈ 24 min, Windows) | `cd backend; python -m pytest` |
+| Formato | 181 archivos, sin diferencias | `python -m ruff format --check .` |
 | Lint | sin errores en todo el repo | `python -m ruff check .` |
-| Tipos (crítico) | 0 errores en 12 archivos | `python -m mypy app/core app/modules/auth` |
+| Tipos (crítico) | 0 errores en 13 archivos | `python -m mypy app/core app/modules/auth` |
 | Rate limiting §10.5 | 5/5 límites, 13 checks PASS (uvicorn real :8002) | ver «Verificación final» en §1 |
 | Flujo público E2E | 42 comprobaciones | `python diagnostico_bugs.py` |
-| Endurecimiento de producción | 15/15 PASS, exit 0, compose + local (head 0018) | ver «Verificación final» en §1 |
+| Endurecimiento de producción | 15/15 PASS, exit 0, base local (head 0024) | ver «Verificación final» en §1 |
 | Migraciones | 1 head, `upgrade head` idempotente ×3 | ver abajo |
 | Higiene de archivos | sin BOM, sin mojibake, YAML válido | ver abajo |
 
@@ -84,6 +84,36 @@ límite público no alcanza al panel, y el tick del scheduler da 401 antes que 4
 credenciales productivas de WhatsApp y Mercado Pago; y los tests del frontend (ni Vitest
 ni Playwright están cableados).
 
+**Actualizado 2026-10-16 (HEAD `2933877`):** la suite es **1944 passed, 0 failed** (1461 s
+≈ 24 min en Windows) y el esquema llega a **`0024_activar_al_alta`**. Lo que cambió desde
+el 2026-10-15:
+
+- **Landing pública en `/`.** `frontend/src/pages/landing/LandingPage.tsx` sirve la
+  portada; el alta y el login siguen en `/register` y `/login`.
+- **Alta activa (ADR-0017, `0024_activar_al_alta`).** `tempus_create_business` crea el
+  negocio con `status='active'`: antes nacía `trial` (el default de la columna) y no se
+  publicaba hasta pasarlo a mano.
+- **Regla de publicación única.** `publicacion.es_publicable` = `status == active` **y**
+  (`plan == pro` **o** dentro de `max(created_at, TRIAL_GRACE_FROM) + TRIAL_DIAS`).
+  `status` pasa a ser estado administrativo; el plan y el tiempo, la regla de negocio. El
+  modelo, el servicio y el resolver público la llaman; ninguno la reimplementa.
+- **Gate 402 («Hueco 2»).** `exigir_plan_vigente` bloquea **escrituras** del panel cuando
+  venció el mes gratis (`402`, `code="plan_vencido"`, con `trial_ends_at`,
+  `dias_restantes` y `checkout_url`). Las lecturas quedan libres y `/business/suscripcion*`
+  vive en un `billing_router` sin guardia (un vencido tiene que poder pagar). En el
+  frontend, el banner `BloqueoVencimiento`.
+- **Tests y config nuevos.** `tests/unit/test_publicacion.py` y
+  `tests/integration/test_plan_vencido.py`; `TRIAL_DIAS`, `TRIAL_GRACE_FROM` y
+  `MERCADOPAGO_PRO_PLAN_PRICE` en `.env.example` y en `Settings`.
+
+**Verificado 2026-10-16 contra el head `0024` (base local `tempus`):**
+`verificar_produccion.py` → **15/15 PASS**, exit 0, sin warnings (PostgreSQL 18.0), y
+`verificar_limites.py` → **13/13 PASS** contra un uvicorn real en :8002 (login 5/min por
+IP, reserva 10/min por IP y 5/hora por teléfono, el límite público no alcanza al panel, y
+el tick del scheduler da 401 antes que 429). Lo que comprueban no cambió con `0024` (que
+solo ajusta el `status` con el que nace el negocio), pero se volvieron a correr contra ese
+head.
+
 ### Verificación final (2026-10-09, v1.0.0-rc1, HEAD `9ab2ab4`)
 
 Los dos scripts de verificación corrieron contra el entorno real —no en memoria— y
@@ -112,7 +142,7 @@ timestamp y `request_id`.
 
 ## 2. Migraciones
 
-- **Head único:** `0023_reconcile_schema`. No hay ramas.
+- **Head único:** `0024_activar_al_alta`. No hay ramas.
 - **Idempotencia verificada:** tres `alembic upgrade head` seguidos → código de
   salida `0 0 0`, versión sin cambios, ninguna migración aplicada.
 - `docker-entrypoint.sh` corre `alembic upgrade head` en cada arranque, así que no
@@ -404,7 +434,7 @@ cd ../frontend && npm run dev
 
 - [x] `docker compose build` funciona (§7.1) — hecho (2026-10-06)
 - [x] `docker compose up` end-to-end (§7.1) — hecho (2026-10-09): entrada de migración + `/healthz` 200 en :8000
-- [x] `python -m pytest` → 1249 passed (§1) — hecho
+- [x] `python -m pytest` → 1944 passed (§1) — hecho
 - [x] `python -m mypy app/core app/modules/auth` → 0 errores — hecho
 - [x] `python verificar_limites.py` → 5/5 límites, 13/13 PASS (§1) — hecho (2026-10-09)
 - [x] `python verificar_produccion.py` → 15/15 PASS, exit 0, compose + local (§8) — hecho (2026-10-09)

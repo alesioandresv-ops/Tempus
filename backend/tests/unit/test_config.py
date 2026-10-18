@@ -474,13 +474,17 @@ class TestEnvExample:
         assert migracion_url.endswith("/tempus")
         assert "asyncpg" in ejemplo["DATABASE_URL"]
 
-    def test_cookie_path_y_api_base_usan_el_prefijo_real(self) -> None:
-        """`COOKIE_PATH` tiene que ser una ruta que exista.
+    def test_cookie_path_y_api_url_usan_el_prefijo_real(self) -> None:
+        """`COOKIE_PATH` tiene que ser una ruta que exista, y `VITE_API_URL` un origen.
 
-        La app sirve la API bajo `/api/v1`. Si esta variable queda en otra cosa, la
+        La app sirve la API bajo `/api/v1`. Si `COOKIE_PATH` queda en otra cosa, la
         cookie de refresh se envia en todas las peticiones y no solo en las de
         autenticación, que es justo lo que el campo dice evitar. Y no falla nada:
         la cookie se sigue enviando.
+
+        `VITE_API_URL` es el **origen** del backend, sin el prefijo: el frontend lo
+        agrega (`api.ts` arma `${VITE_API_URL}/api/v1`). Si la variable ya lo
+        incluyera, el frontend pegaria a `/api/v1/api/v1`.
         """
         from app.main import create_app
 
@@ -491,6 +495,12 @@ class TestEnvExample:
         assert ejemplo["COOKIE_PATH"].startswith(prefijo), (
             f"COOKIE_PATH={ejemplo['COOKIE_PATH']} esta fuera del prefijo real {prefijo}"
         )
-        assert ejemplo["VITE_API_BASE_URL"].endswith(prefijo), (
-            f"VITE_API_BASE_URL={ejemplo['VITE_API_BASE_URL']} no termina en {prefijo}"
+        origen = ejemplo["VITE_API_URL"].rstrip("/")
+        assert not origen.endswith(prefijo), (
+            f"VITE_API_URL={ejemplo['VITE_API_URL']} ya incluye {prefijo}; api.ts lo "
+            "agrega y el frontend pediria a /api/v1/api/v1"
+        )
+        raiz = ejemplo["VITE_ROOT_DOMAIN"]
+        assert "://" not in raiz and "/" not in raiz, (
+            f"VITE_ROOT_DOMAIN={raiz} deberia ser un dominio (ej: tempus.app), no una URL"
         )
