@@ -69,11 +69,38 @@ export default {
           "0%": { backgroundPosition: "0% 50%" },
           "100%": { backgroundPosition: "200% 50%" },
         },
+        /**
+         * Entradas del login Aurora. `entra-izq` es la columna izquierda (marca y
+         * texto, que entran desplazandose de izquierda a derecha) y `entra-arriba`
+         * es la columna derecha (la tarjeta, que cae de arriba hacia abajo).
+         *
+         * El desplazamiento es **chico a proposito**: 56px y 34px. Un recorrido
+         * largo se siente lento aunque dure lo mismo, y ademas mueve mas pixeles
+         * por cuadro--se nota el salto. La curva elegida es la de desaceleracion
+         * fuerte: entra rapido y frena suave.
+         */
+        "entra-izq": {
+          from: { opacity: "0", transform: "translate3d(-56px, 0, 0)" },
+          to: { opacity: "1", transform: "translate3d(0, 0, 0)" },
+        },
+        "entra-arriba": {
+          from: { opacity: "0", transform: "translate3d(0, -34px, 0)" },
+          to: { opacity: "1", transform: "translate3d(0, 0, 0)" },
+        },
+        /** El "pop" final del boton: confirma sin llamar la atencion. */
+        "pop-cta": {
+          "0%": { transform: "scale(0.975)" },
+          "55%": { transform: "scale(1.015)" },
+          "100%": { transform: "scale(1)" },
+        },
       },
       animation: {
         "flotar-lento": "flotar-lento 9s ease-in-out infinite",
         "aparecer-arriba": "aparecer-arriba 0.7s cubic-bezier(0.22,1,0.36,1) both",
         brillo: "brillo 6s linear infinite",
+        "entra-izq": "entra-izq 0.8s cubic-bezier(0.22,1,0.36,1) both",
+        "entra-arriba": "entra-arriba 0.8s cubic-bezier(0.22,1,0.36,1) both",
+        "pop-cta": "pop-cta 0.5s cubic-bezier(0.34,1.56,0.64,1)",
       },
     },
   },

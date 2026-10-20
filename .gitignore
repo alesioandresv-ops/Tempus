@@ -52,5 +52,10 @@ frontend/vite.config.d.ts
 .pgdata/
 .env.testing
 
+# Original de la marca (JPEG de varios MB en la raiz). No lo usa la app: los PNG
+# que se sirven viven en `frontend/public/` y se derivan de este. Se versionan
+# los derivados, no la fuente pesada.
+Logo-Tempus.jpeg
+
 # Logs de servidores locales (uvicorn, vite), generados al desarrollarse a mano
 *.log

@@ -35,3 +35,31 @@
     @apply bg-background text-foreground;
   }
 }
+
+/**
+ * Respeto por `prefers-reduced-motion`.
+ *
+ * No se apaga *todo* movimiento: la flotacion de los blobs del fondo es
+ * decorativa y desaparece, pero las entradas del login se **acortan** en lugar
+ * de anularse--quitar una animacion de entrada deja el contenido con `opacity:0`
+ * para siempre, que es peor que la animacion (el contenido no se veria nunca).
+ *
+ * Un usuario con sensibilidad al movimiento agradece que no haya cosas cru-
+ * zando la pantalla; no que le falte el formulario.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .animate-flotar-lento,
+  .animate-brillo {
+    animation: none !important;
+  }
+
+  .animate-entra-izq,
+  .animate-entra-arriba {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+  }
+
+  .animate-pop-cta {
+    animation: none !important;
+  }
+}

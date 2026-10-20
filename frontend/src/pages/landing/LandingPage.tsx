@@ -25,6 +25,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { MarcaTempus } from "@/components/MarcaTempus";
 import { CLAVES_TEMAS, TEMAS, esClaveTema, type ClaveTema, type Tema } from "./temas";
 
 /**
@@ -264,21 +265,23 @@ const PREGUNTAS = [
 /* ------------------------------------------------------------------ piezas chicas ----------------- */
 
 function Marca({ t, compacta = false }: { t: Tema; compacta?: boolean }) {
+  /*
+   * Se usa el logo real de la marca en lugar del icono generico de reloj.
+   * `compacta` conserva la firma original--solo el simbolo, sin el punto de
+   * acento--para que los usos que ya existian sigan funcionando igual.
+   *
+   * El logo es azul/dorado y **no toma el color del tema**: los tres temas de
+   * la landing comparten la misma marca, que es lo que hace una marca. Por eso
+   * ya no se usa `t.acentoBg` ni `t.acentoTexto` aca.
+   */
   return (
     <span className="inline-flex items-center gap-2.5">
-      <span
-        className={`grid h-9 w-9 place-items-center rounded-xl ${t.acentoBg}`}
-        aria-hidden="true"
-      >
-        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.2}>
-          <circle cx="12" cy="12" r="8.5" strokeLinecap="round" />
-          <path d="M12 7.5V12l3 2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </span>
-      <span className={`text-lg font-bold tracking-tight ${t.textoFuerte} ${t.fuenteTitulo}`}>
-        Tempus
-        {!compacta && <span className={t.acentoTexto}>.</span>}
-      </span>
+      <MarcaTempus size={compacta ? 32 : 36} soloSimbolo={compacta} />
+      {!compacta && (
+        <span className={`text-lg font-bold tracking-tight ${t.textoFuerte} ${t.fuenteTitulo}`}>
+          Tempus
+        </span>
+      )}
     </span>
   );
 }

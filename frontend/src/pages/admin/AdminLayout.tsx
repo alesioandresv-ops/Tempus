@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { IsotipoTempus } from '@/components/MarcaTempus'
 import { api } from '@/services/api'
 import { cn } from '@/lib/utils'
 import type { SessionProfile } from '@/types'
@@ -172,9 +173,12 @@ export function AdminLayout({
         )}
       >
         <div className="flex h-16 items-center gap-2 px-5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-500">
-            <Scissors className="h-5 w-5 text-white" />
-          </span>
+          {/*
+            El isotipo de la marca en lugar del icono generico de tijeras. El
+            cuadro de color no se conserva: el logo ya trae el anillo azul/dorado
+            y ponerle un fondo macizo detras le come el corte del anillo.
+          */}
+          <IsotipoTempus size={32} />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold leading-tight text-white">
               {perfil?.business_name ?? 'Tempus'}

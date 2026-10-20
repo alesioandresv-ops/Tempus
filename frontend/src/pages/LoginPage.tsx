@@ -5,8 +5,8 @@ import { useMutation } from '@tanstack/react-query'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { MarcaTempus } from '@/components/MarcaTempus'
 import { api, ApiError, guardarAccessToken } from '@/services/api'
 import type { LoginRequest } from '@/types'
 
@@ -211,115 +211,237 @@ export default function LoginPage() {
     })
   })
 
+  /*
+   * ---------------------------------------------------------------------------
+   * Layout Aurora.
+   *
+   * La logica de arriba--validacion, mutacion, cuenta atras del 429 y destino
+   * por rol--no cambia: lo que cambia es la presentacion. El formulario sigue
+   * siendo el mismo `handleSubmit` y los mismos `register`.
+   *
+   * Dos columnas en escritorio y una sola en movil. **En movil no hay
+   * desplazamiento horizontal**: el bloque de marca no entra al costado de la
+   * tarjeta, entra arriba, y por eso ahi no se usa `entra-izq` (que mueve en
+   * X) sino `entra-arriba`. Un `translateX` en una pantalla angosta genera
+   * scroll lateral aunque el contenido termine en su lugar.
+   * ---------------------------------------------------------------------------
+   */
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-2xl">Iniciar sesion</CardTitle>
-          <CardDescription>Panel de administracion</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={alEnviar} className="space-y-4" noValidate>
-            {recienRegistrado && (
-              <div className="rounded-md bg-green-50 p-3 text-sm text-green-700">
-                Tu negocio ya esta creado. Entra con el correo y la contrasena que elegiste.
-              </div>
-            )}
+    <div className="relative min-h-screen overflow-x-hidden bg-[#070B1A] font-inter text-slate-100">
+      {/* Fondo: auroras de color difuminadas. Decorativo, `aria-hidden`. */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -left-32 -top-40 h-[520px] w-[520px] rounded-full bg-violet-600/25 blur-[120px] animate-flotar-lento" />
+        <div className="absolute -top-16 right-0 h-[460px] w-[460px] rounded-full bg-cyan-500/20 blur-[130px] animate-flotar-lento" />
+        <div className="absolute left-1/3 top-64 h-[420px] w-[420px] rounded-full bg-fuchsia-600/20 blur-[140px]" />
+      </div>
 
-            <div className="space-y-2">
-              <label htmlFor="email" className="text-sm text-gray-500">
-                Email
-              </label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="username"
-                placeholder="tu@email.com"
-                {...register('email')}
-              />
-              {errors.email && <p className="text-sm text-red-600">{errors.email.message}</p>}
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="password" className="text-sm text-gray-500">
-                Contrasena
-              </label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                placeholder="........"
-                {...register('password')}
-              />
-              {errors.password && (
-                <p className="text-sm text-red-600">{errors.password.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="business_slug" className="text-sm text-gray-500">
-                Tu URL <span className="text-gray-400">(opcional)</span>
-              </label>
-              <Input
-                id="business_slug"
-                placeholder="peluqueria-el-peluche"
-                autoComplete="off"
-                {...register('business_slug')}
-              />
-              {/*
-                El texto importa porque el campo se autocompleta--con el subdominio--y
-                una persona que no lo espere no va a entender para que esta. Y el "solo
-                si trabajas para dos negocios" es la condicion real: con uno solo, el
-                backend lo ignora.
-              */}
-              <p className="text-xs text-gray-400">
-                Solo si el mismo correo esta en dos negocios.
-              </p>
-              {errors.business_slug && (
-                <p className="text-sm text-red-600">{errors.business_slug.message}</p>
-              )}
-            </div>
-
+      <div className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-10 px-6 py-10 lg:flex-row lg:items-center lg:gap-16 lg:px-8">
+        {/* ------------------------------------------------------ columna izquierda */}
+        <div className="flex flex-1 flex-col justify-center lg:max-w-xl">
+          <div className="animate-entra-izq">
             {/*
-              El error va arriba y no al lado de un campo a proposito: no pertenece a
-              ninguno. Un 401 puede venir del correo o de la contrasena--el backend no
-              dice cual-- y ponerlo junto a uno de los dos accuse al otro.
+              El logo completo--simbolo **y** palabra--porque aca hay lugar: la
+              columna mide mas de 500 px y el logo entra comodo. El isotipo solo
+              se reserva para espacios chicos (la barra lateral del panel).
             */}
-            {loginMutation.isError && restantes === 0 && (
-              <p className="text-sm text-red-600">
-                {mensajeDeError(loginMutation.error, slugDelIntento !== null)}
-              </p>
-            )}
+            <MarcaTempus size={56} soloSimbolo={false} />
+          </div>
 
-            {/*
-              La cuenta atras reemplaza al error estatico: los dos a la vez darian
-              "deja 30 segundos" y "deja 30 segundos" que se contradicen al tic-taquear.
-            */}
-            {restantes > 0 && (
-              <p className="text-sm text-red-600">
-                Demasiados intentos. Proba de nuevo en {restantes} segundos.
-              </p>
-            )}
+          <span
+            className="mt-8 inline-flex w-fit items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium text-violet-200 animate-entra-izq"
+            style={{ animationDelay: '110ms' }}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-violet-400" aria-hidden="true" />
+            Panel de administracion
+          </span>
 
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={loginMutation.isPending || restantes > 0}
-            >
-              {loginMutation.isPending
-                ? 'Entrando...'
-                : restantes > 0
-                  ? `Espera ${restantes}s`
-                  : 'Entrar'}
-            </Button>
-          </form>
-        </CardContent>
-        <div className="px-6 pb-6 text-center text-sm text-gray-500">
-          <Link to="/register" className="text-blue-600 hover:text-blue-500">
-            No tenes negocio? Crear uno
-          </Link>
+          <h1
+            className="mt-6 font-display text-4xl font-semibold leading-tight tracking-tight text-white sm:text-5xl animate-entra-izq"
+            style={{ animationDelay: '220ms' }}
+          >
+            Tu agenda,
+            <br />
+            <span className="bg-gradient-to-r from-violet-400 via-fuchsia-400 to-cyan-300 bg-clip-text text-transparent">
+              siempre en orden
+            </span>
+          </h1>
+
+          <p
+            className="mt-5 max-w-md text-base leading-relaxed text-slate-400 animate-entra-izq"
+            style={{ animationDelay: '330ms' }}
+          >
+            Turnos, profesionales y cobros en un solo lugar. Entra con el correo y la
+            contrasena que usaste al crear tu negocio.
+          </p>
+
+          {/*
+            La agenda de vidrio. Es un mockup decorativo: no muestra datos reales
+            de nadie, asi que va `aria-hidden` para que un lector de pantalla no
+            lea turnos inventados.
+          */}
+          <div
+            aria-hidden="true"
+            className="mt-10 hidden max-w-md animate-entra-izq rounded-2xl border border-white/10 bg-white/[0.03] p-5 backdrop-blur-sm sm:block"
+            style={{ animationDelay: '440ms' }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-300">Hoy</span>
+              <span className="rounded-full bg-violet-500/20 px-2 py-0.5 text-[10px] font-medium text-violet-200">
+                4 turnos
+              </span>
+            </div>
+            <div className="mt-4 space-y-2.5">
+              {[
+                ['09:00', 'Corte y barba', 'bg-violet-500/70'],
+                ['10:30', 'Color completo', 'bg-cyan-500/70'],
+                ['12:00', 'Perfilado', 'bg-fuchsia-500/70'],
+              ].map(([hora, servicio, punto]) => (
+                <div key={hora} className="flex items-center gap-3">
+                  <span className="w-10 shrink-0 text-[11px] tabular-nums text-slate-400">
+                    {hora}
+                  </span>
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${punto}`} />
+                  <span className="truncate text-xs text-slate-300">{servicio}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-      </Card>
+
+        {/* ------------------------------------------------------ columna derecha */}
+        <div className="flex w-full flex-col justify-center lg:max-w-md">
+          <div
+            className="w-full animate-entra-arriba rounded-2xl border border-white/10 bg-[#0B1224]/90 p-7 shadow-[0_0_60px_-20px_rgba(139,92,246,0.5)] backdrop-blur-xl sm:p-8"
+            style={{ animationDelay: '180ms' }}
+          >
+            <h2 className="font-display text-2xl font-semibold tracking-tight text-white">
+              Iniciar sesion
+            </h2>
+            <p className="mt-1.5 text-sm text-slate-400">
+              Entra al panel de tu negocio
+            </p>
+
+            <form onSubmit={alEnviar} className="mt-7 space-y-4" noValidate>
+              {recienRegistrado && (
+                <div className="rounded-lg border border-emerald-400/20 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+                  Tu negocio ya esta creado. Entra con el correo y la contrasena que
+                  elegiste.
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label htmlFor="email" className="text-sm text-slate-300">
+                  Email
+                </label>
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="username"
+                  placeholder="tu@email.com"
+                  /*
+                   * El input de `ui/input` trae el look claro del panel. En el
+                   * fondo oscuro hay que repintarlo: sin esto queda una caja
+                   * blanca que rompe el tema.
+                   */
+                  className="border-white/10 bg-white/5 text-white placeholder:text-slate-500 focus-visible:ring-violet-400"
+                  {...register('email')}
+                />
+                {errors.email && (
+                  <p className="text-sm text-rose-400">{errors.email.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="password" className="text-sm text-slate-300">
+                  Contrasena
+                </label>
+                <Input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="........"
+                  className="border-white/10 bg-white/5 text-white placeholder:text-slate-500 focus-visible:ring-violet-400"
+                  {...register('password')}
+                />
+                {errors.password && (
+                  <p className="text-sm text-rose-400">{errors.password.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="business_slug" className="text-sm text-slate-300">
+                  Tu URL <span className="text-slate-500">(opcional)</span>
+                </label>
+                <Input
+                  id="business_slug"
+                  placeholder="peluqueria-el-peluche"
+                  autoComplete="off"
+                  className="border-white/10 bg-white/5 text-white placeholder:text-slate-500 focus-visible:ring-violet-400"
+                  {...register('business_slug')}
+                />
+                {/*
+                  El texto importa porque el campo se autocompleta--con el subdominio--y
+                  una persona que no lo espere no va a entender para que esta. Y el "solo
+                  si trabajas para dos negocios" es la condicion real: con uno solo, el
+                  backend lo ignora.
+                */}
+                <p className="text-xs text-slate-500">
+                  Solo si el mismo correo esta en dos negocios.
+                </p>
+                {errors.business_slug && (
+                  <p className="text-sm text-rose-400">{errors.business_slug.message}</p>
+                )}
+              </div>
+
+              {/*
+                El error va arriba y no al lado de un campo a proposito: no pertenece a
+                ninguno. Un 401 puede venir del correo o de la contrasena--el backend no
+                dice cual-- y ponerlo junto a uno de los dos accuse al otro.
+              */}
+              {loginMutation.isError && restantes === 0 && (
+                <p className="rounded-lg border border-rose-400/20 bg-rose-500/10 p-3 text-sm text-rose-200">
+                  {mensajeDeError(loginMutation.error, slugDelIntento !== null)}
+                </p>
+              )}
+
+              {/*
+                La cuenta atras reemplaza al error estatico: los dos a la vez darian
+                "deja 30 segundos" y "deja 30 segundos" que se contradicen al tic-taquear.
+              */}
+              {restantes > 0 && (
+                <p className="rounded-lg border border-rose-400/20 bg-rose-500/10 p-3 text-sm text-rose-200">
+                  Demasiados intentos. Proba de nuevo en {restantes} segundos.
+                </p>
+              )}
+
+              {/*
+                El boton blanco es el unico CTA de la pantalla y el unico elemento
+                macizo: sobre el fondo oscuro, el contraste hace el trabajo que en
+                un panel claro haria el color. El `pop` es la ultima pieza de la
+                cascada--entra despues que el resto y confirma el fin del movimiento.
+              */}
+              <Button
+                type="submit"
+                className="w-full animate-pop-cta rounded-xl bg-white py-2.5 font-semibold text-slate-900 transition-colors hover:bg-slate-200 disabled:opacity-60"
+                style={{ animationDelay: '760ms' }}
+                disabled={loginMutation.isPending || restantes > 0}
+              >
+                {loginMutation.isPending
+                  ? 'Entrando...'
+                  : restantes > 0
+                    ? `Espera ${restantes}s`
+                    : 'Entrar'}
+              </Button>
+            </form>
+
+            <div className="mt-6 border-t border-white/10 pt-5 text-center text-sm text-slate-400">
+              <Link to="/register" className="text-violet-300 hover:text-violet-200">
+                No tenes negocio? Crear uno
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
