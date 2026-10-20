@@ -237,14 +237,25 @@ export default function LoginPage() {
 
       <div className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-10 px-6 py-10 lg:flex-row lg:items-center lg:gap-16 lg:px-8">
         {/* ------------------------------------------------------ columna izquierda */}
+        {/*
+          Solo el logo va centrado en su columna (`lg:items-center`); el resto del
+          bloque--badge, titulo, parrafo y tarjeta--sigue alineado a la izquierda
+          como estaba. Por eso `lg:items-center` va en el contenedor del logo y no
+          en la columna: aplicado a la columna centraria tambien el texto.
+        */}
         <div className="flex flex-1 flex-col justify-center lg:max-w-xl">
-          <div className="animate-entra-izq">
+          <div className="flex animate-entra-izq lg:justify-center">
             {/*
               El logo completo--simbolo **y** palabra--porque aca hay lugar: la
               columna mide mas de 500 px y el logo entra comodo. El isotipo solo
               se reserva para espacios chicos (la barra lateral del panel).
+
+              El tamano es 128 y no 56: medido sobre la captura a 56 el anillo
+              quedaba en ~50 px visibles y se leia como un detalle en vez de como
+              la marca. A 128 el anillo ronda los 115 px, que es el peso visual que
+              corresponde a la primera pantalla.
             */}
-            <MarcaTempus size={56} soloSimbolo={false} />
+            <MarcaTempus size={128} soloSimbolo={false} />
           </div>
 
           <span
