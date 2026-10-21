@@ -44,10 +44,18 @@ export default function BusinessPage() {
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
   const [enlaceCopiado, setEnlaceCopiado] = useState(false)
 
-  const { data: business } = useQuery({
+  const {
+    data: business,
+    isLoading: cargandoNegocio,
+    error: errorNegocio,
+  } = useQuery({
     queryKey: ['business', slug],
     queryFn: () => api.getBusiness(slug!),
     enabled: !!slug,
+    // Un negocio que no existe no se arregla reintentando: el 404 es la respuesta,
+    // no un fallo transitorio. Sin esto la pagina espera los reintentos y parece
+    // colgada aunque el backend ya contesto.
+    retry: false,
   })
 
   const { data: services } = useQuery({
@@ -116,8 +124,46 @@ export default function BusinessPage() {
     }
   }
 
-  if (!business) {
-    return <div className="flex items-center justify-center min-h-screen">Cargando...</div>
+  /*
+   * Tres estados distintos, y la distincion importa.
+   *
+   * Antes esto era un solo `if (!business) return "Cargando..."`, que confundia "no
+   * llego todavia" con "no existe": un slug inexistente--o cualquiera de los 404 que
+   * da la API publica--dejaba la pagina girando para siempre, sin decir nada. Un
+   * negocio que no existe tiene que decirlo, y la persona tiene que poder hacer algo
+   * (volver, revisar el enlace) en vez de esperar una pagina que nunca va a cargar.
+   */
+  if (cargandoNegocio) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <p className="text-muted-foreground" role="status">Cargando...</p>
+      </div>
+    )
+  }
+
+  if (errorNegocio || !business) {
+    // El backend distingue "no existe" (404) del resto. El mensaje del 404 ya es
+    // claro y esta en castellano, asi que se muestra tal cual; para lo demas--sin
+    // red, 500--un texto generico es mas honesto que propagar un error tecnico.
+    const esNoEncontrado = errorNegocio instanceof ApiError && errorNegocio.status === 404
+    return (
+      <div className="min-h-screen bg-gray-50 py-8 px-4">
+        <div className="max-w-md mx-auto">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-2xl">
+                {esNoEncontrado ? 'No encontramos esta página' : 'No pudimos cargar la página'}
+              </CardTitle>
+              <CardDescription>
+                {esNoEncontrado
+                  ? 'El enlace puede estar mal escrito o el negocio ya no está disponible.'
+                  : 'Puede ser un problema de conexión. Probá recargar en un momento.'}
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </div>
+      </div>
+    )
   }
 
   //: `0,0` es "sin coordenadas" (la API nace con 0/null): no se ofrece el
