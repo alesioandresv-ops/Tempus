@@ -9,6 +9,23 @@ import { Input } from '@/components/ui/input'
 import { Turnstile, turnstileHabilitado } from '@/components/ui/Turnstile'
 import type { Service, Professional, Slot } from '@/types'
 
+/**
+ * El color de marca del negocio como estilo inline, o `undefined` si no hay.
+ *
+ * **Existe porque `brand_color` se guardaba, se validaba y se devolvia por la API...
+ * y no lo usaba nadie.** El negocio elegia su color y la pagina publica lo ignoraba,
+ * que es peor que no ofrecerlo: da la sensacion de que la personalizacion no anda.
+ *
+ * El valor llega validado del servidor (`_validar_color` acepta `#rgb`, `#rrggbb`,
+ * `rgb(...)` o un nombre de CSS y rechaza el resto), asi que se aplica **tal cual**.
+ * Aun asi se pinta con `color` y no como `background` ni `border`, y solo sobre el
+ * titulo: un color claro sobre fondo claro dejaria el nombre del negocio ilegible, y
+ * el titulo es lo unico que no puede desaparecer de esa pagina.
+ */
+function colorDeMarca(color: string | null | undefined): React.CSSProperties | undefined {
+  return color ? { color } : undefined
+}
+
 export default function BusinessPage() {
   const { slug } = useParams<{ slug: string }>()
   const [step, setStep] = useState(1)
@@ -114,7 +131,9 @@ export default function BusinessPage() {
       <div className="max-w-2xl mx-auto">
         <Card>
           <CardHeader>
-            <CardTitle className="text-2xl">{business.name}</CardTitle>
+            <CardTitle className="text-2xl" style={colorDeMarca(business.brand_color)}>
+              {business.name}
+            </CardTitle>
             {business.description && (
               <CardDescription>{business.description}</CardDescription>
             )}

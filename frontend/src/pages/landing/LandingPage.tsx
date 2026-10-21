@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   ArrowRight,
   BarChart3,
@@ -26,7 +26,7 @@ import {
   Zap,
 } from "lucide-react";
 import { MarcaTempus } from "@/components/MarcaTempus";
-import { CLAVES_TEMAS, TEMAS, esClaveTema, type ClaveTema, type Tema } from "./temas";
+import { TEMAS, type ClaveTema, type Tema } from "./temas";
 
 /**
  * Landing de captacion: la pagina que ve un negocio que todavia no es cliente.
@@ -35,9 +35,10 @@ import { CLAVES_TEMAS, TEMAS, esClaveTema, type ClaveTema, type Tema } from "./t
  * caerse si el backend esta abajo (y asi se puede mirar y capturar sin levantar
  * Postgres).
  *
- * **Hay tres estilos y se elige con `?tema=`** (`aurora` por defecto). El contenido y
- * la estructura son los mismos; la piel sale de `temas.ts`. Cuando se elija uno, se
- * borra el selector y los otros dos temas, y el/los elegido/s queda fijo.
+ * **El estilo es fijo: aurora.** Antes habia tres y se elegian con `?tema=`, con una
+ * barra flotante para compararlos. Se eligio aurora, asi que el selector y los otros
+ * dos temas se borraron. El contenido y la estructura salen de esta pagina; la piel,
+ * de `temas.ts`.
  *
  * **No hay testimonios ni cifras inventadas**: los que habia eran de relleno y
  * publicarlos como reales seria publicidad enganosa. En su lugar va una seccion de
@@ -417,50 +418,16 @@ function MaquetaAgenda({ t }: { t: Tema }) {
   );
 }
 
-/* ------------------------------------------------------------------ selector de estilo ----------- */
-
-/**
- * Barra flotante para comparar los tres estilos. Es una herramienta de revision:
- * cuando el usuario elija uno, se borra junto con los temas que sobran.
- */
-function SelectorTema({ t, actual, onElegir }: { t: Tema; actual: ClaveTema; onElegir: (c: ClaveTema) => void }) {
-  return (
-    <div className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2 px-4">
-      <div className="flex items-center gap-2 rounded-full border border-white/15 bg-neutral-900/90 p-1.5 pl-3 text-white shadow-2xl backdrop-blur-xl">
-        <span className="hidden items-center gap-1.5 pr-1 text-[11px] font-medium text-white/70 sm:flex">
-          <Sparkles className="h-3.5 w-3.5" />
-          Estilo
-        </span>
-        {CLAVES_TEMAS.map((clave) => {
-          const tema = TEMAS[clave];
-          const activo = clave === actual;
-          return (
-            <button
-              key={clave}
-              type="button"
-              onClick={() => onElegir(clave)}
-              className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-                activo ? "bg-white text-neutral-900" : "text-white/70 hover:bg-white/10 hover:text-white"
-              }`}
-              title={tema.lema}
-            >
-              <span className={`h-3.5 w-3.5 rounded-full ${tema.muestra}`} aria-hidden="true" />
-              {tema.nombre}
-            </button>
-          );
-        })}
-        <span className="sr-only">Estilo actual: {t.nombre}</span>
-      </div>
-    </div>
-  );
-}
-
 /* ------------------------------------------------------------------ pagina ------------------------ */
 
 export default function LandingPage() {
-  const [params, setParams] = useSearchParams();
-  const paramTema = params.get("tema");
-  const clave: ClaveTema = esClaveTema(paramTema) ? paramTema : "aurora";
+  /*
+   * **El estilo es fijo: aurora.** Antes esto leia `?tema=` y habia una barra
+   * flotante para comparar tres estilos. Se eligio aurora, asi que el selector y
+   * los otros dos temas (`calido`, `minimal`) se borraron: quedarse con el
+   * parametro era dejar una puerta a un tema que ya no existe.
+   */
+  const clave: ClaveTema = "aurora";
   const t = TEMAS[clave];
 
   const [menuAbierto, setMenuAbierto] = useState(false);
@@ -477,12 +444,6 @@ export default function LandingPage() {
       document.documentElement.style.scrollBehavior = previo;
     };
   }, []);
-
-  const elegirTema = (nueva: ClaveTema) => {
-    const siguientes = new URLSearchParams(params);
-    siguientes.set("tema", nueva);
-    setParams(siguientes, { replace: true });
-  };
 
   return (
     <div className={`relative min-h-screen overflow-x-hidden ${t.pagina} font-inter`}>
@@ -928,7 +889,10 @@ export default function LandingPage() {
         </div>
       </footer>
 
-      <SelectorTema t={t} actual={clave} onElegir={elegirTema} />
+      {/*
+        Aca estaba el <SelectorTema>. Se borro junto con los temas `calido` y
+        `minimal`: el estilo quedo fijo en `aurora`.
+      */}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { Button } from '@/components/ui/button'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Button, buttonVariants } from '@/components/ui/button'
 import {
   Card,
   CardContent,
@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { MapaComponente } from '@/components/ui/MapaComponente'
-import type { WhatsappConfig, WhatsappConfigSave } from '@/types'
+import type { Negocio, WhatsappConfig, WhatsappConfigSave } from '@/types'
 import { api } from '@/services/api'
 import { mensajeDeError, MensajeDeError } from './comun'
 
@@ -113,6 +113,18 @@ interface WhatsappConfigSaveConCoordenadas extends WhatsappConfigSave {
   longitude: number
 }
 
+/**
+ * La URL publica de reservas del negocio: `origin` + `/<slug>`.
+ *
+ * Se arma con `window.location.origin` y no con una variable de entorno a proposito:
+ * en dev es `localhost:5173` y en produccion el dominio real, y las dos son la URL
+ * que la persona tiene que copiar. Una constante de build quedaria desfasada en
+ * cuanto se despliega en un dominio distinto.
+ */
+function urlPublica(slug: string): string {
+  return `${window.location.origin}/${slug}`
+}
+
 export function ConfiguracionTab() {
   const {
     data: config,
@@ -124,6 +136,53 @@ export function ConfiguracionTab() {
     queryFn: api.obtenerConfigWhatsapp,
     retry: false,
   })
+
+  /*
+   * El negocio propio: de aca sale el `slug` de la URL publica y el `brand_color`.
+   *
+   * Va aparte del query de WhatsApp a proposito: uno puede fallar sin el otro, y la
+   * URL publica es lo unico que necesita un admin que nunca conecto WhatsApp. Un
+   * `retry: false` porque un 403 de scopes no se arregla reintentando, y el error se
+   * muestra en la tarjeta en vez de romper la pantalla entera.
+   */
+  const { data: negocio } = useQuery<Negocio>({
+    queryKey: ['negocio-propio'],
+    queryFn: api.obtenerNegocio,
+    retry: false,
+  })
+
+  const [urlCopiada, setUrlCopiada] = useState(false)
+
+  const queryClient = useQueryClient()
+  const [colorMarca, setColorMarca] = useState('#000000')
+  const [colorCargado, setColorCargado] = useState(false)
+  const [guardandoColor, setGuardandoColor] = useState(false)
+  const [colorGuardado, setColorGuardado] = useState(false)
+  const [errorColor, setErrorColor] = useState<string | null>(null)
+
+  // Un solo efecto, y con el mismo guardia que el formulario de WhatsApp: el color
+  // se rellena con lo que vino de la API una vez, para que un refetch posterior no
+  // pise lo que la persona esta eligiendo.
+  useEffect(() => {
+    if (negocio && !colorCargado) {
+      setColorMarca(negocio.brand_color ?? '#000000')
+      setColorCargado(true)
+    }
+  }, [negocio, colorCargado])
+
+  const guardarColor = async () => {
+    setErrorColor(null)
+    setGuardandoColor(true)
+    try {
+      await api.actualizarNegocio({ brand_color: colorMarca })
+      await queryClient.invalidateQueries({ queryKey: ['negocio-propio'] })
+      setColorGuardado(true)
+    } catch (e) {
+      setErrorColor(mensajeDeError(e))
+    } finally {
+      setGuardandoColor(false)
+    }
+  }
 
   const [activo, setActivo] = useState(false)
   const [phoneNumberId, setPhoneNumberId] = useState('')
@@ -255,6 +314,103 @@ export function ConfiguracionTab() {
 
   return (
     <>
+      <Card>
+        <CardHeader>
+          <CardTitle>Tu página de reservas</CardTitle>
+          <CardDescription>
+            Este es el enlace que les pasás a tus clientes para que reserven solos.
+            Podés copiarlo y mandarlo por WhatsApp, Instagram o donde quieras.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {negocio ? (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <code className="min-w-0 flex-1 truncate rounded-md border bg-muted px-3 py-2 text-sm">
+                  {urlPublica(negocio.slug)}
+                </code>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    navigator.clipboard
+                      ?.writeText(urlPublica(negocio.slug))
+                      .then(() => setUrlCopiada(true))
+                      .catch(() => setUrlCopiada(false))
+                  }}
+                >
+                  {urlCopiada ? 'Copiado' : 'Copiar enlace'}
+                </Button>
+                <a
+                  href={`/${negocio.slug}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={buttonVariants({ variant: 'outline' })}
+                >
+                  Ver página
+                </a>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                El enlace se arma con el identificador del negocio, que se eligió al
+                registrarse. Si necesitás cambiarlo, escribinos.
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground" role="status">
+              No pudimos cargar el enlace del negocio.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Color de tu marca</CardTitle>
+          <CardDescription>
+            Aparece en el nombre de tu página de reservas. Es parte de la
+            personalización; si querés algo más a medida, escribinos.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {negocio ? (
+            <>
+              <div className="flex flex-wrap items-center gap-3">
+                <input
+                  type="color"
+                  aria-label="Color de la marca"
+                  value={colorMarca}
+                  onChange={(e) => {
+                    setColorGuardado(false)
+                    setColorMarca(e.target.value)
+                  }}
+                  className="h-10 w-14 cursor-pointer rounded-md border bg-background"
+                />
+                <code className="rounded-md border bg-muted px-3 py-2 text-sm">
+                  {colorMarca}
+                </code>
+                <Button
+                  type="button"
+                  onClick={guardarColor}
+                  disabled={guardandoColor || colorMarca === (negocio.brand_color ?? '#000000')}
+                >
+                  {guardandoColor ? 'Guardando...' : 'Guardar color'}
+                </Button>
+                {colorGuardado && (
+                  <span className="text-sm text-muted-foreground" role="status">
+                    Guardado
+                  </span>
+                )}
+              </div>
+              <MensajeDeError error={errorColor} />
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground" role="status">
+              No pudimos cargar el color del negocio.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Conectar WhatsApp</CardTitle>

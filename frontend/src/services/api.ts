@@ -11,6 +11,8 @@ import type {
   LoginRequest,
   LoginResponse,
   SessionProfile,
+  Negocio,
+  NegocioPatch,
   PanelService,
   PanelProfessional,
   ServicioCreateRequest,
@@ -152,8 +154,17 @@ export function guardarAccessToken(token: string | null): void {
  *
  * Aun asi se genera uno por pestana y no se manda un string fijo: es lo que va a
  * funcionar el dia que el backend deje de aceptar cualquier formato, y cambiarlo
- * despues es tocar una sola linea. La defense de fondo no es el token sino que la
- * cookie es `SameSite=strict`, asi que un formulario de otro sitio ni la manda.
+ * despues es tocar una sola linea.
+ *
+ * **La defensa de fondo es el chequeo de `Origin`**, no el `SameSite`. El backend
+ * (`verify_csrf_and_origin`) rechaza con 403 cualquier `Origin` que no este en
+ * `CORS_ORIGINS`, y el navegador no deja que una pagina de otro sitio falsifique esa
+ * cabecera. Importa tenerlo claro porque el comentario anterior decia que la defensa
+ * era la cookie `SameSite=strict`: si algun dia el frontend y la API quedaran en
+ * origenes distintos, `strict` hace que el navegador **descarte** la cookie de refresh
+ * (y el sintoma es que un F5 echa a la persona al login), mientras que el `Origin`
+ * sigue filtrando aunque se pase a `none`. En el despliegue actual no pasa: el Worker
+ * de Cloudflare proxya `/api/*` a Render, asi que hay un solo origen.
  */
 function tokenCsrf(): string {
   return crypto.randomUUID()
@@ -530,6 +541,26 @@ export const api = {
   // bajo `/business`, con la RLS del tenant puesta por el
   // token. Las listas devuelven solo activos; los archivados
   // se piden explicitamente con `incluir_archivados`.
+
+  /**
+   * Configuracion del negocio propio (`GET /business/negocio`).
+   *
+   * Es de donde sale el `slug`, que es la URL publica de reservas. No hay otro
+   * endpoint que lo devuelva: `me()` trae identidad y scopes, no la configuracion.
+   */
+  obtenerNegocio: () => fetchApi<Negocio>('/business/negocio'),
+
+  /**
+   * Edita la configuracion del negocio (`PATCH /business/negocio`).
+   *
+   * `NegocioPatch` tiene `extra="forbid"`, asi que mandar una clave que no existe es
+   * un 422: por eso los cambios son un tipo explicito y no un `Partial<Negocio>`.
+   */
+  actualizarNegocio: (cambios: NegocioPatch) =>
+    fetchApi<Negocio>('/business/negocio', {
+      method: 'PATCH',
+      body: JSON.stringify(cambios),
+    }),
 
   // --- Servicios ---
   listarServicios: () => fetchApi<PanelService[]>('/business/servicios'),

@@ -169,6 +169,55 @@ export interface SessionProfile {
 // estado-- porque la unica forma de mostrar "archivado" es tenerlo.
 // --------------------------------------------------------------------------- //
 
+/**
+ * Configuracion del negocio propio: `GET /business/negocio` (`NegocioOut`).
+ *
+ * **`slug` es la razon de que este tipo exista.** El `Business` publico no lo trae,
+ * y el slug es la URL con la que el negocio comparte su pagina de reservas
+ * (`/<slug>`). Es la unica forma de que un admin la vea: al registrarse la elige una
+ * vez y despues no aparece en ninguna pantalla.
+ */
+export interface Negocio {
+  id: string
+  slug: string
+  name: string
+  description: string | null
+  timezone: string
+  locale: string
+  currency: string
+  phone_e164: string | null
+  address_text: string | null
+  brand_color: string | null
+  slot_interval_minutes: number
+  min_lead_minutes: number
+  max_advance_days: number
+  cancellation_window_minutes: number
+  status: string
+  created_at: string
+}
+
+/**
+ * Cambios parciales de la configuracion del negocio (`NegocioPatch`).
+ *
+ * Espeja el schema del backend, que tiene `extra="forbid"`: una clave de mas es un
+ * 422, no un campo ignorado. Por eso NO es `Partial<Negocio>`--`Negocio` trae `id`,
+ * `status` y `created_at`, que no se editan y no estan en el patch.
+ */
+export interface NegocioPatch {
+  name?: string
+  description?: string | null
+  timezone?: string
+  locale?: string
+  currency?: string
+  phone_e164?: string | null
+  address_text?: string | null
+  brand_color?: string | null
+  slot_interval_minutes?: number
+  min_lead_minutes?: number
+  max_advance_days?: number
+  cancellation_window_minutes?: number
+}
+
 /** Servicio tal como lo devuelve el panel: incluye el estado y el orden. */
 export interface PanelService {
   id: string

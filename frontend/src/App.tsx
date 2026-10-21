@@ -43,7 +43,7 @@ function App() {
       <AvisoDeFinDeSesion />
       <Routes>
         {/* Raiz: landing de captacion. El login vive en /login.
-            Para comparar los tres estilos: /?tema=aurora | calido | minimal */}
+            El estilo es fijo: aurora. El ?tema= y los otros estilos se borraron. */}
         <Route path="/" element={<LandingPage />} />
 
         {/* Register */}
