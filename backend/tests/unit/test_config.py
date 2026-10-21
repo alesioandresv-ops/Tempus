@@ -150,8 +150,28 @@ class TestNormalizaciones:
 
     @pytest.mark.parametrize("valor", ["none", "None", "NONE"])
     def test_samesite_none_es_valido(self, valor: str) -> None:
-        """`None` es necesario para el cross-site de las cookies de refresh."""
-        assert _settings(cookie_samesite=valor).cookie_samesite == "none"
+        """`None` es necesario para el cross-site de las cookies de refresh.
+
+        Va con `cookie_secure=True` porque el navegador **descarta** una cookie
+        `SameSite=None` sin `Secure`: validar el valor suelto daria por bueno un
+        conjunto que en la practica no guarda nada. El par obligatorio se cubre en
+        `test_samesite_none_sin_secure_falla`.
+        """
+        assert _settings(cookie_samesite=valor, cookie_secure=True).cookie_samesite == "none"
+
+    def test_samesite_none_sin_secure_falla(self) -> None:
+        """`SameSite=None` sin `Secure` no falla de forma visible: la cookie desaparece.
+
+        Es el bug que dejaba al panel expulsando a la persona al recargar--el
+        navegador no guarda la cookie y el sintoma no se parece a un error de
+        configuracion--, asi que se rechaza al arrancar en vez de en silencio.
+        """
+        with pytest.raises(ValidationError, match="COOKIE_SECURE"):
+            _settings(cookie_samesite="none", cookie_secure=False)
+
+    def test_samesite_strict_sin_secure_es_valido(self) -> None:
+        """La regla es solo para `none`: `strict` en local no necesita `Secure`."""
+        assert _settings(cookie_samesite="strict", cookie_secure=False).cookie_samesite == "strict"
 
     @pytest.mark.parametrize("valor", ["sin_samesite", "", "lax2"])
     def test_samesite_invalido_se_rechaza(self, valor: str) -> None:

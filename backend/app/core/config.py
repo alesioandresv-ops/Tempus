@@ -360,6 +360,30 @@ class Settings(BaseSettings):
             raise ValueError(f"COOKIE_SAMESITE debe ser uno de {sorted(allowed)}")
         return value.lower()
 
+    @model_validator(mode="after")
+    def _samesite_none_requiere_secure(self) -> Self:
+        """`SameSite=None` sin `Secure` produce una cookie que el navegador tira.
+
+        El despliegue real es **mismo origen** (el Worker de Cloudflare proxya `/api/*`
+        a Render), asi que va `strict`, que es el default. Esta regla es para el caso
+        cross-site deliberado--frontend y API en dominios distintos--: ahi `strict` no
+        sirve, porque el navegador descarta la cookie, y la unica combinacion que
+        guarda es `None` + `Secure`.
+
+        Se valida al arrancar porque el modo de falla es mudo: con `None` y sin
+        `Secure` el navegador **no guarda la cookie** y no falla nada visible. El
+        sintoma es "el F5 me echa al login", que no se parece en nada a un error de
+        configuracion; un arranque que falla con el motivo es mucho mas barato que
+        diagnosticar una cookie ausente desde el navegador.
+        """
+        if self.cookie_samesite == "none" and not self.cookie_secure:
+            raise ValueError(
+                "COOKIE_SAMESITE=none requiere COOKIE_SECURE=true: el navegador "
+                "descarta una cookie SameSite=None sin Secure, y el sintoma es que "
+                "la sesion no sobrevive a un F5."
+            )
+        return self
+
     @field_validator("trial_grace_from")
     @classmethod
     def _trial_grace_con_tz(cls, value: dt.datetime) -> dt.datetime:

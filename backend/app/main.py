@@ -199,12 +199,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "https://tempus-demo-wine.vercel.app",
-            "http://localhost:5173",
-            "http://localhost:3000",
-            "https://tempus-demo-wine.vercel.app",
-        ],
+        # Se lee de `settings.cors_origins` y no de una lista literal. Antes estaba
+        # hardcodeada, con una entrada duplicada y un dominio de Vercel que ya no se
+        # usa, y el problema real no era la lista sino que `verify_csrf_and_origin`
+        # valida `origin in settings.cors_origins`: el middleware y el chequeo de
+        # CSRF miraban **dos listas distintas**. Cualquier origen agregado en el
+        # `.env` pasaba el CSRF pero el navegador lo rechazaba por CORS (y al reves,
+        # un origen de la lista literal no podia usarse como origen real).
+        allow_origins=resolved.cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", REQUEST_ID_HEADER, "Idempotency-Key"],
