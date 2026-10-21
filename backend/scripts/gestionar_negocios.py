@@ -35,9 +35,11 @@ Contra produccion, sin exportar nada a mano:
 
     DATABASE_MIGRATION_URL="postgresql+asyncpg://..." python scripts/gestionar_negocios.py
 
-El negocio arrastra sus `business_users` por `ON DELETE CASCADE` del FK, pero el
-script los cuenta y los informa antes de borrar: si un dia el cascade cambia, el
-numero que muestra deja de coincidir y se nota.
+El borrado **no se apoya en el cascade** para las dos tablas que importan
+(`professionals` y `business_users`): las vacia en un orden explicito y documentado.
+No es por desconfianza del motor, es porque el cascade de `professionals` esta roto y
+tiene que sortearse--ver `_orden_de_borrado`. El resto de las tablas que apuntan a
+`businesses` si caen por `CASCADE`.
 """
 
 from __future__ import annotations
@@ -193,6 +195,37 @@ async def _usuarios_de(conn, business_id) -> list:
     ).all()
 
 
+def _orden_de_borrado() -> list[tuple[str, str]]:
+    """Las tablas a vaciar antes de borrar el negocio, en orden.
+
+    **`professionals` va primero, y no es un detalle.** Su FK a `business_users` es
+    compuesto--`(user_id, business_id)` -> `(id, business_id)`-- con `ON DELETE SET
+    NULL`: borrar el miembro del negocio deslinkea al profesional en vez de borrarlo,
+    que es lo que se quiere cuando alguien deja de tener login. El problema es que
+    Postgres aplica `SET NULL` a **las dos** columnas del FK, y `business_id` es
+    `NOT NULL`: en cuanto `business_users` se vacia--aunque sea por el cascade del
+    negocio--la fila de `professionals` intenta quedar con `business_id = NULL` y
+    viola el constraint. El borrado entero falla, y el error que se ve--"null value
+    in column business_id of relation professionals"-- no menciona ni al negocio ni
+    al usuario, asi que no dice nada sobre la causa.
+
+    Borrar los `professionals` uno mismo, antes, evita ese camino. Es lo mismo que el
+    `SET NULL` lograria si el FK estuviera bien, pero sin el NOT NULL de por medio.
+
+    El resto de las tablas que apuntan a `businesses` si son `ON DELETE CASCADE`
+    (verificado contra el catalogo de Postgres), asi que el `DELETE` final las
+    arrastra solo. `business_users` se borra explicito y no se confia en el cascade:
+    si una migracion futura lo cambia, esto sigue dejando la base limpia en vez de
+    fallar con un FK violation, y el orden respecto de `professionals` queda escrito
+    en vez de depender del motor.
+    """
+    return [
+        ("professionals", "business_id = :bid"),
+        ("business_users", "business_id = :bid"),
+        ("businesses", "id = :bid"),
+    ]
+
+
 async def _borrar(conn, slug: str, *, sin_confirmar: bool) -> int:
     """Borra el negocio y devuelve cuantos borro de verdad (0 o 1)."""
     fila = (
@@ -224,22 +257,28 @@ async def _borrar(conn, slug: str, *, sin_confirmar: bool) -> int:
     # cero filas y no falla: diria que borro y no borro. Se apaga dentro de esta
     # transaccion y se vuelve a encender antes del commit, asi el estado de la tabla
     # no queda cambiado si algo sale mal en el medio.
+    #
+    # **El `finally` no re-habilita.** Suena a lo correcto, pero un `finally` corre
+    # tambien cuando la transaccion quedo abortada--y ahi *cualquier* sentencia falla
+    # con "current transaction is aborted", tapando el error original con uno que no
+    # dice nada. Una transaccion abortada no puede ejecutar el `ENABLE`, asi que el
+    # `finally` no protegia nada y solo rompia el diagnostico. Si algo falla, el
+    # `rollback` del contexto de SQLAlchemy ya revierte el `DISABLE`.
     await conn.execute(text("ALTER TABLE businesses DISABLE ROW LEVEL SECURITY"))
-    try:
-        resultado = await conn.execute(
-            text("DELETE FROM businesses WHERE id = :bid"), {"bid": fila.id}
-        )
-        # El FK de business_users es ON DELETE CASCADE, pero se borran igual por las
-        # dudas: si la migracion cambia el cascade, esto sigue dejando la base limpia
-        # en vez de fallar con un FK violation.
-        await conn.execute(
-            text("DELETE FROM business_users WHERE business_id = :bid"), {"bid": fila.id}
-        )
-    finally:
-        await conn.execute(text("ALTER TABLE businesses ENABLE ROW LEVEL SECURITY"))
-        await conn.execute(text("ALTER TABLE businesses FORCE ROW LEVEL SECURITY"))
 
-    borrados = resultado.rowcount or 0
+    orden = _orden_de_borrado()
+    borrados = 0
+    for paso, (tabla, condicion) in enumerate(orden, start=1):
+        resultado = await conn.execute(
+            text(f"DELETE FROM {tabla} WHERE {condicion}"), {"bid": fila.id}
+        )
+        if tabla == "businesses":
+            borrados = resultado.rowcount or 0
+            print(f"    {paso}. {tabla:<20} {borrados} negocio(s)")
+
+    await conn.execute(text("ALTER TABLE businesses ENABLE ROW LEVEL SECURITY"))
+    await conn.execute(text("ALTER TABLE businesses FORCE ROW LEVEL SECURITY"))
+
     print(f"\n  borrados: {borrados} negocio(s).")
     if borrados == 0:
         # Si esto pasa, la RLS no se pudo apagar (otro rol, otra version del esquema).

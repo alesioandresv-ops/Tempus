@@ -9,6 +9,18 @@ Cuando `user_id` no es NULL, la FK es **compuesta** `(user_id, business_id)`:
 sino, un bug que propague mal el `business_id` cruzaria un profesional del tenant A
 con un login del tenant B, y el profesional pasaria a ver la agenda del otro
 negocio. §7 Capa 1, exactamente.
+
+**La FK esta partida en dos (migracion 0025).** Una sola FK compuesta con
+`ON DELETE SET NULL` pone **ambas** columnas en NULL cuando se borra el
+`business_users`, y `business_id` es `NOT NULL`: el borrado falla. Por eso:
+
+- `fk_professionals_user_id`: simple `user_id -> business_users.id` con
+  `ON DELETE SET NULL`. Solo toca `user_id`.
+- `fk_professionals_user_tenant`: compuesta `(user_id, business_id) ->
+  business_users(id, business_id)` con `NO ACTION`. Solo se verifica cuando
+  `user_id` no es NULL (un NULL en una FK compuesta desactiva el chequeo), asi
+  que no bloquea el borrado: la FK simple ya puso `user_id = NULL` antes de que
+  corra el chequeo de esta.
 """
 
 from __future__ import annotations
@@ -48,10 +60,15 @@ class Professional(TenantBase, Base):
     __table_args__ = (
         tenant_unique_key("professionals"),
         ForeignKeyConstraint(
+            ["user_id"],
+            ["business_users.id"],
+            name="fk_professionals_user_id",
+            ondelete="SET NULL",
+        ),
+        ForeignKeyConstraint(
             ["user_id", "business_id"],
             ["business_users.id", "business_users.business_id"],
-            name="fk_professionals_user_id_business_users",
-            ondelete="SET NULL",
+            name="fk_professionals_user_tenant",
         ),
         CheckConstraint(
             "(user_id IS NULL) OR (archived_at IS NULL)",
