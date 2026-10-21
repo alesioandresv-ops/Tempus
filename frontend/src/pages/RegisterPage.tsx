@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { Check, Loader2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { InputContrasena } from '@/components/ui/input-contrasena'
 import { Turnstile, turnstileHabilitado } from '@/components/ui/Turnstile'
 import { api, ApiError } from '@/services/api'
 import type { BusinessRegisterRequest } from '@/types'
@@ -51,10 +53,64 @@ const ESPERA_SLUG_MS = 400
 /** Menos que esto y el nombre canonico no se muestra, porque no hay nada que ver. */
 const LARGO_MINIMO_SLUG = 3
 
+/** El piso del backend, replicado aca para el medidor. No es una regla nuestra. */
+const LARGO_MINIMO_CONTRASENA = 12
+
+type NivelContrasena = {
+  /** 0 a 4: cuantos de los chequeos blandos se cumplen. */
+  puntaje: number
+  etiqueta: string
+  /** Clases de color para la barra y el texto. */
+  color: string
+}
+
+/**
+ * Que tan fuerte es la contrasena escrita.
+ *
+ * **Cuenta variedad, no longitud.** El piso de 12 ya lo exige el esquema y el
+ * backend; repetirlo en el medidor no informa nada. Lo que alguien no adivina es
+ * que una clave de 12 caracteres puede ser `aaaaaaaaaaaa`, y ese es el caso que
+ * este medidor existe para desalentar.
+ *
+ * Es **consejo, no una validacion**: no bloquea el envio. Convertir el medidor en
+ * una puerta mas--"tu contrasena no es lo bastante fuerte"--seria inventarle al
+ * usuario una regla que el backend no tiene, y le rompe el alta a quien elige una
+ * clave correcta por otros motivos.
+ */
+function medirContrasena(valor: string): NivelContrasena {
+  if (!valor) return { puntaje: 0, etiqueta: '', color: '' }
+
+  const chequeos = [
+    valor.length >= LARGO_MINIMO_CONTRASENA,
+    /[a-z]/.test(valor) && /[A-Z]/.test(valor),
+    /\d/.test(valor),
+    /[^A-Za-z0-9]/.test(valor),
+    new Set(valor).size >= valor.length / 2,
+  ]
+  const puntaje = chequeos.filter(Boolean).length
+
+  if (puntaje <= 2) return { puntaje, etiqueta: 'Débil', color: 'bg-red-500 text-red-600' }
+  if (puntaje === 3) return { puntaje, etiqueta: 'Aceptable', color: 'bg-amber-500 text-amber-600' }
+  if (puntaje === 4) return { puntaje, etiqueta: 'Buena', color: 'bg-lime-500 text-lime-600' }
+  return { puntaje, etiqueta: 'Excelente', color: 'bg-green-600 text-green-700' }
+}
+
 export default function RegisterPage() {
   const navigate = useNavigate()
+  const [parametros] = useSearchParams()
   const [slugParaConsultar, setSlugParaConsultar] = useState('')
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+
+  /**
+   * Si la persona llego desde el CTA de Pro (`/register?plan=pro`).
+   *
+   * El pago se autoriza en el panel--`/admin?tab=pagos`--, no en una pasarela
+   * publica: no hay una URL de Mercado Pago a la que mandar a alguien que todavia no
+   * tiene cuenta. Lo que si se puede es no perder la intencion en el camino: se
+   * arrastra hasta el login para que, despues de entrar, caiga directo en el paso de
+   * pago en vez de tener que buscarlo.
+   */
+  const quierePro = parametros.get('plan') === 'pro'
 
   const {
     register,
@@ -68,6 +124,7 @@ export default function RegisterPage() {
   })
 
   const slugEscrito = watch('slug')
+  const contrasenaEscrita = watch('password') || ''
 
   /**
    * Debounce del slug.
@@ -116,8 +173,8 @@ export default function RegisterPage() {
     onSuccess: () => {
       // No hay token que guardar: el alta no abre sesion, el dueno entra por
       // `/login`. El `state` le permite a esa pagina decir "tu negocio ya esta"
-      // sin una consulta extra.
-      navigate('/login', { state: { registrado: true } })
+      // sin una consulta extra, y `irAPagar` le dice a donde mandarlo despues.
+      navigate('/login', { state: { registrado: true, irAPagar: quierePro } })
     },
     onError: (error) => {
       // Un 422 trae el mensaje por campo--el unico que se puede poner al lado del
@@ -152,116 +209,219 @@ export default function RegisterPage() {
     altaMutation.mutate({ ...datos, phone: telefono ? telefono : null, turnstile_token: turnstileToken })
   })
 
+  const fuerza = medirContrasena(contrasenaEscrita)
+
+  /**
+   * El dominio que se muestra en la vista previa.
+   *
+   * **Sale de `VITE_ROOT_DOMAIN`, no de un literal.** Antes decia `tempus.app` fijo:
+   * en el despliegue real--que vive en otro dominio--la vista previa mostraba una URL
+   * que no era la que quedaba, justo en el campo donde la persona esta decidiendo su
+   * direccion publica. Sin la variable configurada cae al dominio actual del
+   * navegador, que al menos es real.
+   */
+  const raiz = (import.meta.env.VITE_ROOT_DOMAIN as string | undefined) || window.location.host
+
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-8">
-      <Card className="w-full max-w-md">
-        <CardHeader>
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-10">
+      <Card className="w-full max-w-lg">
+        <CardHeader className="space-y-1">
           <CardTitle className="text-2xl">Crear tu negocio</CardTitle>
           <CardDescription>
-            Empezas con los horarios de lunes a sabado y los cambias cuando quieras.
+            Empezás gratis por un mes, sin tarjeta. Se crea con horarios de lunes a sábado y
+            los cambiás cuando quieras.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={alEnviar} className="space-y-4" noValidate>
-            <div className="space-y-2">
-              <label htmlFor="business_name" className="text-sm text-gray-500">
-                Nombre del negocio
-              </label>
-              <Input
-                id="business_name"
-                placeholder="Peluqueria El Peluche"
-                {...register('business_name')}
-              />
-              {errors.business_name && (
-                <p className="text-sm text-red-600">{errors.business_name.message}</p>
-              )}
-            </div>
+          <form onSubmit={alEnviar} className="space-y-6" noValidate>
+            {/* --- Tu negocio ------------------------------------------------ */}
+            <fieldset className="space-y-4">
+              <legend className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                Tu negocio
+              </legend>
 
-            <div className="space-y-2">
-              <label htmlFor="slug" className="text-sm text-gray-500">
-                Tu URL
-              </label>
-              <Input id="slug" placeholder="peluqueria-el-peluche" {...register('slug')} />
+              <div className="space-y-2">
+                <label htmlFor="business_name" className="text-sm font-medium text-gray-700">
+                  Nombre del negocio
+                </label>
+                <Input
+                  id="business_name"
+                  autoComplete="organization"
+                  placeholder="Peluquería El Peluche"
+                  {...register('business_name')}
+                />
+                {errors.business_name && (
+                  <p className="text-sm text-red-600">{errors.business_name.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="slug" className="text-sm font-medium text-gray-700">
+                  Tu URL
+                </label>
+                <Input
+                  id="slug"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="peluqueria-el-peluche"
+                  {...register('slug')}
+                />
+                {/*
+                  La vista previa usa el slug **devuelto por el servidor**, no lo
+                  escrito: muestra la direccion que va a quedar de verdad, con los
+                  acentos ya eliminados. Mientras no haya respuesta todavia se muestra
+                  lo escrito, para que no parezca que el campo se vacio al tipear.
+                */}
+                <p className="text-xs text-gray-500 break-all">
+                  {slugNormalizado ? (
+                    <>
+                      {raiz}/<span className="font-medium text-gray-700">{slugNormalizado}</span>
+                    </>
+                  ) : (
+                    'Solo letras, números y guiones. Sin tildes.'
+                  )}
+                </p>
+                {consultaSlug.isFetching && !slugOcupado && slugParaConsultar && (
+                  <p className="flex items-center gap-1 text-xs text-gray-400">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Comprobando disponibilidad...
+                  </p>
+                )}
+                {slugOcupado && (
+                  <p className="flex items-center gap-1 text-xs text-red-600">
+                    <X className="h-3 w-3" /> Esa URL no está disponible
+                  </p>
+                )}
+                {slugNormalizado && !slugOcupado && !consultaSlug.isFetching && (
+                  <p className="flex items-center gap-1 text-xs text-green-600">
+                    <Check className="h-3 w-3" /> Disponible
+                  </p>
+                )}
+                {errors.slug && <p className="text-sm text-red-600">{errors.slug.message}</p>}
+              </div>
+            </fieldset>
+
+            {/* --- Tus datos -------------------------------------------------- */}
+            <fieldset className="space-y-4 border-t border-gray-100 pt-6">
+              <legend className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                Tus datos
+              </legend>
+
+              <div className="space-y-2">
+                <label htmlFor="owner_name" className="text-sm font-medium text-gray-700">
+                  Tu nombre
+                </label>
+                <Input
+                  id="owner_name"
+                  autoComplete="name"
+                  placeholder="Ana Pérez"
+                  {...register('owner_name')}
+                />
+                {errors.owner_name && (
+                  <p className="text-sm text-red-600">{errors.owner_name.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="email" className="text-sm font-medium text-gray-700">
+                  Email
+                </label>
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="tu@email.com"
+                  {...register('email')}
+                />
+                <p className="text-xs text-gray-400">Con este email vas a entrar al panel.</p>
+                {errors.email && <p className="text-sm text-red-600">{errors.email.message}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="password" className="text-sm font-medium text-gray-700">
+                  Contraseña
+                </label>
+                <InputContrasena
+                  id="password"
+                  autoComplete="new-password"
+                  {...register('password')}
+                />
+                {/* El piso se muestra siempre--no solo al fallar-- porque 12 es una
+                    regla que la persona no va a inventar. El medidor es consejo y no
+                    bloquea: ver el comentario de `medirContrasena`. */}
+                {contrasenaEscrita ? (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200">
+                        <div
+                          className={`h-full rounded-full transition-all ${fuerza.color.split(' ')[0]}`}
+                          style={{ width: `${(fuerza.puntaje / 5) * 100}%` }}
+                        />
+                      </div>
+                      <span className={`text-xs font-medium ${fuerza.color.split(' ')[1]}`}>
+                        {fuerza.etiqueta}
+                      </span>
+                    </div>
+                    {contrasenaEscrita.length < LARGO_MINIMO_CONTRASENA && (
+                      <p className="text-xs text-gray-400">
+                        Mínimo {LARGO_MINIMO_CONTRASENA} caracteres.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400">
+                    Mínimo {LARGO_MINIMO_CONTRASENA} caracteres. Mezclá mayúsculas, números y
+                    símbolos.
+                  </p>
+                )}
+                {errors.password && (
+                  <p className="text-sm text-red-600">{errors.password.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="phone" className="text-sm font-medium text-gray-700">
+                  Teléfono <span className="font-normal text-gray-400">(opcional)</span>
+                </label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  autoComplete="tel"
+                  placeholder="+54 9 11 2345-6789"
+                  {...register('phone')}
+                />
+                <p className="text-xs text-gray-400">
+                  Con código de país, para poder enviarte WhatsApp.
+                </p>
+                {errors.phone && <p className="text-sm text-red-600">{errors.phone.message}</p>}
+              </div>
+            </fieldset>
+
+            {/* --- Configuracion --------------------------------------------- */}
+            <fieldset className="space-y-4 border-t border-gray-100 pt-6">
+              <legend className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                Configuración
+              </legend>
+
               {/*
-                La vista previa usa el slug **devuelto por el servidor**, no lo
-                escrito: muestra la direccion que va a quedar de verdad, con los
-                acentos ya eliminados.
+                La zona horaria **no** es un select con las ~400 zonas de la IANA: se
+                escribe. Un select seria mas lindo y peor--obligaria a elegir de una
+                lista enorme la mayoria de las veces correcta, y el que esta mal elige
+                una que existe pero no es la suya. Escribiendo se ve el nombre real de
+                la zona, y el backend la valida contra `ZoneInfo`.
               */}
-              <p className="text-xs text-gray-400">
-                {slugNormalizado
-                  ? `tempus.app/${slugNormalizado}`
-                  : 'Solo letras, numeros y guiones. Sin tildes.'}
-              </p>
-              {consultaSlug.isFetching && !slugOcupado && (
-                <p className="text-xs text-gray-400">Comprobando...</p>
-              )}
-              {slugOcupado && <p className="text-xs text-red-600">Esa URL no esta disponible</p>}
-              {errors.slug && <p className="text-sm text-red-600">{errors.slug.message}</p>}
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="owner_name" className="text-sm text-gray-500">
-                Tu nombre
-              </label>
-              <Input id="owner_name" placeholder="Ana Perez" {...register('owner_name')} />
-              {errors.owner_name && (
-                <p className="text-sm text-red-600">{errors.owner_name.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="email" className="text-sm text-gray-500">
-                Email
-              </label>
-              <Input id="email" type="email" placeholder="tu@email.com" {...register('email')} />
-              {errors.email && <p className="text-sm text-red-600">{errors.email.message}</p>}
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="password" className="text-sm text-gray-500">
-                Contrasena
-              </label>
-              <Input id="password" type="password" {...register('password')} />
-              {/* El piso se muestra siempre--no solo al fallar-- porque 12 es una
-                  regla que la persona no va a inventar. */}
-              <p className="text-xs text-gray-400">Minimo 12 caracteres.</p>
-              {errors.password && (
-                <p className="text-sm text-red-600">{errors.password.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="phone" className="text-sm text-gray-500">
-                Telefono <span className="text-gray-400">(opcional)</span>
-              </label>
-              <Input
-                id="phone"
-                type="tel"
-                placeholder="+54 9 11 2345-6789"
-                {...register('phone')}
-              />
-              <p className="text-xs text-gray-400">
-                Con codigo de pais, para poder enviarte WhatsApp.
-              </p>
-              {errors.phone && <p className="text-sm text-red-600">{errors.phone.message}</p>}
-            </div>
-
-            {/*
-              La zona horaria **no** es un select con las ~400 zonas de la IANA: se
-              escribe. Un select seria mas lindo y peor--obligaria a elegir de una
-              lista enorme la mayoria de las veces correcta, y el que esta mal elige
-              una que existe pero no es la suya. Escribiendo se ve el nombre real de
-              la zona, y el backend la valida contra `ZoneInfo`.
-            */}
-            <div className="space-y-2">
-              <label htmlFor="timezone" className="text-sm text-gray-500">
-                Zona horaria
-              </label>
-              <Input id="timezone" {...register('timezone')} />
-              {errors.timezone && (
-                <p className="text-sm text-red-600">{errors.timezone.message}</p>
-              )}
-            </div>
+              <div className="space-y-2">
+                <label htmlFor="timezone" className="text-sm font-medium text-gray-700">
+                  Zona horaria
+                </label>
+                <Input id="timezone" {...register('timezone')} />
+                <p className="text-xs text-gray-400">
+                  Define a qué hora abren y cierran tus turnos. Podés cambiarla después.
+                </p>
+                {errors.timezone && (
+                  <p className="text-sm text-red-600">{errors.timezone.message}</p>
+                )}
+              </div>
+            </fieldset>
 
             {/* Sin sitekey configurada no renderiza nada; el backend tampoco exige el
                 token, y los dos lados se prenden con la misma bandera. */}
@@ -270,7 +430,7 @@ export default function RegisterPage() {
             {/* Un error que no es de un campo--500, o un 409 que no se pudo
                 atribuir-- va arriba, no escondido al lado de un input. */}
             {altaMutation.isError && Object.keys(errors).length === 0 && (
-              <p className="text-sm text-red-600">
+              <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
                 {altaMutation.error instanceof Error
                   ? altaMutation.error.message
                   : 'No se pudo completar el alta'}
@@ -280,15 +440,27 @@ export default function RegisterPage() {
             <Button
               type="submit"
               className="w-full"
+              size="lg"
               disabled={altaMutation.isPending || (turnstileHabilitado && !turnstileToken)}
             >
-              {altaMutation.isPending ? 'Creando...' : 'Crear negocio'}
+              {altaMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creando...
+                </>
+              ) : (
+                'Crear negocio'
+              )}
             </Button>
+
+            <p className="text-center text-xs text-gray-400">
+              Al crear tu negocio aceptás que te contactemos por email sobre tu cuenta.
+            </p>
           </form>
         </CardContent>
-        <div className="px-6 pb-6 text-center text-sm text-gray-500">
-          <Link to="/login" className="text-blue-600 hover:text-blue-500">
-            Ya tienes cuenta? Entrar
+        <div className="border-t border-gray-100 px-6 py-4 text-center text-sm text-gray-500">
+          ¿Ya tenés cuenta?{' '}
+          <Link to="/login" className="font-medium text-blue-600 hover:text-blue-500">
+            Entrar
           </Link>
         </div>
       </Card>

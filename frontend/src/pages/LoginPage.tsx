@@ -139,7 +139,15 @@ export default function LoginPage() {
    * `from` lo deja `ProtectedRoute` cuando echa a alguien que estaba en el panel.
    */
   const recienRegistrado = (location.state as { registrado?: boolean } | null)?.registrado === true
-  const destino = (location.state as { from?: string } | null)?.from ?? '/admin'
+  /*
+   * Viene del CTA de Pro en la landing (`/register?plan=pro` -> alta -> aca). El pago
+   * se autoriza desde el panel, asi que despues de entrar se manda a la pestana de
+   * pagos. Solo aplica al admin--un profesional no administra la suscripcion--y el
+   * parametro no pisa un `from` explicito, que es una intencion mas fuerte.
+   */
+  const estadoEntrada = location.state as { from?: string; irAPagar?: boolean } | null
+  const quierePagar = estadoEntrada?.irAPagar === true && !estadoEntrada?.from
+  const destino = estadoEntrada?.from ?? (quierePagar ? '/admin?tab=pagos' : '/admin')
 
   const {
     register,

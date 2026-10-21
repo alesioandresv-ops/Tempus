@@ -208,8 +208,13 @@ const PLANES: Plan[] = [
       "Reportes avanzados",
       "Soporte 24/7 por WhatsApp, con nosotros",
     ],
-    cta: "Probar el primer mes gratis",
-    href: "/register",
+    // El CTA de Pro no promete un mes gratis--esa es la oferta de Básico, que ya
+    // esta a la izquierda--. Lleva al alta con la intencion de suscribirse: como el
+    // pago se autoriza desde el panel (`/admin?tab=pagos`), el parametro es lo que
+    // hace que, despues de crear la cuenta, la persona caiga directamente en el
+    // paso de pago en vez de tener que buscarlo.
+    cta: "Suscribirme a Pro",
+    href: "/register?plan=pro",
     externo: false,
   },
   {
@@ -775,8 +780,8 @@ export default function LandingPage() {
           ))}
         </div>
         <p className={`mt-6 text-center text-xs ${t.textoSuave}`}>
-          El primer mes de Básico es gratis y no te pedimos tarjeta. El precio de Pro en dólares se cobra
-          en pesos por Mercado Pago.
+          El primer mes de Básico es gratis y no te pedimos tarjeta. Pro se cobra en pesos
+          por Mercado Pago, y podés darte de baja cuando quieras.
         </p>
       </Seccion>
 
