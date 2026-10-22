@@ -197,6 +197,20 @@ class ServicioOut(BaseModel):
     archived_at: dt.datetime | None
 
 
+class CoberturaServicioOut(BaseModel):
+    """Un servicio del negocio y cuantos profesionales pueden hacerlo.
+
+    Es lo que le permite al panel avisar "este servicio no lo hace nadie" antes
+    de que lo descubra un cliente.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    service_id: uuid.UUID
+    nombre: str
+    profesionales_elegibles: int
+
+
 # --------------------------------------------------------------------------- #
 # Profesionales
 # --------------------------------------------------------------------------- #

@@ -35,6 +35,7 @@ nuevo que marque al anterior como `Reemplazada por ADR-XXXX`. No se editan a pos
 | [0015](0015-openapi-generated-frontend-types.md) | Tipos del frontend generados desde OpenAPI | Aceptada | Frontend |
 | [0016](0016-pre-tenant-login-definer.md) | Rol dedicado para el login pre-tenant (antes de resolver el tenant) | Aceptada | Seguridad |
 | [0017](0017-publicabilidad-y-plan.md) | Estado administrativo y publicabilidad por plan y vigencia | Aceptada | Producto |
+| [0018](0018-una-sola-definicion-de-elegibilidad-de-servicio.md) | Una sola definición de "qué profesional puede hacer qué servicio" | Aceptada | Dominio |
 
 ## Decisiones agrupadas por lo que protegen
 
@@ -66,6 +67,9 @@ nuevo que marque al anterior como `Reemplazada por ADR-XXXX`. No se editan a pos
   nueva no se escriba en el lugar equivocado.
 - [0017](0017-publicabilidad-y-plan.md) — un solo lugar decide si un negocio se publica;
   `status` no carga el vencimiento del plan.
+- [0018](0018-una-sola-definicion-de-elegibilidad-de-servicio.md) — un solo lugar decide
+  qué profesional puede hacer qué servicio; la disponibilidad y la reserva no pueden
+  discrepar.
 
 **Consistencia y entrega**
 

@@ -58,6 +58,7 @@ URL_LOGIN = "/api/v1/auth/login"
 URL_SERVICIOS = "/api/v1/business/servicios"
 URL_PROFESIONALES = "/api/v1/business/profesionales"
 URL_HORARIOS = "/api/v1/business/horarios"
+URL_COBERTURA = "/api/v1/business/cobertura"
 
 
 def _cuerpo_alta(slug: str = "peluqueria-fase4", **cambios: object) -> dict[str, object]:
@@ -457,6 +458,93 @@ class TestAsignacionDeServicios:
 
         assert respuesta.status_code == 422, respuesta.text
         assert "no son del negocio" in respuesta.json()["detail"]
+
+
+class TestCobertura:
+    """Que servicios del negocio no tiene nadie que los haga.
+
+    **Es la preventiva del fallo que se llevo por delante un negocio real.** Un
+    servicio sin profesionales no se puede reservar, aunque el negocio tenga
+    horarios, precios y una pagina publica que se ve entera y correcta. El
+    panel avisa antes de que lo descubra un cliente.
+    """
+
+    async def test_cuenta_los_profesionales_que_pueden_hacer_cada_servicio(
+        self, http_client: AsyncClient, session: AsyncSession
+    ) -> None:
+        """El numero sigue a la regla unica, no a un conteo propio.
+
+        Un servicio recien creado no tiene a nadie: `0`. Despues de asignarle
+        un profesional, `1`. Y si ese profesional se desactiva, vuelve a `0`:
+        un profesional desactivado no atiende, aunque conserve el vinculo.
+        """
+        cuerpo = await _alta(http_client)
+        await _poner_tenant(session, uuid.UUID(str(cuerpo["business_id"])))
+        token = await _login(http_client)
+
+        servicio = (
+            await http_client.post(
+                URL_SERVICIOS,
+                json=_cuerpo_servicio(),
+                headers=_auth(token),
+            )
+        ).json()
+
+        cobertura = (await http_client.get(URL_COBERTURA, headers=_auth(token))).json()
+        assert cobertura == [
+            {
+                "service_id": servicio["id"],
+                "nombre": "Corte",
+                "profesionales_elegibles": 0,
+            }
+        ]
+
+        profesional = (
+            await http_client.post(
+                URL_PROFESIONALES,
+                json={"display_name": "Ana Perez"},
+                headers=_auth(token),
+            )
+        ).json()
+        await http_client.put(
+            f"{URL_PROFESIONALES}/{profesional['id']}/servicios",
+            json={"servicios": [{"service_id": servicio["id"]}]},
+            headers=_auth(token),
+        )
+
+        cobertura = (await http_client.get(URL_COBERTURA, headers=_auth(token))).json()
+        assert cobertura[0]["profesionales_elegibles"] == 1
+
+        # Desactivado no atiende: el vinculo sigue, pero el servicio vuelve a
+        # quedarse sin nadie.
+        await http_client.patch(
+            f"{URL_PROFESIONALES}/{profesional['id']}",
+            json={"is_active": False},
+            headers=_auth(token),
+        )
+        cobertura = (await http_client.get(URL_COBERTURA, headers=_auth(token))).json()
+        assert cobertura[0]["profesionales_elegibles"] == 0
+
+    async def test_un_servicio_archivado_no_aparece(
+        self, http_client: AsyncClient, session: AsyncSession
+    ) -> None:
+        """Lo archivado no se reserva, asi que no aparece en la cuenta."""
+        cuerpo = await _alta(http_client)
+        await _poner_tenant(session, uuid.UUID(str(cuerpo["business_id"])))
+        token = await _login(http_client)
+
+        servicio = (
+            await http_client.post(
+                URL_SERVICIOS,
+                json=_cuerpo_servicio(),
+                headers=_auth(token),
+            )
+        ).json()
+
+        await http_client.delete(f"{URL_SERVICIOS}/{servicio['id']}", headers=_auth(token))
+
+        cobertura = (await http_client.get(URL_COBERTURA, headers=_auth(token))).json()
+        assert cobertura == []
 
 
 class TestHorarios:

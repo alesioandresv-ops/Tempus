@@ -68,7 +68,8 @@ from app.modules.payments.reservas import (
     crear_pago_reserva,
 )
 from app.modules.professionals.models import Professional
-from app.modules.services.models import ProfessionalService, Service
+from app.modules.services.models import Service
+from app.modules.services.service import profesionales_que_pueden_hacer
 
 #: Techo general de la superficie publica: 120/min por IP (§10.5). El endpoint de
 #: reservas cuelga de este router **y** trae su propio limite, mas ajustado; los dos
@@ -308,25 +309,37 @@ async def list_business_professionals(
     ese servicio.
     """
     async with _public_session(slug) as (session, business):
-        query = (
-            select(Professional)
-            .where(
-                Professional.business_id == business.id,
-                Professional.is_active.is_(True),
-                Professional.archived_at.is_(None),
-            )
-            .order_by(Professional.sort_order)
-        )
-
         if service_id:
-            query = query.join(
-                ProfessionalService,
-                (ProfessionalService.professional_id == Professional.id)
-                & (ProfessionalService.service_id == service_id)
-                & (ProfessionalService.is_active.is_(True)),
+            # La regla de "puede hacer este servicio" vive en un solo lugar:
+            # `services.profesionales_que_pueden_hacer`. Este endpoint la tenia
+            # copiada con su propia consulta, y por eso el listado publico
+            # podia prometer un profesional que despues la reserva rechazaba.
+            ids = await profesionales_que_pueden_hacer(
+                session, business_id=business.id, service_id=service_id
             )
+            if not ids:
+                return []
+            prof_result = await session.execute(
+                select(Professional).where(Professional.id.in_(ids))
+            )
+            por_id = {p.id: p for p in prof_result.scalars()}
+            # El orden es el de la funcion canonica (`sort_order`, y a igual
+            # `sort_order` el id): el mismo criterio con el que el motor de
+            # disponibilidad desempata cuando dos profesionales pueden el mismo
+            # horario.
+            elegidos = [por_id[pid] for pid in ids if pid in por_id]
+        else:
+            prof_result = await session.execute(
+                select(Professional)
+                .where(
+                    Professional.business_id == business.id,
+                    Professional.is_active.is_(True),
+                    Professional.archived_at.is_(None),
+                )
+                .order_by(Professional.sort_order)
+            )
+            elegidos = list(prof_result.scalars())
 
-        prof_result = await session.execute(query)
         return [
             ProfessionalPublicInfo(
                 id=p.id,
@@ -334,7 +347,7 @@ async def list_business_professionals(
                 bio=p.bio,
                 color=p.color,
             )
-            for p in prof_result.scalars()
+            for p in elegidos
         ]
 
 

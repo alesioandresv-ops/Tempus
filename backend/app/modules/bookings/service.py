@@ -37,7 +37,7 @@ from app.models.enums import AuditActorType, BookingSource, BookingStatus, Notif
 from app.modules.bookings.models import Booking, BookingEvent, IdempotencyKey
 from app.modules.customers.models import Customer
 from app.modules.professionals.models import Professional
-from app.modules.services.models import ProfessionalService
+from app.modules.services.service import profesionales_que_pueden_hacer
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,14 +233,17 @@ async def _verificar_profesional_elegible(
     if not professional:
         raise ValueError("Profesional no encontrado o no disponible")
 
-    ps_result = await session.execute(
-        select(ProfessionalService).where(
-            ProfessionalService.professional_id == professional.id,
-            ProfessionalService.service_id == service_id,
-            ProfessionalService.is_active.is_(True),
-        )
+    # La regla de "puede hacer este servicio" vive en un solo lugar:
+    # `services.profesionales_que_pueden_hacer`. Aqui estaba copiada--una consulta
+    # propia a `professional_services`-- y por eso la disponibilidad de un
+    # profesional concreto se ofrecia sin mirarla mientras la reserva si la miraba.
+    # El sistema mostraba un horario y despues lo rechazaba.
+    elegibles = await profesionales_que_pueden_hacer(
+        session,
+        business_id=business_id,
+        service_id=service_id,
     )
-    if not ps_result.scalar_one_or_none():
+    if professional.id not in elegibles:
         raise ValueError("El profesional no puede realizar este servicio")
 
     return professional

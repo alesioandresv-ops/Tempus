@@ -32,6 +32,7 @@ from app.api.errors import NotFoundError, ValidationError
 from app.core.time import now
 from app.modules.professionals.models import Professional
 from app.modules.services.models import ProfessionalService, Service
+from app.modules.services.service import profesionales_que_pueden_hacer
 
 MAX_NAME_LENGTH = 160
 MAX_BIO_LENGTH = 2048
@@ -139,6 +140,12 @@ async def listar_profesionales(
     (no sobre una subconsulta de availability) porque la disponibilidad ademas
     depende del horario del dia: un profesional puede estar habilitado para un
     servicio y no tener ventana ese martes. Esto responde "puede", no "puede hoy".
+
+    **El filtro por servicio usa la regla unica**
+    (`services.profesionales_que_pueden_hacer`) y no una consulta propia. La regla
+    estaba copiada aca y en la pagina publica, y cada copia era una chance de que
+    el panel dijera una cosa y la reserva otra. Ahora el listado del panel, el
+    listado publico y la reserva dicen lo mismo por construccion.
     """
     query = select(Professional).where(Professional.business_id == business_id)
     if not incluir_archivados:
@@ -146,12 +153,10 @@ async def listar_profesionales(
     if not incluir_inactivos:
         query = query.where(Professional.is_active.is_(True))
     if service_id is not None:
-        query = query.join(
-            ProfessionalService,
-            (ProfessionalService.professional_id == Professional.id)
-            & (ProfessionalService.service_id == service_id)
-            & (ProfessionalService.is_active.is_(True)),
+        elegibles = await profesionales_que_pueden_hacer(
+            session, business_id=business_id, service_id=service_id
         )
+        query = query.where(Professional.id.in_(elegibles))
     result = await session.execute(
         query.order_by(Professional.sort_order, Professional.display_name)
     )

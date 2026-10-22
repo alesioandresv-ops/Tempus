@@ -21,6 +21,7 @@ import type {
   ProfesionalPatchRequest,
   AsignacionServicio,
   AsignacionesRequest,
+  CoberturaServicio,
   SemanaHorario,
   HorarioProfesional,
   ReservaDePanel,
@@ -564,6 +565,15 @@ export const api = {
 
   // --- Servicios ---
   listarServicios: () => fetchApi<PanelService[]>('/business/servicios'),
+
+  /**
+   * Que servicios del negocio **no tiene nadie que los haga**.
+   *
+   * Es la preventiva: un servicio sin profesionales no se puede reservar,
+   * aunque todo lo demas este bien. El panel avisa con estos numeros en
+   * vez de esperar a que lo descubra un cliente.
+   */
+  obtenerCobertura: () => fetchApi<CoberturaServicio[]>('/business/cobertura'),
 
   crearServicio: (datos: ServicioCreateRequest) =>
     fetchApi<PanelService>('/business/servicios', {

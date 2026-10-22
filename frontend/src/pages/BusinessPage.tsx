@@ -64,11 +64,28 @@ export default function BusinessPage() {
     enabled: !!slug,
   })
 
-  const { data: professionals } = useQuery({
+  const {
+    data: professionals,
+    isLoading: cargandoProfesionales,
+    isError: errorProfesionales,
+  } = useQuery({
     queryKey: ['professionals', slug, selectedService?.id],
     queryFn: () => api.getProfessionals(slug!, selectedService?.id),
     enabled: !!slug && !!selectedService,
   })
+
+  /**
+   * El servicio elegido **no lo puede hacer nadie**.
+   *
+   * La consulta de profesionales viene filtrada por servicio, asi que una lista
+   * vacia significa exactamente eso: no hay ningun profesional asignado. Antes
+   * la pagina ofrecia "cualquier profesional" y dejaba elegir una fecha para
+   * terminar con "No hay horarios disponibles para esta fecha", que no es lo que
+   * pasaba: lo que pasaba es que ese servicio no lo hacia nadie. Decirlo aca es
+   * la diferencia entre un calendario lleno y un callejon sin salida.
+   */
+  const sinProfesionales =
+    !cargandoProfesionales && !errorProfesionales && professionals?.length === 0
 
   const { data: availability } = useQuery({
     queryKey: ['availability', slug, selectedService?.id, selectedDate, selectedProfessional?.id],
@@ -252,31 +269,53 @@ export default function BusinessPage() {
             {step === 2 && (
               <div className="space-y-4">
                 <h3 className="text-lg font-semibold">Seleccioná un profesional</h3>
-                <div className="space-y-2">
-                  <button
-                    onClick={() => {
-                      setSelectedProfessional(null)
-                      setSelectedSlot(null)
-                      setStep(3)
-                    }}
-                    className="w-full p-4 text-left border rounded-lg hover:bg-gray-50 transition-colors"
-                  >
-                    <div className="font-medium">Cualquier profesional</div>
-                  </button>
-                  {professionals?.map((prof) => (
+                {cargandoProfesionales ? (
+                  <p className="text-sm text-muted-foreground" role="status">
+                    Cargando...
+                  </p>
+                ) : errorProfesionales ? (
+                  <p className="text-sm text-destructive">
+                    No pudimos cargar los profesionales. Recargá la página para
+                    intentarlo de nuevo.
+                  </p>
+                ) : sinProfesionales ? (
+                  <>
+                    <p className="text-sm text-foreground">
+                      Este servicio todavía no tiene ningún profesional que lo
+                      atienda, así que todavía no se pueden sacar turnos.
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Volvé a consultar más adelante: en cuanto el negocio asigne el
+                      servicio a alguien, los horarios aparecen acá.
+                    </p>
+                  </>
+                ) : (
+                  <div className="space-y-2">
                     <button
-                      key={prof.id}
                       onClick={() => {
-                        setSelectedProfessional(prof)
+                        setSelectedProfessional(null)
                         setSelectedSlot(null)
                         setStep(3)
                       }}
                       className="w-full p-4 text-left border rounded-lg hover:bg-gray-50 transition-colors"
                     >
-                      <div className="font-medium">{prof.display_name}</div>
+                      <div className="font-medium">Cualquier profesional</div>
                     </button>
-                  ))}
-                </div>
+                    {professionals?.map((prof) => (
+                      <button
+                        key={prof.id}
+                        onClick={() => {
+                          setSelectedProfessional(prof)
+                          setSelectedSlot(null)
+                          setStep(3)
+                        }}
+                        className="w-full p-4 text-left border rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="font-medium">{prof.display_name}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <Button variant="outline" onClick={() => setStep(1)}>
                   Volver
                 </Button>
@@ -316,11 +355,28 @@ export default function BusinessPage() {
             {step === 4 && (
               <div className="space-y-4">
                 <h3 className="text-lg font-semibold">Seleccioná un horario</h3>
-                {availability?.slots.length === 0 ? (
-                  <p className="text-gray-500">No hay horarios disponibles para esta fecha.</p>
+                {sinProfesionales ? (
+                  /*
+                   * El mensaje no culpa a la fecha. Si el servicio no lo hace
+                   * nadie, ninguna fecha tiene horarios: decir "no hay horarios
+                   * para esta fecha" manda al cliente a probar otro dia, y el
+                   * otro dia tampoco va a haber.
+                   */
+                  <p className="text-sm text-foreground">
+                    Este servicio todavía no tiene ningún profesional que lo
+                    atienda, así que no hay horarios para reservar.
+                  </p>
+                ) : !availability ? (
+                  <p className="text-sm text-muted-foreground" role="status">
+                    Cargando horarios...
+                  </p>
+                ) : availability.slots.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No hay horarios disponibles para esta fecha.
+                  </p>
                 ) : (
                   <div className="grid grid-cols-3 gap-2">
-                    {availability?.slots.map((slot) => (
+                    {availability.slots.map((slot) => (
                       <button
                         key={slot.starts_at}
                         onClick={() => setSelectedSlot(slot)}

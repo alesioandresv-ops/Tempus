@@ -26,7 +26,6 @@ from app.modules.availability.engine import (
     find_eligible_professionals,
 )
 from app.modules.bookings.models import OCCUPYING_STATUSES, Booking
-from app.modules.professionals.models import Professional
 from app.modules.schedules.models import (
     Block,
     BusinessException,
@@ -36,7 +35,7 @@ from app.modules.schedules.models import (
     ProfessionalSchedule,
     TimeOff,
 )
-from app.modules.services.models import ProfessionalService
+from app.modules.services.service import profesionales_que_pueden_hacer
 
 
 @dataclass(frozen=True, slots=True)
@@ -338,6 +337,21 @@ async def get_availability(
 
     # Cargar horarios del profesional
     if professional_id:
+        # **Un profesional que no puede hacer el servicio no tiene horarios que
+        # ofrecer**, aunque el dia este abierto y el tenga libre. Esta comprobacion
+        # no estaba, y era una mentira con consecuencias: la disponibilidad se
+        # ofrecia (el endpoint publico la devuelvia, el cliente la veia) y la
+        # reserva despues la rechazaba con "El profesional no puede realizar este
+        # servicio". Un horario que el sistema muestra y despues no deja tomar es
+        # peor que no mostrarlo.
+        #
+        # Se usa la misma funcion que la rama de "cualquier profesional", para que
+        # la regla de "puede hacer este servicio" tenga un solo lugar.
+        if service_id and not await _puede_atender(
+            session, business_id=business_id, professional_id=professional_id, service_id=service_id
+        ):
+            return []
+
         prof_windows = await _load_professional_windows(
             session, professional_id, business_windows, local_date, timezone
         )
@@ -451,6 +465,28 @@ async def get_availability(
     return disponibles
 
 
+async def _puede_atender(
+    session: AsyncSession,
+    *,
+    business_id: str,
+    professional_id: str,
+    service_id: str,
+) -> bool:
+    """Si el profesional puede realizar el servicio.
+
+    Delega en `services.profesionales_que_pueden_hacer`, que es la definicion de
+    esa regla: el vinculo en `professional_services`, el profesional activo y no
+    archivado, y del mismo negocio. No se reimplementa aqui a proposito--una copia
+    de la regla es una copia que puede quedar vieja.
+    """
+    elegibles = await profesionales_que_pueden_hacer(
+        session,
+        business_id=uuid.UUID(business_id),
+        service_id=uuid.UUID(service_id),
+    )
+    return uuid.UUID(professional_id) in elegibles
+
+
 async def _load_eligible_professionals(
     session: AsyncSession, business_id: str, service_id: str
 ) -> list[uuid.UUID]:
@@ -462,27 +498,16 @@ async def _load_eligible_professionals(
     tiene ventana continua para la duracion) las descarta el motor mas adelante,
     por profesional, porque dependen del horario pedido y no del servicio.
 
-    El `ORDER BY sort_order` es parte del contrato: el indice de esta lista es el
-    desempate de la estrategia de asignacion cuando dos profesionales tienen la
-    misma carga, asi que el orden tiene que ser estable entre llamadas y no
-    depender del plan de ejecucion de PostgreSQL.
+    **La consulta vive en `services.profesionales_que_pueden_hacer`.** Esta es la
+    misma regla que aplica la rama de "cualquier profesional" y la que va a
+    aplicar la rama de un profesional concreto, y las tres tienen que decir lo
+    mismo: si divergen, el sistema ofrece un horario que despues rechaza.
     """
-    result = await session.execute(
-        select(Professional.id)
-        .join(
-            ProfessionalService,
-            (ProfessionalService.professional_id == Professional.id)
-            & (ProfessionalService.service_id == service_id),
-        )
-        .where(
-            Professional.business_id == business_id,
-            Professional.is_active.is_(True),
-            Professional.archived_at.is_(None),
-            ProfessionalService.is_active.is_(True),
-        )
-        .order_by(Professional.sort_order, Professional.id)
+    return await profesionales_que_pueden_hacer(
+        session,
+        business_id=uuid.UUID(business_id),
+        service_id=uuid.UUID(service_id),
     )
-    return list(result.scalars())
 
 
 async def buscar_slot(

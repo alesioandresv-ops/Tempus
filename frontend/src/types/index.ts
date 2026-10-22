@@ -298,6 +298,20 @@ export interface AsignacionServicio {
   custom_price: string | null
 }
 
+/**
+ * Un servicio del negocio y cuantos profesionales pueden hacerlo.
+ *
+ * Es lo que permite avisarle al dueño **antes** de que lo descubra un
+ * cliente: un servicio con cero profesionales no se puede reservar, aunque el
+ * negocio tenga horarios, precios y una pagina publica que se ve entera y
+ * correcta.
+ */
+export interface CoberturaServicio {
+  service_id: string
+  nombre: string
+  profesionales_elegibles: number
+}
+
 /** Alta/edición de una asignación: los custom son overrides opcionales. */
 export interface AsignacionServicioIn {
   service_id: string

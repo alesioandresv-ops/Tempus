@@ -384,6 +384,52 @@ class TestGetDisponibilidadPublica:
         assert respuesta.status_code == 200, respuesta.text
         assert respuesta.json()["slots"] == []
 
+    async def test_profesional_que_no_puede_hacer_el_servicio_no_ofrece_horarios(
+        self, http_client: AsyncClient, negocio_disponibilidad: str
+    ) -> None:
+        """La regresion del bug que se llevo por delante un negocio real.
+
+        Ana esta en la agenda y el negocio abre de 9 a 12, pero **no** tiene
+        el vinculo con `SERVICE_SIN_PROFESIONAL`. Antes de que "puede hacer
+        este servicio" fuera una regla unica, la rama de `professional_id`
+        concreto miraba la agenda del profesional y no el vinculo: ofrecia
+        los 26 horarios del dia y la reserva despues los rechazaba con "El
+        profesional no puede realizar este servicio". Un horario que se
+        muestra y despues no se puede tomar es peor que no mostrarlo.
+        """
+        fecha = _lunes_lejano()
+        respuesta = await http_client.get(
+            f"/api/v1/public/businesses/{negocio_disponibilidad}/availability",
+            params={
+                "service_id": str(SERVICE_SIN_PROFESIONAL),
+                "date": fecha.isoformat(),
+                "professional_id": str(ANA),
+            },
+        )
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json()["slots"] == []
+
+    async def test_el_post_de_disponibilidad_dice_lo_mismo_que_el_get(
+        self, http_client: AsyncClient, negocio_disponibilidad: str
+    ) -> None:
+        """El POST es el que usa el frontend: tiene que coincidir con el GET.
+
+        Los dos endpoints delegan en el mismo motor, asi que si uno se arregla
+        y el otro no, el arreglo esta a medias y el bug vuelve por el otro
+        lado.
+        """
+        fecha = _lunes_lejano()
+        respuesta = await http_client.post(
+            f"/api/v1/public/businesses/{negocio_disponibilidad}/availability",
+            json={
+                "service_id": str(SERVICE_SIN_PROFESIONAL),
+                "professional_id": str(ANA),
+                "date": fecha.isoformat(),
+            },
+        )
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json()["slots"] == []
+
     async def test_profesional_concreto_es_el_unico_candidato(
         self, http_client: AsyncClient, negocio_disponibilidad: str
     ) -> None:
@@ -492,3 +538,55 @@ class TestGetDisponibilidadPublica:
         for slot in slots:
             local = dt.datetime.fromisoformat(slot["starts_at"]).astimezone(tz)
             assert local.hour >= 16
+
+
+class TestProfesionalesPublicos:
+    """El listado de profesionales filtrado por servicio.
+
+    Es el paso 2 de la pagina publica: es donde el cliente elige a quien lo
+    atiende. Si este listado promete a alguien que despues no puede hacer el
+    trabajo, el cliente elige y el error cae en la reserva.
+    """
+
+    async def test_los_profesionales_de_un_servicio_son_los_que_lo_pueden_hacer(
+        self, http_client: AsyncClient, negocio_disponibilidad: str
+    ) -> None:
+        """Ana y Beto atienden "Corte": los dos, y en ese orden.
+
+        El orden es por `sort_order` (Ana 1, Beto 2), no por id: el UUID de
+        Beto es menor y si el orden fuera por id saldria primero.
+        """
+        respuesta = await http_client.get(
+            f"/api/v1/public/businesses/{negocio_disponibilidad}/professionals",
+            params={"service_id": str(SERVICE)},
+        )
+        assert respuesta.status_code == 200, respuesta.text
+        ids = [p["id"] for p in respuesta.json()]
+        assert ids == [str(ANA), str(BETO)]
+
+    async def test_un_servicio_sin_profesionales_devuelve_lista_vacia(
+        self, http_client: AsyncClient, negocio_disponibilidad: str
+    ) -> None:
+        """Nadie puede atender "Sin equipo": la lista vacia es la verdad.
+
+        La pagina publica usa esta lista para decidir si puede ofrecer el
+        servicio. Con la lista vacia, muestra que no hay nadie en vez de
+        ofrecer un "cualquier profesional" que no existe.
+        """
+        respuesta = await http_client.get(
+            f"/api/v1/public/businesses/{negocio_disponibilidad}/professionals",
+            params={"service_id": str(SERVICE_SIN_PROFESIONAL)},
+        )
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json() == []
+
+    async def test_sin_filtro_devuelve_a_los_del_negocio(
+        self, http_client: AsyncClient, negocio_disponibilidad: str
+    ) -> None:
+        """Sin `service_id` la pregunta es otra: "quien trabaja aca"."""
+        respuesta = await http_client.get(
+            f"/api/v1/public/businesses/{negocio_disponibilidad}/professionals",
+        )
+        assert respuesta.status_code == 200, respuesta.text
+        ids = [p["id"] for p in respuesta.json()]
+        assert sorted(ids) == sorted([str(ANA), str(BETO)])

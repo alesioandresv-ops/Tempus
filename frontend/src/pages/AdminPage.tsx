@@ -48,6 +48,7 @@ import { BloqueoVencimiento } from './admin/BloqueoVencimiento'
 import { AdminLayout, esPestana, type Pestana } from './admin/AdminLayout'
 import { PanelTab } from './admin/PanelTab'
 import { PagosTab } from './admin/PagosTab'
+import { AvisoCobertura, CLAVE_COBERTURA } from './admin/AvisoCobertura'
 
 /**
  * Panel de administración del negocio (Fase 4 + Fase C).
@@ -216,6 +217,7 @@ function ServicioFormulario({
         : api.crearServicio(datos as ServicioCreateRequest),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['servicios'] })
+      queryClient.invalidateQueries({ queryKey: CLAVE_COBERTURA })
       onCerrar()
     },
     onError: (err) => setError(mensajeDeError(err)),
@@ -292,6 +294,31 @@ function ServicioFormulario({
   )
 }
 
+/**
+ * Cuantos profesionales pueden hacer un servicio, en la tabla de servicios.
+ *
+ * "Nadie" en rojo es el dato que faltaba: un servicio sin profesionales
+ * aparece en la pagina publica, se puede elegir y no se puede reservar. Decirlo
+ * en la lista--donde se crean y se editan los servicios-- es mas temprano que
+ * que lo descubra un cliente.
+ *
+ * `undefined` es "no lo sé todavia" (la consulta todavia no volvio), y se
+ * muestra como un guion: poner "Nadie" antes de saberlo seria una mentira.
+ */
+function CoberturaDeServicio({ n }: { n: number | undefined }) {
+  if (n === undefined) {
+    return <span className="text-xs text-muted-foreground">—</span>
+  }
+  if (n === 0) {
+    return <span className="text-xs font-medium text-red-600">Nadie</span>
+  }
+  return (
+    <span className="text-xs font-medium text-green-600">
+      {n} {n === 1 ? 'profesional' : 'profesionales'}
+    </span>
+  )
+}
+
 function ServiciosTab() {
   const queryClient = useQueryClient()
   const [editando, setEditando] = useState<PanelService | 'nuevo' | null>(null)
@@ -301,9 +328,28 @@ function ServiciosTab() {
     queryFn: api.listarServicios,
   })
 
+  /**
+   * Cuantos profesionales pueden hacer cada servicio.
+   *
+   * Es la misma consulta que usa el aviso de cobertura (el `queryKey` es el
+   * mismo, asi que es un solo pedido): la columna de la tabla y el banner
+   * cuentan lo mismo y no pueden discrepar.
+   */
+  const { data: cobertura } = useQuery({
+    queryKey: CLAVE_COBERTURA,
+    queryFn: api.obtenerCobertura,
+  })
+
+  const coberturaPorServicio = new Map(
+    (cobertura ?? []).map((c) => [c.service_id, c.profesionales_elegibles])
+  )
+
   const archivar = useMutation({
     mutationFn: (id: string) => api.archivarServicio(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['servicios'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['servicios'] })
+      queryClient.invalidateQueries({ queryKey: CLAVE_COBERTURA })
+    },
   })
 
   return (
@@ -348,6 +394,7 @@ function ServiciosTab() {
                 <TableHead>Duración</TableHead>
                 <TableHead>Precio</TableHead>
                 <TableHead>Estado</TableHead>
+                <TableHead>Quién lo hace</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
@@ -376,6 +423,9 @@ function ServiciosTab() {
                     >
                       {s.is_active ? 'Activo' : 'Inactivo'}
                     </span>
+                  </TableCell>
+                  <TableCell>
+                    <CoberturaDeServicio n={coberturaPorServicio.get(s.id)} />
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex gap-2 justify-end">
@@ -487,6 +537,7 @@ function ProfesionalFormulario({
         : api.crearProfesional(datos as ProfesionalCreateRequest),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profesionales'] })
+      queryClient.invalidateQueries({ queryKey: CLAVE_COBERTURA })
       onCerrar()
     },
     onError: (err) => setError(mensajeDeError(err)),
@@ -609,6 +660,9 @@ function EditorServiciosProfesional({ profesional }: { profesional: PanelProfess
       queryClient.invalidateQueries({
         queryKey: ['servicios-profesional', profesional.id],
       })
+      // La cobertura depende de a quien se le asigno el servicio: sin esto, el
+      // aviso "este servicio no lo hace nadie" sobrevive al arreglo.
+      queryClient.invalidateQueries({ queryKey: CLAVE_COBERTURA })
     },
   })
 
@@ -759,13 +813,19 @@ function ProfesionalesTab() {
 
   const archivar = useMutation({
     mutationFn: (id: string) => api.archivarProfesional(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['profesionales'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profesionales'] })
+      queryClient.invalidateQueries({ queryKey: CLAVE_COBERTURA })
+    },
   })
 
   const alternarActivo = useMutation({
     mutationFn: ({ id, activo }: { id: string; activo: boolean }) =>
       api.actualizarProfesional(id, { is_active: activo }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['profesionales'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profesionales'] })
+      queryClient.invalidateQueries({ queryKey: CLAVE_COBERTURA })
+    },
   })
 
   const profesionalDeServicios = profesionales?.find(
@@ -1331,6 +1391,7 @@ export default function AdminPage() {
       onBuscar={buscar}
     >
       <BloqueoVencimiento />
+      <AvisoCobertura />
       {activeTab === 'panel' && (
         <PanelTab onIrAReservas={() => setActiveTab('bookings')} />
       )}

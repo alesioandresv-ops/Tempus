@@ -25,7 +25,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import NotFoundError, ValidationError
 from app.core.time import now
-from app.modules.services.models import Service
+from app.modules.professionals.models import Professional
+from app.modules.services.models import ProfessionalService, Service
 
 #: Estados que cuentan como "la reserva ocupa lugar": los unicos que bloquean el
 #: horario y los que un reporte de facturacion tendria que mirar. Canceladas y
@@ -59,6 +60,19 @@ class ServiceCreate:
     description: str | None = None
     color: str | None = None
     sort_order: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class CoberturaServicio:
+    """Un servicio del negocio y cuantos profesionales pueden hacerlo.
+
+    Es la lectura que necesita el panel para avisarle al dueño que tiene un
+    servicio **sin nadie que lo atienda**.
+    """
+
+    service_id: uuid.UUID
+    nombre: str
+    profesionales_elegibles: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +167,108 @@ async def obtener_servicio(
     return service
 
 
+async def profesionales_que_pueden_hacer(
+    session: AsyncSession,
+    *,
+    business_id: uuid.UUID,
+    service_id: uuid.UUID,
+) -> list[uuid.UUID]:
+    """Los profesionales del negocio que pueden realizar el servicio.
+
+    **Esta es la unica definicion de "puede hacer este servicio".** Antes de que
+    existiera, la misma regla estaba copiada en cuatro lugares: el endpoint que
+    calcula la disponibilidad, el que crea la reserva, el listado de profesionales
+    del panel y el listado publico. Cuatro copias de la misma consulta es cuatro
+    lugares donde puede haber una de mas: la disponibilidad de un profesional
+    concreto se ofrezca sin mirar `professional_services`, y la reserva si lo
+    miraba. El resultado era un horario que el sistema mostraba y despues
+    rechazaba, que es la peor forma de mentir.
+
+    Son tres condiciones, y las tres son de negocio:
+
+    1. **El profesional es del negocio.** Sin esto, un `professional_id` de otro
+       tenant entraria por la puerta de atrás.
+    2. **Esta activo y no esta archivado.** Un profesional desactivado o archivado
+       no atiende, aunque todavia tenga el vinculo con el servicio.
+    3. **Tiene el vinculo activo en `professional_services`.** Es lo que dice que
+       ese profesional sabe hacer ese trabajo. Un negocio con un peluquero y un
+       barbero no ofrece los servicios de uno al otro.
+
+    El `ORDER BY sort_order` es parte del contrato: el indice de esta lista es el
+    desempate de la estrategia de asignacion cuando dos profesionales tienen la
+    misma carga, asi que el orden tiene que ser estable entre llamadas y no
+    depender del plan de ejecucion de PostgreSQL.
+    """
+    result = await session.execute(
+        select(Professional.id)
+        .join(
+            ProfessionalService,
+            (ProfessionalService.professional_id == Professional.id)
+            & (ProfessionalService.service_id == service_id),
+        )
+        .where(
+            Professional.business_id == business_id,
+            Professional.is_active.is_(True),
+            Professional.archived_at.is_(None),
+            ProfessionalService.is_active.is_(True),
+        )
+        .order_by(Professional.sort_order, Professional.id)
+    )
+    return list(result.scalars())
+
+
+async def cobertura_de_servicios(
+    session: AsyncSession, business_id: uuid.UUID
+) -> list[CoberturaServicio]:
+    """Cuantos profesionales pueden hacer cada servicio que el negocio ofrece.
+
+    **Es la preventiva del fallo que la regla unica evita.** Un servicio con cero
+    profesionales no se puede reservar, aunque el negocio tenga horarios, precios y
+    una pagina publica que se ve entera y correcta. El cliente llega, elige un
+    servicio y se encuentra con que no hay nadie: el problema no es la agenda, es
+    que nadie dijo "este servicio no lo hace nadie".
+
+    El panel usa esto para avisar, y el aviso tiene que ser temprano: en el
+    momento de activar el servicio, no cuando un cliente pierde la reserva.
+
+    Se cuentan con los **mismos** criterios que `profesionales_que_pueden_hacer`:
+    profesional del negocio, activo, no archivado y con el vinculo activo en
+    `professional_services`. La regla esta escrita una sola vez; este numero es
+    una forma de mirarla, no otra regla que pueda divergir.
+    """
+    result = await session.execute(
+        select(Service.id, Service.name, func.count(Professional.id))
+        .select_from(Service)
+        .outerjoin(
+            ProfessionalService,
+            (ProfessionalService.service_id == Service.id)
+            & (ProfessionalService.is_active.is_(True)),
+        )
+        .outerjoin(
+            Professional,
+            (Professional.id == ProfessionalService.professional_id)
+            & (Professional.business_id == business_id)
+            & (Professional.is_active.is_(True))
+            & (Professional.archived_at.is_(None)),
+        )
+        .where(
+            Service.business_id == business_id,
+            Service.is_active.is_(True),
+            Service.archived_at.is_(None),
+        )
+        .group_by(Service.id, Service.name, Service.sort_order)
+        .order_by(Service.sort_order, Service.name)
+    )
+    return [
+        CoberturaServicio(
+            service_id=service_id,
+            nombre=nombre,
+            profesionales_elegibles=int(cantidad),
+        )
+        for service_id, nombre, cantidad in result.all()
+    ]
+
+
 async def crear_servicio(
     session: AsyncSession, business_id: uuid.UUID, datos: ServiceCreate
 ) -> Service:
@@ -242,11 +358,14 @@ __all__ = [
     "MAX_DESCRIPTION_LENGTH",
     "MAX_NAME_LENGTH",
     "OCUPYING_STATUSES",
+    "CoberturaServicio",
     "ServiceCreate",
     "ServiceUpdate",
     "actualizar_servicio",
     "archivar_servicio",
+    "cobertura_de_servicios",
     "crear_servicio",
     "listar_servicios",
     "obtener_servicio",
+    "profesionales_que_pueden_hacer",
 ]

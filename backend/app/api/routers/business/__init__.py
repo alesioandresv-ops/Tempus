@@ -57,6 +57,7 @@ from app.api.routers.business.schemas import (
     ClienteListadoOut,
     ClienteOut,
     ClientePatch,
+    CoberturaServicioOut,
     DiaHorarioOut,
     EstadisticasOut,
     EstadoFinalIn,
@@ -295,6 +296,28 @@ async def listar_servicios(
         incluir_archivados=incluir_archivados,
         incluir_inactivos=incluir_inactivos,
     )
+
+
+@router.get(
+    "/cobertura",
+    response_model=list[CoberturaServicioOut],
+    summary="Cuantos profesionales pueden hacer cada servicio",
+)
+async def cobertura_de_servicios(
+    sesion: Sesion,
+    principal: Annotated[Principal, Depends(require_scopes(Scope.TEAM_READ))],
+) -> Any:
+    """Que servicios del negocio **no tiene nadie que los haga**.
+
+    Es una lectura, no una escritura, asi que la guardia de plan no la corta: un
+    negocio con el mes gratis vencido igual tiene que poder ver que le falta
+    asignar un profesional a un servicio, porque es justamente lo que va a tener
+    que arreglar.
+
+    Solo devuelve los servicios **ofrecidos** (activos y no archivados): uno
+    archivado no se reserva y no puede confundir a nadie.
+    """
+    return await servicios.cobertura_de_servicios(sesion, _bid(principal))
 
 
 @router.get(
