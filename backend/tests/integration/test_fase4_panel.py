@@ -474,9 +474,10 @@ class TestCobertura:
     ) -> None:
         """El numero sigue a la regla unica, no a un conteo propio.
 
-        Un servicio recien creado no tiene a nadie: `0`. Despues de asignarle
-        un profesional, `1`. Y si ese profesional se desactiva, vuelve a `0`:
-        un profesional desactivado no atiende, aunque conserve el vinculo.
+        El alta del negocio ya trae un profesional--el dueño--y el servicio nuevo
+        nace asignado a el: `1`. Un segundo profesional, que tambien nace asignado,
+        lo lleva a `2`. Desactivarlo lo devuelve a `1`, y si no queda nadie activo
+        es `0`: un profesional desactivado no atiende, aunque conserve el vinculo.
         """
         cuerpo = await _alta(http_client)
         await _poner_tenant(session, uuid.UUID(str(cuerpo["business_id"])))
@@ -495,33 +496,39 @@ class TestCobertura:
             {
                 "service_id": servicio["id"],
                 "nombre": "Corte",
-                "profesionales_elegibles": 0,
+                "profesionales_elegibles": 1,
             }
         ]
 
         profesional = (
             await http_client.post(
                 URL_PROFESIONALES,
-                json={"display_name": "Ana Perez"},
+                json={"display_name": "Beto Gomez"},
                 headers=_auth(token),
             )
         ).json()
-        await http_client.put(
-            f"{URL_PROFESIONALES}/{profesional['id']}/servicios",
-            json={"servicios": [{"service_id": servicio["id"]}]},
-            headers=_auth(token),
-        )
 
         cobertura = (await http_client.get(URL_COBERTURA, headers=_auth(token))).json()
-        assert cobertura[0]["profesionales_elegibles"] == 1
+        assert cobertura[0]["profesionales_elegibles"] == 2
 
         # Desactivado no atiende: el vinculo sigue, pero el servicio vuelve a
-        # quedarse sin nadie.
+        # quedarse sin el.
         await http_client.patch(
             f"{URL_PROFESIONALES}/{profesional['id']}",
             json={"is_active": False},
             headers=_auth(token),
         )
+        cobertura = (await http_client.get(URL_COBERTURA, headers=_auth(token))).json()
+        assert cobertura[0]["profesionales_elegibles"] == 1
+
+        # Sin nadie activo, cero: el numero cuenta personas, no filas.
+        for otro in (await http_client.get(URL_PROFESIONALES, headers=_auth(token))).json():
+            if otro["is_active"]:
+                await http_client.patch(
+                    f"{URL_PROFESIONALES}/{otro['id']}",
+                    json={"is_active": False},
+                    headers=_auth(token),
+                )
         cobertura = (await http_client.get(URL_COBERTURA, headers=_auth(token))).json()
         assert cobertura[0]["profesionales_elegibles"] == 0
 
@@ -545,6 +552,223 @@ class TestCobertura:
 
         cobertura = (await http_client.get(URL_COBERTURA, headers=_auth(token))).json()
         assert cobertura == []
+
+
+class TestAsignacionAutomatica:
+    """El alta de un servicio o de un profesional ya los deja funcionando.
+
+    **Es el fallo que se repitio con dos negocios reales.** "Asignarle el servicio a
+    un profesional" es un paso del panel distinto del alta, y nadie lo hace si no
+    sabe que existe: el negocio queda con servicios, profesionales y horarios, y la
+    pagina publica sin un solo horario. Que el alta enlace por defecto cierra esa
+    clase de falla; el paso manual queda para **restringir** quien hace que.
+
+    Estos tests miran lo mismo que miraria el dueño--la lista de servicios de cada
+    profesional y el aviso de cobertura--, no la tabla por dentro. **El alta del
+    negocio ya crea un profesional** (el dueño, en `onboarding/service.py`), asi que
+    la cuenta siempre lo incluye: es parte del escenario, no ruido del test.
+    """
+
+    async def test_un_servicio_nuevo_queda_asignado_a_los_profesionales_del_negocio(
+        self, http_client: AsyncClient, session: AsyncSession
+    ) -> None:
+        """Con dos profesionales ya cargados, el servicio nace de los tres."""
+        cuerpo = await _alta(http_client)
+        await _poner_tenant(session, uuid.UUID(str(cuerpo["business_id"])))
+        token = await _login(http_client)
+
+        profesionales = []
+        for nombre in ("Ana Perez", "Beto Gomez"):
+            creado = (
+                await http_client.post(
+                    URL_PROFESIONALES,
+                    json={"display_name": nombre},
+                    headers=_auth(token),
+                )
+            ).json()
+            profesionales.append(creado["id"])
+
+        servicio = (
+            await http_client.post(
+                URL_SERVICIOS,
+                json=_cuerpo_servicio(),
+                headers=_auth(token),
+            )
+        ).json()
+
+        for profesional_id in profesionales:
+            asignados = (
+                await http_client.get(
+                    f"{URL_PROFESIONALES}/{profesional_id}/servicios",
+                    headers=_auth(token),
+                )
+            ).json()
+            assert [a["service_id"] for a in asignados] == [servicio["id"]]
+            assert asignados[0]["is_active"] is True
+
+        cobertura = (await http_client.get(URL_COBERTURA, headers=_auth(token))).json()
+        assert cobertura == [
+            {
+                "service_id": servicio["id"],
+                "nombre": "Corte",
+                "profesionales_elegibles": 3,
+            }
+        ]
+
+    async def test_un_profesional_nuevo_queda_asignado_a_los_servicios_del_negocio(
+        self, http_client: AsyncClient, session: AsyncSession
+    ) -> None:
+        """Creado despues de los servicios, tambien queda habilitado para todos."""
+        cuerpo = await _alta(http_client)
+        await _poner_tenant(session, uuid.UUID(str(cuerpo["business_id"])))
+        token = await _login(http_client)
+
+        servicios = []
+        for nombre in ("Corte", "Barba"):
+            creado = (
+                await http_client.post(
+                    URL_SERVICIOS,
+                    json=_cuerpo_servicio(name=nombre),
+                    headers=_auth(token),
+                )
+            ).json()
+            servicios.append(creado["id"])
+
+        profesional = (
+            await http_client.post(
+                URL_PROFESIONALES,
+                json={"display_name": "Beto Gomez"},
+                headers=_auth(token),
+            )
+        ).json()
+
+        asignados = (
+            await http_client.get(
+                f"{URL_PROFESIONALES}/{profesional['id']}/servicios",
+                headers=_auth(token),
+            )
+        ).json()
+        assert sorted(a["service_id"] for a in asignados) == sorted(servicios)
+
+        cobertura = (await http_client.get(URL_COBERTURA, headers=_auth(token))).json()
+        assert [c["profesionales_elegibles"] for c in cobertura] == [2, 2]
+
+    async def test_un_profesional_archivado_no_recibe_los_servicios_nuevos(
+        self, http_client: AsyncClient, session: AsyncSession
+    ) -> None:
+        """Archivar es "ya no esta": no se le siguen asignando cosas.
+
+        Se archiva un profesional y despues se crea el servicio. El servicio nace
+        asignado al profesional del alta--que sigue activo--y **no** al archivado:
+        el vinculo se filtra por `archived_at`, no por existir en la tabla.
+        """
+        cuerpo = await _alta(http_client)
+        await _poner_tenant(session, uuid.UUID(str(cuerpo["business_id"])))
+        token = await _login(http_client)
+
+        profesional = (
+            await http_client.post(
+                URL_PROFESIONALES,
+                json={"display_name": "Beto Gomez"},
+                headers=_auth(token),
+            )
+        ).json()
+        respuesta = await http_client.delete(
+            f"{URL_PROFESIONALES}/{profesional['id']}", headers=_auth(token)
+        )
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json()["archived_at"] is not None
+
+        servicio = (
+            await http_client.post(
+                URL_SERVICIOS,
+                json=_cuerpo_servicio(),
+                headers=_auth(token),
+            )
+        ).json()
+
+        # El endpoint de un archivado no se lista, asi que la unica forma de
+        # afirmar "no se le asigno" es mirar el vinculo: para el, no existe.
+        cantidad = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM professional_services "
+                    "WHERE service_id = :s AND professional_id = :p"
+                ),
+                {
+                    "s": uuid.UUID(str(servicio["id"])),
+                    "p": uuid.UUID(str(profesional["id"])),
+                },
+            )
+        ).scalar_one()
+        assert cantidad == 0
+
+        # Y el servicio no queda huerfano: lo hace el profesional del alta.
+        cobertura = (await http_client.get(URL_COBERTURA, headers=_auth(token))).json()
+        assert cobertura == [
+            {
+                "service_id": servicio["id"],
+                "nombre": "Corte",
+                "profesionales_elegibles": 1,
+            }
+        ]
+
+    async def test_un_profesional_desactivado_si_recibe_los_servicios_nuevos(
+        self, http_client: AsyncClient, session: AsyncSession
+    ) -> None:
+        """Desactivado no es archivado: el vinculo se crea y espera a que vuelva.
+
+        `is_active = False` es "esta semana no atiende". Si el vinculo no se creara,
+        reactivarlo lo dejaria sin ningun servicio hasta que alguien se acordara de
+        asignarlo a mano: el mismo olvido que el alta automatica evita.
+        """
+        cuerpo = await _alta(http_client)
+        await _poner_tenant(session, uuid.UUID(str(cuerpo["business_id"])))
+        token = await _login(http_client)
+
+        profesional = (
+            await http_client.post(
+                URL_PROFESIONALES,
+                json={"display_name": "Beto Gomez"},
+                headers=_auth(token),
+            )
+        ).json()
+        await http_client.patch(
+            f"{URL_PROFESIONALES}/{profesional['id']}",
+            json={"is_active": False},
+            headers=_auth(token),
+        )
+
+        servicio = (
+            await http_client.post(
+                URL_SERVICIOS,
+                json=_cuerpo_servicio(),
+                headers=_auth(token),
+            )
+        ).json()
+
+        # El servicio se lo asigno igual: eso es lo que hace que reactivarlo sirva.
+        asignados = (
+            await http_client.get(
+                f"{URL_PROFESIONALES}/{profesional['id']}/servicios",
+                headers=_auth(token),
+            )
+        ).json()
+        assert [a["service_id"] for a in asignados] == [servicio["id"]]
+
+        # Desactivado no atiende: el servicio lo tiene asignado pero el unico que
+        # puede hacerlo hoy es el profesional del alta.
+        cobertura = (await http_client.get(URL_COBERTURA, headers=_auth(token))).json()
+        assert cobertura[0]["profesionales_elegibles"] == 1
+
+        # Vuelve: el servicio ya lo estaba esperando.
+        await http_client.patch(
+            f"{URL_PROFESIONALES}/{profesional['id']}",
+            json={"is_active": True},
+            headers=_auth(token),
+        )
+        cobertura = (await http_client.get(URL_COBERTURA, headers=_auth(token))).json()
+        assert cobertura[0]["profesionales_elegibles"] == 2
 
 
 class TestHorarios:

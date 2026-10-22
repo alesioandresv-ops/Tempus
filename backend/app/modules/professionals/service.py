@@ -32,7 +32,10 @@ from app.api.errors import NotFoundError, ValidationError
 from app.core.time import now
 from app.modules.professionals.models import Professional
 from app.modules.services.models import ProfessionalService, Service
-from app.modules.services.service import profesionales_que_pueden_hacer
+from app.modules.services.service import (
+    profesionales_que_pueden_hacer,
+    vincular_profesional_con_todos_los_servicios,
+)
 
 MAX_NAME_LENGTH = 160
 MAX_BIO_LENGTH = 2048
@@ -182,7 +185,14 @@ async def obtener_profesional(
 async def crear_profesional(
     session: AsyncSession, business_id: uuid.UUID, datos: ProfessionalCreate
 ) -> Professional:
-    """Crea un profesional."""
+    """Crea un profesional.
+
+    **Nace asignado a todos los servicios del negocio** (ver
+    `vincular_profesional_con_todos_los_servicios`). Un profesional sin ningun
+    servicio es una persona que esta en el panel y no aparece en ninguna parte de la
+    pagina publica: el negocio cree que lo cargo y el cliente no lo puede elegir.
+    El paso manual queda para restringir, no para habilitar.
+    """
     professional = Professional(
         business_id=business_id,
         display_name=_validar_nombre(datos.display_name),
@@ -200,6 +210,9 @@ async def crear_profesional(
     )
     session.add(professional)
     await session.flush()
+    await vincular_profesional_con_todos_los_servicios(
+        session, business_id=business_id, professional_id=professional.id
+    )
     return professional
 
 

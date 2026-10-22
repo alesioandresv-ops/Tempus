@@ -35,7 +35,8 @@ nuevo que marque al anterior como `Reemplazada por ADR-XXXX`. No se editan a pos
 | [0015](0015-openapi-generated-frontend-types.md) | Tipos del frontend generados desde OpenAPI | Aceptada | Frontend |
 | [0016](0016-pre-tenant-login-definer.md) | Rol dedicado para el login pre-tenant (antes de resolver el tenant) | Aceptada | Seguridad |
 | [0017](0017-publicabilidad-y-plan.md) | Estado administrativo y publicabilidad por plan y vigencia | Aceptada | Producto |
-| [0018](0018-una-sola-definicion-de-elegibilidad-de-servicio.md) | Una sola definición de "qué profesional puede hacer qué servicio" | Aceptada | Dominio |
+| [0018](0018-una-sola-definicion-de-elegibilidad-de-servicio.md) | Una sola definición de "qué profesional puede hacer qué servicio" | Aceptada (ver 0019) | Dominio |
+| [0019](0019-asignacion-automatica-al-alta.md) | El alta asigna los servicios; el paso manual restringe | Aceptada | Dominio |
 
 ## Decisiones agrupadas por lo que protegen
 
@@ -70,6 +71,8 @@ nuevo que marque al anterior como `Reemplazada por ADR-XXXX`. No se editan a pos
 - [0018](0018-una-sola-definicion-de-elegibilidad-de-servicio.md) — un solo lugar decide
   qué profesional puede hacer qué servicio; la disponibilidad y la reserva no pueden
   discrepar.
+- [0019](0019-asignacion-automatica-al-alta.md) — el alta deja el negocio funcionando;
+  el paso manual restringe, no habilita.
 
 **Consistencia y entrega**
 

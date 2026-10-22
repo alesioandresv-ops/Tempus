@@ -1,6 +1,6 @@
 # ADR-0018: Una sola definición de "qué profesional puede hacer qué servicio"
 
-- **Estado:** Aceptada
+- **Estado:** Aceptada (la asignación deja de ser un paso manual obligatorio: ver ADR-0019)
 - **Fecha:** 2026-10-22
 - **Referencia:** PROJECT_MASTER §9 (las nueve condiciones), §24 (panel del negocio)
 - **Contexto en:** ARCHITECTURE.md §5 (modelo de datos), §7 (multi-tenancy)

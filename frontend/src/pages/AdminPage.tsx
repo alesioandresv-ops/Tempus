@@ -217,6 +217,11 @@ function ServicioFormulario({
         : api.crearServicio(datos as ServicioCreateRequest),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['servicios'] })
+      // Un servicio nuevo nace asignado a todos los profesionales, asi que la
+      // lista de cada uno cambio aunque el formulario no la haya tocado. Sin
+      // esto, el panel abre "Servicios de ..." con la lista vieja y el proximo
+      // "Guardar asignaciones" borra la asignacion automatica.
+      queryClient.invalidateQueries({ queryKey: ['servicios-profesional'] })
       queryClient.invalidateQueries({ queryKey: CLAVE_COBERTURA })
       onCerrar()
     },
@@ -348,6 +353,7 @@ function ServiciosTab() {
     mutationFn: (id: string) => api.archivarServicio(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['servicios'] })
+      queryClient.invalidateQueries({ queryKey: ['servicios-profesional'] })
       queryClient.invalidateQueries({ queryKey: CLAVE_COBERTURA })
     },
   })
@@ -713,7 +719,9 @@ function EditorServiciosProfesional({ profesional }: { profesional: PanelProfess
       <CardHeader>
         <CardTitle>Servicios de {profesional.display_name}</CardTitle>
         <CardDescription>
-          Qué servicios atiende. Guardar reemplaza la lista completa.
+          Qué servicios atiende. Un servicio nuevo se asigna solo a todos:
+          destildá acá los que esta persona no haga. Guardar reemplaza la lista
+          completa.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

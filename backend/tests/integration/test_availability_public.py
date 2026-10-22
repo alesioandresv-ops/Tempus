@@ -38,14 +38,17 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from collections.abc import AsyncIterator
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
 from app.db.session import TENANT_GUC
+from app.modules.professionals.service import ProfessionalCreate, crear_profesional
+from app.modules.services.service import ServiceCreate, crear_servicio
 from httpx import AsyncClient
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, create_async_engine
 
 pytestmark = pytest.mark.integration
 
@@ -590,3 +593,151 @@ class TestProfesionalesPublicos:
         assert respuesta.status_code == 200, respuesta.text
         ids = [p["id"] for p in respuesta.json()]
         assert sorted(ids) == sorted([str(ANA), str(BETO)])
+
+
+#: Negocio propio de `TestElAltaDelPanelSeVeEnLaUrlPublica`. Es **de este test** y
+#: de nadie mas: el test crea filas con ids aleatorios y las borra al final, asi que
+#: compartir negocio con el resto del archivo lo dejaria dependiendo de que la
+#: limpieza haya salido bien. Con un negocio aparte, una limpieza fallida deja una
+#: fila vacia que no mira ningun otro test.
+NEGOCIO_ALTA = uuid.UUID("eeeeeeee-eeee-7eee-8eee-eeeeeeeeeeee")
+SLUG_ALTA = "negocio-alta-automatica"
+
+
+class TestElAltaDelPanelSeVeEnLaUrlPublica:
+    """El alta deja el link publico funcionando sola, sin ningun paso manual.
+
+    **Es el fallo que se repitio con dos negocios reales.** El dueño carga
+    servicios, profesionales y horarios, abre su link publico y no hay un solo
+    horario: `professional_services` quedo vacia porque asignar el servicio a un
+    profesional es un paso del panel distinto del alta. El sistema mostraba una
+    pagina entera y correcta que no servia para reservar.
+
+    Este test usa las **mismas funciones que el panel** (`crear_servicio` y
+    `crear_profesional`) y despues consulta como un cliente. Si algun dia el alta
+    deja de asignar--por ejemplo, alguien "arregla" el alta para que no toque
+    `professional_services`--, esto se pone en rojo sin que nadie tenga que
+    acordarse de la regla.
+    """
+
+    async def test_un_servicio_y_un_profesional_nuevos_ya_dan_horarios(
+        self, http_client: AsyncClient, migration_database_url: str
+    ) -> None:
+        owner_engine: AsyncEngine = create_async_engine(
+            migration_database_url, poolclass=None, echo=False
+        )
+        service_id: uuid.UUID | None = None
+        professional_id: uuid.UUID | None = None
+        try:
+            async with owner_engine.begin() as conn:
+                await conn.execute(
+                    text(f"SELECT set_config('{TENANT_GUC}', :tenant, true)"),
+                    {"tenant": str(NEGOCIO_ALTA)},
+                )
+                await conn.execute(
+                    text(
+                        """
+                        INSERT INTO businesses (id, name, slug, timezone, status)
+                        VALUES (:id, 'Negocio Alta Automatica', :slug, :tz, 'active')
+                        ON CONFLICT (id) DO UPDATE
+                            SET status = 'active', created_at = now()
+                        """
+                    ),
+                    {"id": NEGOCIO_ALTA, "slug": SLUG_ALTA, "tz": TIMEZONE},
+                )
+                for weekday in range(6):
+                    for indice, (inicio, fin) in enumerate(
+                        ((dt.time(9, 0), dt.time(12, 0)), (dt.time(16, 0), dt.time(20, 0)))
+                    ):
+                        await conn.execute(
+                            text(
+                                """
+                                INSERT INTO business_hours
+                                    (business_id, weekday, window_index,
+                                     start_time, end_time, is_open)
+                                VALUES (:business, :weekday, :indice, :inicio, :fin, true)
+                                ON CONFLICT DO NOTHING
+                                """
+                            ),
+                            {
+                                "business": NEGOCIO_ALTA,
+                                "weekday": weekday,
+                                "indice": indice,
+                                "inicio": inicio,
+                                "fin": fin,
+                            },
+                        )
+
+                # Las dos altas del panel, en el orden en que las haria el dueño.
+                # La sesion es la de la conexion commiteada a proposito: el
+                # endpoint publico resuelve el negocio en su propia sesion (ver el
+                # docstring del modulo), asi que lo que vive en una transaccion sin
+                # commitear no lo ve nadie.
+                session = AsyncSession(conn, expire_on_commit=False)
+                try:
+                    servicio = await crear_servicio(
+                        session,
+                        NEGOCIO_ALTA,
+                        ServiceCreate(
+                            name="Corte",
+                            duration_minutes=30,
+                            price=Decimal("1000.00"),
+                            currency="ARS",
+                        ),
+                    )
+                    profesional = await crear_profesional(
+                        session,
+                        NEGOCIO_ALTA,
+                        ProfessionalCreate(display_name="Ana Perez"),
+                    )
+                    service_id = servicio.id
+                    professional_id = profesional.id
+                finally:
+                    await session.close()
+
+            fecha = _lunes_lejano()
+
+            # 1) El listado publico de profesionales ya lo incluye. Es la lista de
+            #    la que la pagina se sirve para decidir si ofrece el servicio. El
+            #    negocio lo crea el test sin profesionales, asi que el unico es el
+            #    que acaba de nacer--y el servicio, que se creo antes, no tenia a
+            #    nadie: el vinculo lo puso el alta del profesional.
+            profesionales = await http_client.get(
+                f"/api/v1/public/businesses/{SLUG_ALTA}/professionals",
+                params={"service_id": str(service_id)},
+            )
+            assert profesionales.status_code == 200, profesionales.text
+            assert [p["id"] for p in profesionales.json()] == [str(professional_id)]
+
+            # 2) Y la grilla tiene horarios: lo que el cliente real ve.
+            respuesta = await http_client.get(
+                f"/api/v1/public/businesses/{SLUG_ALTA}/availability",
+                params={"service_id": str(service_id), "date": fecha.isoformat()},
+            )
+            assert respuesta.status_code == 200, respuesta.text
+            slots = respuesta.json()["slots"]
+            assert slots, (
+                "el servicio recien creado no ofrece horarios: el alta no asigno el "
+                "servicio al profesional"
+            )
+            for slot in slots:
+                assert slot["candidatos"] == [str(professional_id)]
+        finally:
+            # Limpieza: se borran las filas del test, no el negocio. Los vinculos
+            # caen por `ON DELETE CASCADE` de la FK de `professional_services`.
+            async with owner_engine.begin() as conn:
+                await conn.execute(
+                    text(f"SELECT set_config('{TENANT_GUC}', :tenant, true)"),
+                    {"tenant": str(NEGOCIO_ALTA)},
+                )
+                if service_id is not None:
+                    await conn.execute(
+                        text("DELETE FROM services WHERE id = :id"), {"id": service_id}
+                    )
+                if professional_id is not None:
+                    await conn.execute(
+                        text("DELETE FROM professionals WHERE id = :id"),
+                        {"id": professional_id},
+                    )
+                await conn.execute(text("SELECT set_config(:name, '', true)"), {"name": TENANT_GUC})
+            await owner_engine.dispose()

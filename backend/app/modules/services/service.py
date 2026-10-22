@@ -269,6 +269,105 @@ async def cobertura_de_servicios(
     ]
 
 
+async def vincular_profesional_con_todos_los_servicios(
+    session: AsyncSession,
+    *,
+    business_id: uuid.UUID,
+    professional_id: uuid.UUID,
+) -> None:
+    """Asigna a un profesional recien creado todos los servicios del negocio.
+
+    **La asignacion por defecto tiene que existir, y tiene que ser automatica.** Un
+    negocio con servicios y profesionales pero sin filas en
+    `professional_services` se ve entero y correcto en el panel--horarios,
+    precios, gente-- y su pagina publica no ofrece un solo horario. Paso dos veces
+    con negocios reales. La causa no era un bug de cuentas: era que "asignarle el
+    servicio a un profesional" es un paso del panel **distinto** del alta, y nadie
+    lo hace si no sabe que existe.
+
+    Asi que el alta asigna, y el paso manual queda para lo contrario: **destildar**
+    al profesional que no hace un servicio. Un negocio chico, que es el caso normal,
+    no toca nada y funciona; uno con un barbero y una manicura destilda los dos
+    servicios que el otro no hace.
+
+    Son tres decisiones, y las tres estan aca:
+
+    1. **Todos los servicios ofrecidos** (`is_active` y no archivados). Un servicio
+       archivado no se reserva, asi que no hay nada que asignar.
+    2. **Solo profesionales no archivados** (`archived_at IS NULL`). Archivar es
+       "esta persona ya no esta"; no se le siguen asignando cosas.
+    3. **Los desactivados si cuentan.** `is_active = False` es "esta semana no
+       atiende", no "no existe": el vinculo se crea igual y, cuando lo reactivan,
+       el servicio ya lo espera. Si no se creara, reactivar a alguien lo dejaria sin
+       poder hacer nada hasta que alguien se acuerde de asignarlo a mano--el mismo
+       olvido que esta funcion existe para evitar.
+
+    No hace falta `ON CONFLICT`: se llama en el alta, cuando la fila no puede
+    existir. Si algun dia se llama sobre un profesional existente, el `UNIQUE`
+    `(professional_id, service_id)` va a fallar y eso es correcto: el reemplazo
+    del conjunto es `asignar_servicios`, no esto.
+    """
+    result = await session.execute(
+        select(Service.id).where(
+            Service.business_id == business_id,
+            Service.is_active.is_(True),
+            Service.archived_at.is_(None),
+        )
+    )
+    servicios = list(result.scalars())
+    if not servicios:
+        return
+    session.add_all(
+        ProfessionalService(
+            business_id=business_id,
+            professional_id=professional_id,
+            service_id=service_id,
+            is_active=True,
+        )
+        for service_id in servicios
+    )
+    await session.flush()
+
+
+async def vincular_servicio_con_todos_los_profesionales(
+    session: AsyncSession,
+    *,
+    business_id: uuid.UUID,
+    service_id: uuid.UUID,
+) -> None:
+    """Asigna un servicio recien creado a todos los profesionales del negocio.
+
+    Es la misma decision que `vincular_profesional_con_todos_los_servicios`, del
+    otro lado: el alta de cualquiera de los dos tiene que dejar el negocio
+    funcionando, sin importar en que orden se cargaron las cosas. Un negocio que
+    primero crea los servicios y despues los profesionales no puede terminar con la
+    pagina publica vacia, y uno que hace lo contrario tampoco.
+
+    Los criterios son los mismos y estan explicados en la funcion de al lado:
+    profesionales no archivados (los desactivados si), y solo servicios ofrecidos
+    por construccion--el que se esta creando acaba de nacer ofrecido.
+    """
+    result = await session.execute(
+        select(Professional.id).where(
+            Professional.business_id == business_id,
+            Professional.archived_at.is_(None),
+        )
+    )
+    profesionales = list(result.scalars())
+    if not profesionales:
+        return
+    session.add_all(
+        ProfessionalService(
+            business_id=business_id,
+            professional_id=professional_id,
+            service_id=service_id,
+            is_active=True,
+        )
+        for professional_id in profesionales
+    )
+    await session.flush()
+
+
 async def crear_servicio(
     session: AsyncSession, business_id: uuid.UUID, datos: ServiceCreate
 ) -> Service:
@@ -277,6 +376,11 @@ async def crear_servicio(
     `flush()` y no `commit()`: el commit es de la dependencia HTTP. Lo mismo que en
     el resto del servicio, pero aqui importa mas porque el `id` se devuelve en la
     respuesta y sin `flush` no habria id.
+
+    **El servicio nace asignado a todos los profesionales del negocio** (ver
+    `vincular_servicio_con_todos_los_profesionales`). Sin eso, un servicio nuevo
+    aparece en la pagina publica y no lo puede reservar nadie, y el dueño no tiene
+    forma de saber que le falta un paso.
     """
     nombre = _validar_nombre(datos.name)
     duracion = _validar_duracion(datos.duration_minutes)
@@ -296,6 +400,9 @@ async def crear_servicio(
     )
     session.add(service)
     await session.flush()
+    await vincular_servicio_con_todos_los_profesionales(
+        session, business_id=business_id, service_id=service.id
+    )
     return service
 
 
@@ -368,4 +475,6 @@ __all__ = [
     "listar_servicios",
     "obtener_servicio",
     "profesionales_que_pueden_hacer",
+    "vincular_profesional_con_todos_los_servicios",
+    "vincular_servicio_con_todos_los_profesionales",
 ]
