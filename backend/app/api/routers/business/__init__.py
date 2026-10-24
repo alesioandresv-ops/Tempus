@@ -1824,9 +1824,7 @@ async def ver_suscripcion(
         monto=datos["monto"],
         moneda=datos["moneda"],
         whatsapp_soporte=datos["whatsapp_soporte"],
-        enlace_whatsapp=pro_pagos.enlace_whatsapp_comprobante(
-            negocio.name if negocio else "", principal.email
-        ),
+        enlace_whatsapp=pro_pagos.enlace_whatsapp_comprobante(negocio.name if negocio else "", ""),
     )
     return respuesta
 
