@@ -133,8 +133,6 @@ async def admin_session() -> AsyncIterator[AsyncSession]:
     except BaseException:
         await session.rollback()
         raise
-    finally:
-        await session.close()
 
 
 def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
