@@ -23,10 +23,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_session, get_settings_dep
+from app.api.dependencies import get_settings_dep
 from app.core.config import Settings
 from app.core.logging import get_logger
 from app.core.time import now
+from app.db.session import admin_session
 from app.models.enums import BusinessPlan, BusinessStatus
 from app.modules.businesses.models import Business
 from app.modules.businesses.publicacion import dias_restantes, fin_del_trial
@@ -37,7 +38,7 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
-Sesion = Annotated[AsyncSession, Depends(get_session)]
+Sesion = Annotated[AsyncSession, Depends(admin_session)]
 
 
 def _verificar_secreto(

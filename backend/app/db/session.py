@@ -80,6 +80,63 @@ def get_engine() -> AsyncEngine:
     return _engine
 
 
+# ---------------------------------------------------------------- admin engine
+_admin_engine: AsyncEngine | None = None
+
+
+def get_admin_engine() -> AsyncEngine:
+    """Engine con el rol de migraciones, exclusivo del router administrativo.
+
+    `businesses` es la tabla donde el rol de la app solo tiene SELECT: escribir
+    `plan`/`pro_until`/`status` desde la app rompería la separación de permisos
+    del §7. El router admin necesita escribirlos, así que usa el rol con DDL
+    (`DATABASE_MIGRATION_URL`).
+
+    **No sirve requests de la app**: solo el router admin y el cron lo usan, y
+    ambos están protegidos por `ADMIN_SECRET`. Un bug en un endpoint normal no
+    puede alcanzar este engine.
+    """
+    global _admin_engine
+    if _admin_engine is None:
+        settings = get_settings()
+        if not settings.database_migration_url:
+            raise RuntimeError(
+                "DATABASE_MIGRATION_URL no configurada: el panel administrativo "
+                "no puede escribir businesses. Definirla en el entorno."
+            )
+        admin_engine = create_async_engine(
+            settings.sqlalchemy_url(for_migrations=True), **_admin_kwargs()
+        )
+        _apply_connect_guards(admin_engine)
+        _admin_engine = admin_engine
+    return _admin_engine
+
+
+def _admin_kwargs() -> dict[str, Any]:
+    """Pool del engine admin: pequeño a propósito."""
+    return {
+        "pool_size": 2,
+        "max_overflow": 2,
+        "pool_pre_ping": True,
+    }
+
+
+@asynccontextmanager
+async def admin_session() -> AsyncIterator[AsyncSession]:
+    """Sesión transaccional con el rol de migraciones (router admin / cron)."""
+    session = async_sessionmaker(
+        get_admin_engine(), class_=AsyncSession, expire_on_commit=False, autoflush=False
+    )()
+    try:
+        yield session
+        await session.commit()
+    except BaseException:
+        await session.rollback()
+        raise
+    finally:
+        await session.close()
+
+
 def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
     """Sessionmaker del proceso."""
     global _sessionmaker
