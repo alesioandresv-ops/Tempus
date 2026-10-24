@@ -223,6 +223,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
 
     # Routers de la API v1
+    from app.api.routers import admin as admin_router
     from app.api.routers import auth as auth_router
     from app.api.routers import business as business_router
     from app.api.routers import internal as internal_router
@@ -231,6 +232,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from app.api.routers import webhooks as webhooks_router
 
     app.include_router(auth_router.router, prefix="/api/v1")
+    app.include_router(admin_router.router, prefix="/api/v1")
     app.include_router(onboarding_router.router, prefix="/api/v1")
     app.include_router(public_router.router, prefix="/api/v1")
     app.include_router(internal_router.router, prefix="/api/v1")

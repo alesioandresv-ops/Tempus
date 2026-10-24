@@ -1,0 +1,239 @@
+﻿<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tempus · Propuesta de diseño v3</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..600&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="tablero.css" />
+</head>
+<body>
+  <header class="board-top">
+    <div class="wrap">
+      <div class="board-brand">
+        <img src="../../../frontend/public/isotipo-tempus.png" alt="Tempus" />
+        <span class="name">Tempus</span>
+      </div>
+      <div class="meta">
+        <span>Diseño de producto</span>
+        <span><b>Propuesta v3</b></span>
+        <span>Octubre 2026</span>
+      </div>
+    </div>
+  </header>
+
+  <section class="board-hero">
+    <div class="wrap">
+      <p class="board-kicker">Registro + reserva pública</p>
+      <h1>Dos momentos,<br /><em>una misma marca.</em></h1>
+      <p>
+        El alta del negocio se queda en el mundo oscuro y de vidrio de Tempus. La página pública
+        se viste con la identidad del negocio: clara, editorial y pensada para que reservar se
+        sienta tan simple como mandar un mensaje.
+      </p>
+      <div class="board-chips">
+        <span>Desktop 1440</span>
+        <span>Mobile 390</span>
+        <span>3 pasos</span>
+        <span>Resumen persistente</span>
+        <span>Confianza explícita</span>
+      </div>
+    </div>
+  </section>
+
+  <main>
+    <!-- ------------------------------------------------------------ 01 -->
+    <section class="board-section" id="registro">
+      <div class="wrap">
+        <div class="section-head">
+          <div>
+            <p class="section-num">01 — Alta de negocio</p>
+            <h2>Registro que se siente corto</h2>
+          </div>
+          <div>
+            <p>Menos campos visibles a la vez, una vista previa real de lo que están creando y el link público como protagonista.</p>
+            <a href="registro.html?paso=1">Abrir prototipo paso 1 →</a>
+          </div>
+        </div>
+
+        <div class="shots">
+          <figure class="shot">
+            <img src="registro-paso1.png" alt="Registro de negocio, paso 1, en escritorio" />
+            <figcaption><span><b>Paso 1 · Tu negocio</b> — nombre, link y disponibilidad en vivo</span><code>registro-paso1.png · 1440×1024</code></figcaption>
+          </figure>
+        </div>
+
+        <div class="shots-row" style="margin-top:20px">
+          <figure class="shot">
+            <img src="registro-paso3.png" alt="Registro de negocio, paso 3, en escritorio" />
+            <figcaption><span><b>Paso 3 · Listo</b> — resumen, zona horaria y verificación</span><code>registro-paso3.png · 1440×1024</code></figcaption>
+          </figure>
+          <figure class="shot mobile">
+            <img src="registro-mobile.png" alt="Registro de negocio en mobile" />
+            <figcaption><span><b>Mobile</b> — el wizard sin ruido</span><code>390×932</code></figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------------------ 02 -->
+    <section class="board-section" id="reserva">
+      <div class="wrap">
+        <div class="section-head">
+          <div>
+            <p class="section-num">02 — Página pública</p>
+            <h2>El turno, en tres decisiones</h2>
+          </div>
+          <div>
+            <p>El negocio ocupa el lugar de marca; el flujo ocupa el centro; el resumen acompaña sin moverse. En mobile, el resumen se convierte en una barra de acción.</p>
+            <a href="reserva.html?paso=1">Abrir prototipo de reserva →</a>
+          </div>
+        </div>
+
+        <div class="shots">
+          <figure class="shot">
+            <img src="reserva-servicios.png" alt="Página pública de reservas, selección de servicio, escritorio" />
+            <figcaption><span><b>Paso 1 · Servicio</b> — portada del negocio, servicios y resumen con precio</span><code>reserva-servicios.png · 1440×1073</code></figcaption>
+          </figure>
+        </div>
+
+        <div class="shots-duo" style="margin-top:20px">
+          <figure class="shot">
+            <img src="reserva-horario.png" alt="Página pública de reservas, día y hora, escritorio" />
+            <figcaption><span><b>Paso 2 · Día y hora</b> — profesionales, tira de días y horarios agrupados</span><code>reserva-horario.png · 1440×1073</code></figcaption>
+          </figure>
+          <figure class="shot">
+            <img src="reserva-datos.png" alt="Página pública de reservas, datos del cliente, escritorio" />
+            <figcaption><span><b>Paso 3 · Tus datos</b> — solo nombre, apellido y WhatsApp</span><code>reserva-datos.png · 1440×1073</code></figcaption>
+          </figure>
+        </div>
+
+        <div class="shots" style="margin-top:20px">
+          <figure class="shot">
+            <img src="reserva-confirmacion.png" alt="Confirmación de turno con ticket, QR y recordatorios" />
+            <figcaption><span><b>Confirmación</b> — ticket, QR, calendario y qué pasa después</span><code>reserva-confirmacion.png · 1440×1231</code></figcaption>
+          </figure>
+        </div>
+
+        <div class="shots-duo" style="margin-top:20px">
+          <figure class="shot mobile">
+            <img src="reserva-mobile-servicios.png" alt="Reserva pública en mobile, servicios" />
+            <figcaption><span><b>Mobile · Servicio</b></span><code>390×932</code></figcaption>
+          </figure>
+          <figure class="shot mobile">
+            <img src="reserva-mobile-horario.png" alt="Reserva pública en mobile, día y hora" />
+            <figcaption><span><b>Mobile · Día y hora</b></span><code>390×932</code></figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------------------ 03 -->
+    <section class="board-section" id="decisiones">
+      <div class="wrap">
+        <div class="section-head">
+          <div>
+            <p class="section-num">03 — Decisiones</p>
+            <h2>Por qué se ve así</h2>
+          </div>
+          <p>La estética no es decoración: cada cambio resuelve una duda del usuario en el momento en el que aparece.</p>
+        </div>
+
+        <div class="rationale">
+          <article>
+            <span class="no">01</span>
+            <h3>Producto oscuro.<br />Página del negocio clara.</h3>
+            <p>Tempus es la herramienta; la página pública es del negocio. El contraste hace que la vista previa del registro se lea como <b>el resultado</b>, no como otra pantalla del formulario. Y una página clara convierte mejor en el celular.</p>
+          </article>
+          <article>
+            <span class="no">02</span>
+            <h3>Tres columnas,<br />una sola decisión.</h3>
+            <p>La información del estudio queda a la izquierda, el paso activo al centro y la reserva a la derecha. El cliente no tiene que recordar lo que eligió: <b>el resumen se queda quieto</b> mientras avanza.</p>
+          </article>
+          <article>
+            <span class="no">03</span>
+            <h3>La confianza<br />se muestra, no se pide.</h3>
+            <p>Link disponible, sin tarjeta, pago en el local, recordatorio por WhatsApp y cancelación desde el link. Son datos concretos, no adjetivos. <b>Nada de testimonios inventados</b> ni métricas de relleno.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------------------ 04 -->
+    <section class="board-section" id="handoff">
+      <div class="wrap">
+        <div class="section-head">
+          <div>
+            <p class="section-num">04 — Handoff</p>
+            <h2>Qué cambia respecto de hoy</h2>
+          </div>
+          <p>La propuesta se puede implementar sin tocar la API: reutiliza los campos y las consultas que ya existen en <b>RegisterPage.tsx</b> y <b>BusinessPage.tsx</b>.</p>
+        </div>
+
+        <div class="handoff">
+          <div class="handoff-row">
+            <span>Pantalla</span>
+            <span>Versión actual</span>
+            <span>Propuesta</span>
+          </div>
+          <div class="handoff-row">
+            <b>Registro</b>
+            <span class="old">Dos columnas, wizard de 3 pasos y preview oscuro.</span>
+            <span class="new">Jerarquía más clara, barra segmentada, link con estado en vivo y preview de la página real del negocio.</span>
+          </div>
+          <div class="handoff-row">
+            <b>Reserva · layout</b>
+            <span class="old">Wizard centrado de una columna, tema oscuro.</span>
+            <span class="new">Tres columnas: estudio, flujo y resumen. Tema claro con el color del negocio; el resumen queda sticky.</span>
+          </div>
+          <div class="handoff-row">
+            <b>Reserva · fecha</b>
+            <span class="old">Calendario mensual + horarios debajo.</span>
+            <span class="new">Tira de próximos días + horarios agrupados por mañana, tarde y noche. El mes completo queda detrás de “Ver calendario”.</span>
+          </div>
+          <div class="handoff-row">
+            <b>Confirmación</b>
+            <span class="old">Check, tarjeta de detalle y dos acciones.</span>
+            <span class="new">Ticket con fecha grande, QR, comprobante, calendario y una línea de tiempo de recordatorios.</span>
+          </div>
+          <div class="handoff-row">
+            <b>Mobile</b>
+            <span class="old">Mismo wizard, resumen inexistente.</span>
+            <span class="new">Barra fija con la selección y la acción principal; el resumen de escritorio se oculta.</span>
+          </div>
+        </div>
+
+        <div class="notes">
+          <div class="note-card">
+            <h4>Implementación frontend</h4>
+            <ul>
+              <li>Tokens nuevos en <code>tailwind.config.js</code>: <code>paper</code>, <code>ink</code>, <code>terracotta</code>, <code>forest</code> y radios <code>xl2</code>.</li>
+              <li>Reutilizar <code>Business.brand_color</code> para el acento de la página pública; el resto del tema claro es fijo.</li>
+              <li>El QR del ticket puede ser el mismo <code>secure_token</code> de la reserva, sin backend nuevo.</li>
+              <li>La barra móvil se monta solo en <code>max-width: 860px</code>; el resumen sticky se oculta con la misma media query.</li>
+            </ul>
+          </div>
+          <div class="note-card">
+            <h4>Datos que ya existen</h4>
+            <ul>
+              <li><b>Registro:</b> nombre, slug, dueño, email, contraseña, teléfono y zona horaria. No se agregó ningún campo.</li>
+              <li><b>Reserva:</b> servicio, profesional, fecha, slot, nombre, apellido y WhatsApp. No se agregó ningún campo.</li>
+              <li><b>Extras de la portada</b> (horarios, dirección, descripción) ya viven en el negocio; solo hay que exponerlos en la respuesta pública.</li>
+              <li>Los recordatorios 24 h / 2 h y el link de gestión ya son parte del producto.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="board-foot">
+    <div class="wrap">
+      <span><b>Tempus</b> · Propuesta de diseño v3 · Registro + reserva pública</span>
+      <span>Prototipos estáticos en <b>docs/mockups/v3/</b></span>
+    </div>
+  </footer>
+</body>
+</html>

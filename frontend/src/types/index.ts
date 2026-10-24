@@ -672,6 +672,38 @@ export interface SubscriptionStatus {
   dias_restantes: number
   es_publicable: boolean
   checkout_url: string
+  /** Hasta cuando vale el Pro cobrado por transferencia. `null` = MP o no-Pro. */
+  pro_until?: string | null
+  /** Datos de cobro manual (Naranja X). Siempre presentes. */
+  transferencia?: TransferenciaInfo | null
+}
+
+/** Datos bancarios del cobro manual del plan Pro. */
+export interface TransferenciaInfo {
+  banco: string
+  cbu: string
+  alias: string
+  titular: string
+  monto: number
+  moneda: string
+  whatsapp_soporte: string
+  enlace_whatsapp: string
+}
+
+/** Intento de pago por transferencia: el backend devuelve el enlace ya armado. */
+export interface PaymentIntentRequest {
+  email: string
+  business_name?: string
+  amount?: number
+  method?: string
+  fecha_transferencia?: string
+}
+
+export interface PaymentIntentResponse {
+  payment_id: string
+  status: string
+  enlace_whatsapp: string
+  mensaje_confirmacion: string
 }
 
 /** Activar Pro: MP devuelve un `init_point` y el admin autoriza ahí. */

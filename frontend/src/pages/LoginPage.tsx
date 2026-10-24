@@ -6,6 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { InputContrasena } from '@/components/ui/input-contrasena'
 import { MarcaTempus } from '@/components/MarcaTempus'
 import { api, ApiError, guardarAccessToken } from '@/services/api'
 import type { LoginRequest } from '@/types'
@@ -374,9 +375,8 @@ export default function LoginPage() {
                 <label htmlFor="password" className="text-sm text-slate-300">
                   Contrasena
                 </label>
-                <Input
+                <InputContrasena
                   id="password"
-                  type="password"
                   autoComplete="current-password"
                   placeholder="........"
                   className="border-white/10 bg-white/5 text-white placeholder:text-slate-500 focus-visible:ring-violet-400"

@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tempus — Crear tu negocio</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@600;700&display=swap" rel="stylesheet" />
+<style>
+  body { font-family: 'Inter', sans-serif; }
+  .font-display { font-family: 'Sora', sans-serif; }
+  @keyframes flotar { 0%,100%{transform:translate(0,0)} 50%{transform:translate(20px,-20px)} }
+  .flotar { animation: flotar 14s ease-in-out infinite; }
+  ::placeholder { color: #64748b; }
+</style>
+</head>
+<body class="min-h-screen bg-[#070B1A] text-slate-100 antialiased">
+
+<!-- Fondo aurora -->
+<div aria-hidden="true" class="pointer-events-none fixed inset-0 overflow-hidden">
+  <div class="absolute -left-32 -top-40 h-[520px] w-[520px] rounded-full bg-violet-600/25 blur-[120px] flotar"></div>
+  <div class="absolute -top-16 right-0 h-[460px] w-[460px] rounded-full bg-cyan-500/20 blur-[130px] flotar"></div>
+  <div class="absolute left-1/3 top-64 h-[420px] w-[420px] rounded-full bg-fuchsia-600/20 blur-[140px]"></div>
+</div>
+
+<div class="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-10 px-6 py-10 lg:flex-row lg:items-center lg:gap-16 lg:px-8">
+
+  <!-- ============ Columna izquierda: marca + wizard + preview ============ -->
+  <div class="flex flex-1 flex-col justify-center lg:max-w-xl">
+    <div class="flex items-center gap-3">
+      <!-- Logo simplificado (mockup) -->
+      <div class="flex h-12 w-12 items-center justify-center rounded-2xl border border-violet-400/30 bg-violet-500/15">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#c4b5fd" stroke-width="1.6"/><path d="M12 7v5l3.5 2" stroke="#c4b5fd" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </div>
+      <div>
+        <p class="font-display text-xl font-bold text-white">Tempus</p>
+        <p class="text-xs text-slate-400">Tu agenda, siempre en orden</p>
+      </div>
+    </div>
+
+    <h1 class="mt-8 font-display text-4xl font-semibold leading-tight tracking-tight text-white sm:text-5xl">
+      Creá tu negocio
+      <br />
+      <span class="bg-gradient-to-r from-violet-400 via-fuchsia-400 to-cyan-300 bg-clip-text text-transparent">en menos de 2 minutos</span>
+    </h1>
+    <p class="mt-5 max-w-md text-base leading-relaxed text-slate-400">
+      Tres pasos y tu link público ya acepta reservas. Sin tarjeta de crédito: el primer mes es gratis.
+    </p>
+
+    <!-- Wizard de pasos -->
+    <div class="mt-10 max-w-md">
+      <div class="mb-5 flex items-center gap-2">
+        <span class="text-xs font-medium text-slate-400">Paso 2 de 3</span>
+        <div class="h-1 flex-1 overflow-hidden rounded-full bg-white/10">
+          <div class="h-full w-2/3 rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500"></div>
+        </div>
+      </div>
+
+      <!-- Paso 1: completado -->
+      <div class="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-300">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <div class="flex-1">
+          <p class="text-sm font-medium text-slate-200">Tu negocio</p>
+          <p class="text-xs text-slate-500">Estudio Nova · estudionova</p>
+        </div>
+        <button class="text-xs text-violet-300 hover:text-violet-200">Editar</button>
+      </div>
+
+      <!-- Paso 2: activo -->
+      <div class="mt-3 flex items-start gap-3 rounded-xl border border-violet-400/30 bg-violet-500/[0.08] p-4 shadow-[0_0_30px_-12px_rgba(139,92,246,0.5)]">
+        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-500/30 font-display text-xs font-bold text-violet-200">2</span>
+        <div class="flex-1">
+          <p class="text-sm font-semibold text-white">Los servicios y su duración</p>
+          <div class="mt-3 space-y-2">
+            <div class="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+              <span class="flex-1 text-sm text-slate-200">Corte de pelo</span>
+              <span class="rounded-full bg-cyan-500/15 px-2 py-0.5 text-[10px] font-medium text-cyan-200">45 min</span>
+              <span class="text-sm font-medium text-white">$4.500</span>
+              <span class="text-slate-500">✕</span>
+            </div>
+            <div class="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+              <span class="flex-1 text-sm text-slate-200">Barba</span>
+              <span class="rounded-full bg-cyan-500/15 px-2 py-0.5 text-[10px] font-medium text-cyan-200">30 min</span>
+              <span class="text-sm font-medium text-white">$2.800</span>
+              <span class="text-slate-500">✕</span>
+            </div>
+          </div>
+          <button class="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/20 py-2 text-xs text-slate-400 hover:border-violet-400/40 hover:text-violet-200">
+            + Agregar servicio
+          </button>
+        </div>
+      </div>
+
+      <!-- Paso 3: pendiente -->
+      <div class="mt-3 flex items-center gap-3 rounded-xl border border-white/10 p-4 opacity-60">
+        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/15 font-display text-xs text-slate-400">3</span>
+        <div class="flex-1">
+          <p class="text-sm font-medium text-slate-300">Tu link público</p>
+          <p class="text-xs text-slate-500">Se activa al terminar</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Columna derecha: formulario del paso activo ============ -->
+  <div class="flex w-full flex-col justify-center lg:max-w-md">
+    <div class="w-full rounded-2xl border border-white/10 bg-[#0B1224]/90 p-7 shadow-[0_0_60px_-20px_rgba(139,92,246,0.5)] backdrop-blur-xl sm:p-8">
+      <div class="flex items-center justify-between">
+        <h2 class="font-display text-2xl font-semibold tracking-tight text-white">Servicios</h2>
+        <span class="rounded-full bg-violet-500/20 px-2.5 py-0.5 text-[10px] font-medium text-violet-200">Opcional</span>
+      </div>
+      <p class="mt-1.5 text-sm text-slate-400">
+        Lo que tus clientes van a poder reservar desde tu link.
+      </p>
+
+      <form class="mt-7 space-y-4" novalidate>
+        <div class="space-y-2">
+          <label class="text-sm text-slate-300">Nombre del servicio</label>
+          <input type="text" value="Corte + barba"
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white outline-none focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/30" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="space-y-2">
+            <label class="text-sm text-slate-300">Duración</label>
+            <div class="relative">
+              <input type="text" value="60"
+                class="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 pr-16 text-sm text-white outline-none focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/30" />
+              <span class="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs text-slate-500">min</span>
+            </div>
+          </div>
+          <div class="space-y-2">
+            <label class="text-sm text-slate-300">Precio <span class="text-slate-500">(opcional)</span></label>
+            <input type="text" value="6500"
+              class="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white outline-none focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/30" />
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-sm text-slate-300">Quién lo hace</label>
+          <div class="flex flex-wrap gap-2">
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-violet-400/40 bg-violet-500/15 px-3 py-1 text-xs text-violet-200">
+              <span class="h-1.5 w-1.5 rounded-full bg-violet-400"></span> Mariana
+              <span class="text-violet-300/60">✕</span>
+            </span>
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-1 text-xs text-cyan-200">
+              <span class="h-1.5 w-1.5 rounded-full bg-cyan-400"></span> Jorge
+              <span class="text-cyan-300/60">✕</span>
+            </span>
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs text-slate-300">
+              + Asignar
+            </span>
+          </div>
+          <p class="text-xs text-slate-500">Por defecto, todos los profesionales lo hacen.</p>
+        </div>
+
+        <button type="button" class="w-full rounded-xl bg-white py-2.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-200">
+          Guardar y continuar
+        </button>
+
+        <button type="button" class="w-full rounded-xl py-2 text-sm text-slate-400 transition-colors hover:text-slate-200">
+          Omitir por ahora
+        </button>
+      </form>
+
+      <div class="mt-5 border-t border-white/10 pt-4 text-center text-xs text-slate-500">
+        Ya tenés un negocio?
+        <a class="text-violet-300 hover:text-violet-200" href="#">Iniciá sesión</a>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

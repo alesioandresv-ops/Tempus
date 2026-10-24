@@ -6,3 +6,8 @@ main = "worker.ts"
 directory = "dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
+
+# Mantiene despierto el web service de Render Free (se suspende a los 15 min sin
+# trafico). El handler `scheduled` de worker.ts pega a `/healthz`.
+[triggers]
+crons = ["*/5 * * * *"]

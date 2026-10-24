@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Estudio Nova — Turno confirmado</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@600;700&display=swap" rel="stylesheet" />
+<style>
+  body { font-family: 'Inter', sans-serif; }
+  .font-display { font-family: 'Sora', sans-serif; }
+  @keyframes pop { 0% { transform: scale(0.5); opacity: 0 } 60% { transform: scale(1.1); opacity: 1 } 100% { transform: scale(1); opacity: 1 } }
+  .pop { animation: pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+</style>
+</head>
+<body class="min-h-screen bg-[#070B1A] text-slate-100 antialiased">
+
+<div aria-hidden="true" class="pointer-events-none fixed inset-0 overflow-hidden">
+  <div class="absolute -left-40 -top-40 h-[500px] w-[500px] rounded-full bg-violet-600/20 blur-[130px]"></div>
+  <div class="absolute -bottom-40 right-0 h-[460px] w-[460px] rounded-full bg-cyan-500/15 blur-[140px]"></div>
+  <div class="absolute left-1/2 top-1/3 h-[400px] w-[400px] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-[120px]"></div>
+</div>
+
+<!-- ================= Header público ================= -->
+<header class="sticky top-0 z-20 border-b border-white/10 bg-[#070B1A]/80 backdrop-blur-lg">
+  <div class="mx-auto flex max-w-5xl items-center justify-between px-5 py-3.5 sm:px-8">
+    <div class="flex items-center gap-3">
+      <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 font-display text-sm font-bold text-white">EN</div>
+      <div>
+        <p class="font-display text-base font-semibold leading-tight text-white">Estudio Nova</p>
+        <p class="flex items-center gap-1.5 text-[11px] text-slate-400">
+          <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span> Abierto ahora · Palermo, CABA
+        </p>
+      </div>
+    </div>
+    <a href="#" class="hidden rounded-lg border border-white/10 bg-white/5 px-3.5 py-1.5 text-xs text-slate-200 hover:border-white/20 sm:block">
+      Ver cómo llegar
+    </a>
+  </div>
+</header>
+
+<main class="relative mx-auto max-w-lg px-5 pb-24 pt-14 sm:px-8">
+
+  <!-- ================= Confirmación ================= -->
+  <section class="text-center">
+    <div class="pop mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-emerald-500/15 shadow-[0_0_60px_-10px_rgba(16,185,129,0.5)]">
+      <svg width="52" height="52" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="10" stroke="#34d399" stroke-width="2"/>
+        <path d="M7.5 12.5l3 3 6-6.5" stroke="#34d399" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+
+    <h1 class="mt-8 font-display text-3xl font-semibold tracking-tight text-white sm:text-4xl">¡Turno confirmado!</h1>
+    <p class="mx-auto mt-3 max-w-sm text-sm text-slate-400">
+      Te esperamos, Juan. Te va a llegar un recordatorio por WhatsApp 24 horas antes.
+    </p>
+  </section>
+
+  <!-- ================= Tarjeta del turno ================= -->
+  <section class="mt-10 rounded-2xl border border-white/10 bg-[#0B1224]/90 p-6 shadow-[0_0_50px_-20px_rgba(16,185,129,0.35)] backdrop-blur-xl sm:p-7">
+    <!-- Código de reserva -->
+    <div class="flex items-center justify-between border-b border-white/10 pb-5">
+      <div>
+        <p class="text-xs text-slate-500">Código de reserva</p>
+        <p class="mt-1 font-mono text-lg font-semibold tracking-wider text-emerald-300">HB4K-7QX2</p>
+      </div>
+      <button class="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 hover:border-white/25 hover:text-white">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" stroke="currentColor" stroke-width="1.8"/></svg>
+        Copiar
+      </button>
+    </div>
+
+    <!-- Datos del turno -->
+    <div class="mt-5 space-y-4">
+      <div class="flex items-start gap-4">
+        <span class="mt-0.5 text-xl">📅</span>
+        <div>
+          <p class="text-sm font-semibold text-white">Viernes 16 de octubre</p>
+          <p class="text-sm text-slate-400">09:00 — 09:45 hs</p>
+          <p class="mt-0.5 text-xs text-slate-500">Horario de Buenos Aires</p>
+        </div>
+      </div>
+
+      <div class="flex items-start gap-4">
+        <span class="mt-0.5 text-xl">✂️</span>
+        <div>
+          <p class="text-sm font-semibold text-white">Corte + barba</p>
+          <p class="text-sm text-slate-400">45 min con Mariana</p>
+        </div>
+        <p class="ml-auto text-sm font-semibold text-white">$6.500</p>
+      </div>
+
+      <div class="flex items-start gap-4">
+        <span class="mt-0.5 text-xl">📍</span>
+        <div>
+          <p class="text-sm font-semibold text-white">Estudio Nova</p>
+          <p class="text-sm text-slate-400">Av. Santa Fe 3200, Palermo, CABA</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Acciones -->
+    <div class="mt-6 grid grid-cols-2 gap-3 border-t border-white/10 pt-5">
+      <button class="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 py-2.5 text-sm font-medium text-slate-200 transition-colors hover:border-white/25 hover:text-white">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 3v4M16 3v4M3 10h18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        Agendar
+      </button>
+      <button class="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 py-2.5 text-sm font-medium text-slate-200 transition-colors hover:border-white/25 hover:text-white">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21 11.5a8.5 8.5 0 01-12.4 7.5L3 21l2-5.6A8.5 8.5 0 1121 11.5z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        WhatsApp
+      </button>
+    </div>
+  </section>
+
+  <!-- ================= Pie ================= -->
+  <div class="mt-8 space-y-3 text-center">
+    <p class="text-xs text-slate-500">
+      ¿No podés venir? Podés cancelar gratis hasta 3 horas antes
+      <a href="#" class="ml-1 text-emerald-300 hover:text-emerald-200">cancelar turno</a>
+    </p>
+    <a href="#" class="inline-block text-sm text-violet-300 hover:text-violet-200">Reservar otro turno →</a>
+  </div>
+</main>
+</body>
+</html>

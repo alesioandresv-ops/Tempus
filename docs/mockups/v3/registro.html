@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="es" data-paso="1">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tempus — Crear tu negocio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..600&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="estilos.css" />
+  <script>
+    (function () {
+      var p = new URLSearchParams(location.search).get("paso");
+      document.documentElement.dataset.paso = p === "3" ? "3" : "1";
+    })();
+  </script>
+</head>
+<body class="dark-page">
+  <div class="aurora" aria-hidden="true"><span class="a1"></span><span class="a2"></span><span class="a3"></span></div>
+
+  <header class="reg-top">
+    <a class="reg-brand" href="#">
+      <img src="../../../frontend/public/isotipo-tempus.png" alt="Tempus" />
+      <span class="wordmark">Tempus</span>
+      <span class="tagline">Reservas online</span>
+    </a>
+    <div class="reg-top-right">
+      <span class="login-full">¿Ya tenés cuenta?</span>
+      <a class="login-link" href="#">Ingresar <i data-lucide="arrow-right" class="ic-14"></i></a>
+    </div>
+  </header>
+
+  <main class="reg-main">
+    <!-- ---------------------------------------------------------------- pitch -->
+    <section class="reg-left">
+      <span class="reg-eyebrow">
+        <span class="dot"><i data-lucide="sparkles" class="ic-14"></i></span>
+        Alta de negocio
+        <span class="sep"></span>
+        <span class="muted">1 mes gratis</span>
+      </span>
+
+      <h1 class="reg-title">
+        Tu página de reservas,<br />
+        <span class="accent">lista en dos minutos.</span>
+      </h1>
+
+      <p class="reg-sub">
+        Creá tu negocio, cargá tus servicios y compartí tu link. Tus clientes reservan solos,
+        desde el celular y sin descargar nada.
+      </p>
+
+      <div class="reg-benefits">
+        <div class="reg-benefit">
+          <span class="ico"><i data-lucide="calendar-check-2" class="ic-16"></i></span>
+          <div><strong>Reservas 24/7</strong><span>Tus clientes eligen día y hora cuando quieran.</span></div>
+        </div>
+        <div class="reg-benefit">
+          <span class="ico"><i data-lucide="message-circle" class="ic-16"></i></span>
+          <div><strong>Recordatorios por WhatsApp</strong><span>Menos ausencias, sin que tengas que escribir.</span></div>
+        </div>
+        <div class="reg-benefit">
+          <span class="ico"><i data-lucide="qr-code" class="ic-16"></i></span>
+          <div><strong>Tu link y tu QR</strong><span>Una página propia, lista para Instagram.</span></div>
+        </div>
+        <div class="reg-benefit">
+          <span class="ico"><i data-lucide="wallet" class="ic-16"></i></span>
+          <div><strong>Cobros con Mercado Pago</strong><span>Pedí una seña y asegurá el turno.</span></div>
+        </div>
+      </div>
+
+      <div class="reg-preview">
+        <div class="preview-head">
+          <span class="kicker">Vista previa · tu página pública</span>
+          <span class="live"><i></i> Publicada</span>
+        </div>
+
+        <div class="browser">
+          <div class="browser-bar">
+            <span class="browser-dots"><i></i><i></i><i></i></span>
+            <span class="browser-url">
+              <i data-lucide="lock-keyhole" class="ic-14"></i>
+              tempus.app/<span class="path">estudio-nova</span>
+            </span>
+            <i data-lucide="more-horizontal" class="ic-14" style="color:#4a5772"></i>
+          </div>
+
+          <div class="browser-body">
+            <div class="mini-cover"></div>
+            <div class="mini-inner">
+              <div class="mini-identity">
+                <span class="mini-logo">EN</span>
+                <div class="mini-name">
+                  <h4>Estudio Nova</h4>
+                  <p>Peluquería &amp; color · Palermo</p>
+                </div>
+                <span class="mini-status"><i></i> Abierto</span>
+              </div>
+
+              <div class="mini-services">
+                <div class="mini-service">
+                  <span class="dot"><i data-lucide="scissors" class="ic-14"></i></span>
+                  <div class="info"><strong>Corte + styling</strong><small>45 min · con Nico</small></div>
+                  <span class="price">$18.000</span>
+                </div>
+                <div class="mini-service">
+                  <span class="dot"><i data-lucide="palette" class="ic-14"></i></span>
+                  <div class="info"><strong>Color raíz</strong><small>90 min · con Valentina</small></div>
+                  <span class="price">$32.000</span>
+                </div>
+              </div>
+
+              <div class="mini-cta">Reservar turno <i data-lucide="arrow-right" class="ic-14"></i></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mini-toast">
+          <span class="ok"><i data-lucide="check" class="ic-14"></i></span>
+          <div><strong>Turno confirmado</strong><span>Mar 27 · 15:30</span></div>
+        </div>
+      </div>
+
+      <div class="reg-trust">
+        <span><i data-lucide="check" class="ic-14"></i> Sin tarjeta</span>
+        <span><i data-lucide="check" class="ic-14"></i> Sin permanencia</span>
+        <span><i data-lucide="check" class="ic-14"></i> Soporte de personas</span>
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------------------- wizard -->
+    <section class="reg-card">
+      <div class="reg-card-top">
+        <span class="reg-paso-meta only-1">Paso 1 de 3</span>
+        <span class="reg-paso-meta only-3">Paso 3 de 3</span>
+        <span class="reg-gift"><i data-lucide="gift" class="ic-14"></i> 1 mes gratis</span>
+      </div>
+
+      <div class="reg-progress only-1"><i class="current"></i><i></i><i></i></div>
+      <div class="reg-progress only-3"><i class="done"></i><i class="done"></i><i class="current"></i></div>
+
+      <div class="reg-step-labels only-1">
+        <span class="on">Negocio</span><span>Cuenta</span><span>Listo</span>
+      </div>
+      <div class="reg-step-labels only-3">
+        <span class="past">Negocio</span><span class="past">Cuenta</span><span class="on">Listo</span>
+      </div>
+
+      <!-- PASO 1 -->
+      <div class="only-1">
+        <h2>Empecemos por tu negocio.</h2>
+        <p class="sub">Así te van a encontrar tus clientes.</p>
+
+        <div class="reg-form">
+          <div class="field">
+            <label for="business_name">Nombre del negocio</label>
+            <div class="control is-focus">
+              <span class="lead"><i data-lucide="store" class="ic-16"></i></span>
+              <input id="business_name" type="text" value="Estudio Nova" autocomplete="organization" />
+              <span class="trail valid"><i data-lucide="check" class="ic-16"></i></span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="slug">Tu link público</label>
+            <div class="control slug">
+              <span class="prefix">tempus.app/</span>
+              <input id="slug" type="text" value="estudio-nova" spellcheck="false" />
+              <span class="trail valid"><i data-lucide="check-circle-2" class="ic-16"></i></span>
+            </div>
+            <div class="field-help">
+              <span class="ok"><i></i> Disponible</span>
+              <span>Podés cambiarlo más adelante</span>
+            </div>
+          </div>
+
+          <div class="link-preview">
+            <i data-lucide="globe-2" class="ic-16"></i>
+            <span class="url">tempus.app/<b>estudio-nova</b></span>
+            <span class="box"><i data-lucide="arrow-up-right" class="ic-14"></i></span>
+          </div>
+
+          <div class="note">
+            <i data-lucide="sparkles" class="ic-14"></i>
+            <span>Tu página queda publicada al instante. Después podés cambiar colores, horarios y servicios desde el panel.</span>
+          </div>
+
+          <button type="button" class="btn-reg">Continuar <i data-lucide="arrow-right" class="ic-16"></i></button>
+        </div>
+
+        <p class="reg-login">¿Ya tenés un negocio? <a href="#">Iniciá sesión</a></p>
+      </div>
+
+      <!-- PASO 3 -->
+      <div class="only-3">
+        <h2>Casi listo.</h2>
+        <p class="sub">Revisá los datos y creá tu negocio.</p>
+
+        <div class="reg-form">
+          <div class="reg-summary-row">
+            <span class="avatar">EN</span>
+            <div class="who">
+              <strong>Estudio Nova</strong>
+              <small>tempus.app/estudio-nova</small>
+            </div>
+            <a class="edit" href="registro.html">Editar</a>
+          </div>
+
+          <div class="field">
+            <label for="timezone">Zona horaria</label>
+            <div class="select">
+              <i data-lucide="globe-2" class="ic-16" style="color:#6b7b95;margin-right:8px"></i>
+              America/Argentina/Buenos_Aires
+              <i data-lucide="chevron-down" class="ic-16 chev"></i>
+            </div>
+            <div class="field-help">
+              <span>Los horarios de tu agenda se muestran en esta zona.</span>
+            </div>
+          </div>
+
+          <div class="turnstile">
+            <span class="ok"><i data-lucide="check" class="ic-16"></i></span>
+            <div class="txt">
+              <strong>Verificación completada</strong>
+              <small>Protegemos tu cuenta de registros automáticos.</small>
+            </div>
+            <div class="cf"><b>Cloudflare</b>Turnstile</div>
+          </div>
+
+          <label class="terms">
+            <span class="check"><i data-lucide="check" class="ic-14"></i></span>
+            <span>Acepto los <a href="#">términos del servicio</a> y la <a href="#">política de privacidad</a>.</span>
+          </label>
+
+          <button type="button" class="btn-reg">Crear mi negocio <i data-lucide="sparkles" class="ic-16"></i></button>
+        </div>
+
+        <p class="reg-login">¿Ya tenés un negocio? <a href="#">Iniciá sesión</a></p>
+      </div>
+
+      <div class="reg-security">
+        <span><i data-lucide="lock-keyhole" class="ic-14"></i> Conexión segura</span>
+        <span><i data-lucide="shield-check" class="ic-14"></i> Tus datos no se comparten</span>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/lucide@0.417.0/dist/umd/lucide.min.js"></script>
+  <script>window.lucide && window.lucide.createIcons();</script>
+</body>
+</html>

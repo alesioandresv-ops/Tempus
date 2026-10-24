@@ -85,10 +85,18 @@ def mes_gratis_vencido(business: Business, *, momento: dt.datetime | None = None
     que seria mentira, y a un suspendido no se le abre la escritura por estar
     dentro del mes.
 
-    Un plan Pro nunca esta vencido, aunque el mes original haya pasado.
+    Un plan Pro nunca esta vencido mientras su vigencia corra. Con cobro manual por
+    transferencia (Naranja X) la vigencia es finita: `pro_until` guarda hasta cuando
+    vale y NULL significa "sin fecha de caducidad" -- el Pro por suscripcion de MP,
+    que no caduca, o un dato viejo anterior a la columna. Un Pro con `pro_until` ya
+    pasado vuelve a la regla del trial: es el negocio que pago un mes y no volvio a
+    pagar.
     """
     if business.plan == BusinessPlan.PRO:
-        return False
+        vigencia = business.pro_until
+        if vigencia is None:
+            return False
+        return (momento or now()) >= vigencia
     return not ((momento or now()) < fin_del_trial(business))
 
 

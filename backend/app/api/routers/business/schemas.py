@@ -942,6 +942,55 @@ class SubscriptionStatusOut(BaseModel):
     #: A donde ir a activar Pro. Igual al `checkout_url` que trae el 402, para que el
     #: panel tenga una sola nocion de "adonde se paga".
     checkout_url: str
+    #: Hasta cuando vale el Pro cobrado por transferencia (ISO). `None` si el Pro
+    #: viene de suscripcion de MP (no caduca) o el negocio no es Pro.
+    pro_until: str | None = None
+    #: Datos de cobro por transferencia (Naranja X). Siempre presentes: el checkout
+    #: los muestra aunque el negocio este en trial (para pagar antes de vencer).
+    transferencia: TransferenciaOut | None = None
+
+
+class TransferenciaOut(BaseModel):
+    """Datos bancarios del cobro manual del plan Pro (Naranja X)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    banco: str
+    cbu: str
+    alias: str
+    titular: str
+    monto: float
+    moneda: str
+    whatsapp_soporte: str
+    #: Enlace de WhatsApp con el mensaje pre-armado del comprobante.
+    enlace_whatsapp: str
+
+
+class PaymentIntentIn(BaseModel):
+    """Entrada del intento de pago por transferencia."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(min_length=3, max_length=200)
+    #: Fecha declarada de la transferencia ( informativo para el admin).
+    fecha_transferencia: str | None = Field(default=None, max_length=64)
+    #: Redundante a proposito: el backend usa el de la sesion y rechaza el
+    #: pedido si no coincide. Un `business_name` distinto es un pedido mal armado,
+    #: no un dato a confiar.
+    business_name: str | None = Field(default=None, max_length=200)
+    amount: float | None = None
+    method: str = "naranja_x"
+
+
+class PaymentIntentOut(BaseModel):
+    """Salida del intento: el enlace de WhatsApp ya armado."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    payment_id: str
+    status: str
+    enlace_whatsapp: str
+    mensaje_confirmacion: str
 
 
 class SubscriptionActivateIn(BaseModel):

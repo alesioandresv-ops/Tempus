@@ -14,6 +14,7 @@ Por eso el §5 lo dice explicitamente: no se usa como clave foranea en ningun la
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from decimal import Decimal
 
@@ -33,6 +34,7 @@ from sqlalchemy.dialects.postgresql import CITEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, GlobalBase, TenantBase, tenant_unique_key
+from app.db.types import UtcDateTime
 from app.models.enums import (
     BusinessPlan,
     BusinessStatus,
@@ -113,6 +115,11 @@ class Business(GlobalBase, Base):
     longitude: Mapped[float | None] = mapped_column(
         Float, nullable=True, comment="Coordenada geográfica en decimal"
     )
+    # Vigencia del plan Pro cobrado por transferencia (sin pasarela). NULL en un
+    # negocio `free` o en uno que activo Pro via Mercado Pago (suscripcion
+    # recurrente, no caduca). La activacion manual pone `now() + 30 dias` y el
+    # corte lo decide `publicacion`, que es la unica fuente de verdad.
+    pro_until: Mapped[dt.datetime | None] = mapped_column(UtcDateTime(), nullable=True)
 
     @property
     def is_bookable(self) -> bool:

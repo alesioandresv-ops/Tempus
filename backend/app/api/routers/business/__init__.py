@@ -91,7 +91,10 @@ from app.api.routers.business.schemas import (
     SubscriptionCancelIn,
     SubscriptionCancelOut,
     SubscriptionStatusOut,
+    TransferenciaOut,
     VentanaOut,
+    PaymentIntentIn,
+    PaymentIntentOut,
     WalkinIn,
     WhatsappConfigIn,
     WhatsappConfigOut,
@@ -114,6 +117,7 @@ from app.modules.notifications import config as whatsapp_config
 from app.modules.notifications import meta_signup
 from app.modules.notifications.models import NotificationRequest
 from app.modules.payments import config as pagos_config
+from app.modules.payments import pro_pagos
 from app.modules.payments import subscriptions as suscripciones
 from app.modules.professionals import service as profesionales
 from app.modules.professionals.models import Professional
@@ -1806,7 +1810,68 @@ async def ver_suscripcion(
     `billing_router`, **sin** la guardia de plan: es la salida del 402.
     """
     estado = await suscripciones.estado_suscripcion(sesion, _bid(principal))
-    return SubscriptionStatusOut(**estado, checkout_url=url_de_pago())
+    respuesta = SubscriptionStatusOut(**estado, checkout_url=url_de_pago())
+    # Datos de transferencia + pro_until: se agregan aqui y no en el servicio de
+    # suscripciones porque son de la capa de cobro manual, no de la de MP.
+    negocio = await sesion.get(Business, _bid(principal))
+    respuesta.pro_until = negocio.pro_until.isoformat() if negocio and negocio.pro_until else None
+    datos = pro_pagos.datos_de_transferencia()
+    respuesta.transferencia = TransferenciaOut(
+        banco=datos["banco"],
+        cbu=datos["cbu"],
+        alias=datos["alias"],
+        titular=datos["titular"],
+        monto=datos["monto"],
+        moneda=datos["moneda"],
+        whatsapp_soporte=datos["whatsapp_soporte"],
+        enlace_whatsapp=pro_pagos.enlace_whatsapp_comprobante(
+            negocio.name if negocio else "", principal.email
+        ),
+    )
+    return respuesta
+
+
+@billing_router.post(
+    "/payments/intent",
+    response_model=PaymentIntentOut,
+    summary="Registrar el intento de pago del plan Pro por transferencia",
+)
+async def crear_payment_intent(
+    datos: PaymentIntentIn,
+    sesion: Sesion,
+    principal: Annotated[Principal, Depends(require_scopes(Scope.BUSINESS_CONFIG_READ))],
+) -> PaymentIntentOut:
+    """Guarda el intento de pago `pending` y devuelve el enlace de WhatsApp.
+
+    Vive en `billing_router` (sin guardia de plan) porque es la salida del
+    vencimiento: un negocio con el trial vencido tiene que poder declarar que
+    pagó. No activa nada: la activacion la hace el admin al aprobar.
+    """
+    negocio = await sesion.get(Business, _bid(principal))
+    if negocio is None:
+        raise NotFoundError("Negocio no encontrado")
+    if datos.business_name and datos.business_name != negocio.name:
+        raise ValidationError("El nombre del negocio no coincide con la cuenta.")
+    if datos.amount is not None and abs(datos.amount - get_settings().pro_transfer_price_ars) > 0.01:
+        raise ValidationError("El monto no coincide con el precio del plan Pro.")
+
+    pago = await pro_pagos.crear_intento(
+        sesion,
+        negocio,
+        email=datos.email,
+        fecha_transferencia=datos.fecha_transferencia,
+    )
+    await sesion.commit()
+    return PaymentIntentOut(
+        payment_id=str(pago.id),
+        status=pago.status.value,
+        enlace_whatsapp=pro_pagos.enlace_whatsapp_comprobante(negocio.name, datos.email),
+        mensaje_confirmacion=(
+            "¡Listo! Cuando el equipo de Tempus reciba tu comprobante por WhatsApp, "
+            "activamos tu cuenta en menos de 2hs. Tu web de reservas seguirá pausada "
+            "hasta entonces."
+        ),
+    )
 
 
 @billing_router.post(

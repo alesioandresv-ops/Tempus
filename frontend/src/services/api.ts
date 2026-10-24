@@ -48,6 +48,8 @@ import type {
   SubscriptionActivateRequest,
   SubscriptionActivateResponse,
   SubscriptionCancelResponse,
+  PaymentIntentRequest,
+  PaymentIntentResponse,
 } from '@/types'
 
 // En dev (sin `VITE_API_URL`) usa la ruta relativa, que el proxy de Vite manda al
@@ -895,5 +897,14 @@ export const api = {
     fetchApi<SubscriptionCancelResponse>('/business/suscripcion/cancelar', {
       method: 'POST',
       body: JSON.stringify(motivo ? { motivo } : {}),
+    }),
+
+  // --- Cobro manual del plan Pro (transferencia Naranja X) ---
+
+  /** Registra el intento de pago y devuelve el enlace de WhatsApp pre-armado. */
+  crearPaymentIntent: (datos: PaymentIntentRequest) =>
+    fetchApi<PaymentIntentResponse>('/business/payments/intent', {
+      method: 'POST',
+      body: JSON.stringify(datos),
     }),
 }

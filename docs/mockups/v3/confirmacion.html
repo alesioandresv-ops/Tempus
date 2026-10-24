@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Turno confirmado — Estudio Nova</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..600&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="estilos.css" />
+</head>
+<body class="bk-page confirm-page">
+  <header class="bk-top">
+    <div class="bk-tempus">
+      <img src="../../../frontend/public/isotipo-tempus.png" alt="Tempus" />
+      <span class="name">Tempus</span>
+      <span class="divider"></span>
+      <span class="claim">Reservas online</span>
+    </div>
+    <div class="bk-top-right">
+      <span>Palermo · CABA</span>
+      <a class="help" href="reserva.html"><i data-lucide="calendar-days" class="ic-16"></i> <span>Hacer otra reserva</span></a>
+    </div>
+  </header>
+
+  <main class="confirm-wrap">
+    <div class="confirm-head">
+      <div class="check-medallion"><i data-lucide="check" class="ic-28"></i></div>
+      <p class="confirm-kicker">Reserva confirmada</p>
+      <h1>Nos vemos el martes,<br /><em>Tomás.</em></h1>
+      <p>Tu turno en Estudio Nova quedó reservado. Te mandamos los detalles y el recordatorio por WhatsApp.</p>
+    </div>
+
+    <section class="ticket">
+      <div class="ticket-main">
+        <div class="ticket-head">
+          <div class="who">
+            <span class="mono">EN</span>
+            <div>
+              <strong>Estudio Nova</strong>
+              <small>Peluquería &amp; color · Palermo</small>
+            </div>
+          </div>
+          <div class="ticket-code">Comprobante<b>NV-4F8K2</b></div>
+        </div>
+
+        <div class="ticket-when">
+          <div class="date-block">
+            <span class="big">27</span>
+            <div class="m"><b>Martes</b>Octubre 2026</div>
+          </div>
+          <div class="time-block">
+            <div class="t">15:30 — 16:15</div>
+            <div class="d">45 minutos</div>
+            <span class="tz"><i data-lucide="globe-2" class="ic-14"></i> Hora de Argentina (GMT-3)</span>
+          </div>
+        </div>
+
+        <div class="ticket-details">
+          <div class="td-row">
+            <span class="ti"><i data-lucide="scissors" class="ic-14"></i></span>
+            <span class="tl">Servicio</span>
+            <span class="tv">Corte + styling<small>Con lavado y peinado incluido</small></span>
+          </div>
+          <div class="td-row">
+            <span class="ti"><i data-lucide="users" class="ic-14"></i></span>
+            <span class="tl">Profesional</span>
+            <span class="tv">Nico<small>Te va a estar esperando</small></span>
+          </div>
+          <div class="td-row">
+            <span class="ti"><i data-lucide="map-pin" class="ic-14"></i></span>
+            <span class="tl">Dónde</span>
+            <span class="tv">Gorriti 4820, Palermo<small>Entre Loyola y Cabrera</small></span>
+          </div>
+        </div>
+
+        <div class="ticket-actions">
+          <a class="btn-dark" href="#"><i data-lucide="calendar-plus" class="ic-16"></i> Agregar al calendario</a>
+          <a class="btn-outline" href="#"><i data-lucide="message-circle" class="ic-16"></i> WhatsApp</a>
+          <a class="ghost" href="#">Gestionar <i data-lucide="arrow-up-right" class="ic-14"></i></a>
+        </div>
+      </div>
+
+      <aside class="ticket-side">
+        <div class="qr"><canvas id="qr-canvas" width="116" height="116"></canvas></div>
+        <p class="scan">Mostralo al llegar</p>
+        <p class="scan-sub">Escaneá el código en el estudio<br />para encontrar tu turno.</p>
+        <span class="pin-code">CÓDIGO <b>4F8K2</b></span>
+      </aside>
+    </section>
+
+    <section class="next-up">
+      <h2>Qué sigue</h2>
+      <div class="next-grid">
+        <div class="next-item">
+          <span class="ico"><i data-lucide="message-circle" class="ic-16"></i></span>
+          <strong>Confirmación enviada</strong>
+          <p>Ya te mandamos los detalles del turno por WhatsApp.</p>
+          <span class="when">Ahora</span>
+        </div>
+        <div class="next-item">
+          <span class="ico"><i data-lucide="bell" class="ic-16"></i></span>
+          <strong>Recordatorio</strong>
+          <p>Un día antes te avisamos para que no se te pase.</p>
+          <span class="when">Lunes 26 · 15:30</span>
+        </div>
+        <div class="next-item">
+          <span class="ico"><i data-lucide="clock" class="ic-16"></i></span>
+          <strong>Último aviso</strong>
+          <p>Dos horas antes, el estudio te recuerda el turno.</p>
+          <span class="when">Martes 27 · 13:30</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="confirm-foot">
+      <p>¿No podés venir? Podés reprogramar o cancelar desde el link de tu reserva.</p>
+      <div class="links">
+        <a href="#"><i data-lucide="calendar-days" class="ic-14"></i> Reprogramar</a>
+        <a href="#"><i data-lucide="x" class="ic-14"></i> Cancelar turno</a>
+        <a href="#"><i data-lucide="message-circle" class="ic-14"></i> Escribir al estudio</a>
+      </div>
+    </div>
+
+    <div class="powered">
+      <img src="../../../frontend/public/isotipo-tempus.png" alt="" />
+      Reservas gestionadas por Tempus
+    </div>
+  </main>
+
+  <script src="https://unpkg.com/lucide@0.417.0/dist/umd/lucide.min.js"></script>
+  <script>
+    window.lucide && window.lucide.createIcons();
+
+    /* QR de demostración, determinístico: no codifica una URL real. */
+    (function () {
+      var canvas = document.getElementById("qr-canvas");
+      if (!canvas) return;
+      var n = 25, dpr = 4, size = 116;
+      canvas.width = size * dpr;
+      canvas.height = size * dpr;
+      var ctx = canvas.getContext("2d");
+      ctx.scale(dpr, dpr);
+      ctx.fillStyle = "#fffdf9";
+      ctx.fillRect(0, 0, size, size);
+      var cell = size / n;
+      ctx.fillStyle = "#191510";
+
+      function finder(x, y) {
+        for (var fy = 0; fy < 7; fy++) {
+          for (var fx = 0; fx < 7; fx++) {
+            var edge = fx === 0 || fy === 0 || fx === 6 || fy === 6;
+            var core = fx >= 2 && fx <= 4 && fy >= 2 && fy <= 4;
+            if (edge || core) ctx.fillRect((x + fx) * cell, (y + fy) * cell, cell, cell);
+          }
+        }
+      }
+      function reserved(x, y) {
+        return (x < 8 && y < 8) || (x >= n - 8 && y < 8) || (x < 8 && y >= n - 8);
+      }
+      var seed = 20261027;
+      function rnd() { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; }
+
+      for (var y = 0; y < n; y++) {
+        for (var x = 0; x < n; x++) {
+          if (reserved(x, y)) continue;
+          if (rnd() > 0.53) ctx.fillRect(x * cell, y * cell, cell, cell);
+        }
+      }
+      finder(0, 0); finder(n - 7, 0); finder(0, n - 7);
+    })();
+  </script>
+</body>
+</html>

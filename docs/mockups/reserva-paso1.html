@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Estudio Nova — Reservar turno</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@600;700&display=swap" rel="stylesheet" />
+<style>
+  body { font-family: 'Inter', sans-serif; }
+  .font-display { font-family: 'Sora', sans-serif; }
+</style>
+</head>
+<body class="min-h-screen bg-[#070B1A] text-slate-100 antialiased">
+
+<div aria-hidden="true" class="pointer-events-none fixed inset-0 overflow-hidden">
+  <div class="absolute -left-40 -top-40 h-[500px] w-[500px] rounded-full bg-violet-600/20 blur-[130px]"></div>
+  <div class="absolute -bottom-40 right-0 h-[460px] w-[460px] rounded-full bg-cyan-500/15 blur-[140px]"></div>
+</div>
+
+<!-- ================= Header público ================= -->
+<header class="sticky top-0 z-20 border-b border-white/10 bg-[#070B1A]/80 backdrop-blur-lg">
+  <div class="mx-auto flex max-w-5xl items-center justify-between px-5 py-3.5 sm:px-8">
+    <div class="flex items-center gap-3">
+      <!-- Avatar del negocio -->
+      <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 font-display text-sm font-bold text-white">EN</div>
+      <div>
+        <p class="font-display text-base font-semibold leading-tight text-white">Estudio Nova</p>
+        <p class="flex items-center gap-1.5 text-[11px] text-slate-400">
+          <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span> Abierto ahora · Palermo, CABA
+        </p>
+      </div>
+    </div>
+    <a href="#" class="hidden rounded-lg border border-white/10 bg-white/5 px-3.5 py-1.5 text-xs text-slate-200 hover:border-white/20 sm:block">
+      Ver cómo llegar
+    </a>
+  </div>
+</header>
+
+<main class="relative mx-auto max-w-5xl px-5 pb-24 pt-8 sm:px-8">
+
+  <!-- ================= Hero del negocio ================= -->
+  <section class="text-center">
+    <h1 class="font-display text-3xl font-semibold tracking-tight text-white sm:text-4xl">Reservá tu turno</h1>
+    <p class="mx-auto mt-2.5 max-w-md text-sm text-slate-400">
+      Elegí servicio, profesional, día y hora. Te confirmamos al instante — sin llamadas ni esperas.
+    </p>
+  </section>
+
+  <!-- ================= Stepper ================= -->
+  <div class="mx-auto mt-8 flex max-w-lg items-center gap-2">
+    <div class="flex flex-1 flex-col items-center gap-1.5">
+      <span class="flex h-8 w-8 items-center justify-center rounded-full bg-white font-display text-xs font-bold text-slate-900">1</span>
+      <span class="text-[11px] font-medium text-white">Servicio</span>
+    </div>
+    <div class="mb-4 h-px flex-1 bg-white/15"></div>
+    <div class="flex flex-1 flex-col items-center gap-1.5">
+      <span class="flex h-8 w-8 items-center justify-center rounded-full border border-white/15 font-display text-xs text-slate-400">2</span>
+      <span class="text-[11px] text-slate-500">Día y hora</span>
+    </div>
+    <div class="mb-4 h-px flex-1 bg-white/15"></div>
+    <div class="flex flex-1 flex-col items-center gap-1.5">
+      <span class="flex h-8 w-8 items-center justify-center rounded-full border border-white/15 font-display text-xs text-slate-400">3</span>
+      <span class="text-[11px] text-slate-500">Tus datos</span>
+    </div>
+  </div>
+
+  <div class="mt-10 grid gap-8 lg:grid-cols-[1fr_360px]">
+
+    <!-- ================= Lista de servicios ================= -->
+    <section>
+      <h2 class="font-display text-lg font-semibold text-white">¿Qué te gustaría hacer?</h2>
+      <div class="mt-4 space-y-3">
+
+        <!-- Servicio destacado -->
+        <button class="group flex w-full items-center gap-4 rounded-2xl border border-violet-400/30 bg-violet-500/[0.07] p-4 text-left transition-all hover:border-violet-400/60 hover:bg-violet-500/[0.12]">
+          <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-500/20 text-xl">✂️</span>
+          <span class="flex-1">
+            <span class="flex items-center gap-2">
+              <span class="font-medium text-white">Corte + barba</span>
+              <span class="rounded-full bg-violet-500/20 px-2 py-0.5 text-[10px] font-semibold text-violet-200">Más pedido</span>
+            </span>
+            <span class="mt-0.5 block text-xs text-slate-400">45 min · Corte a máquina y tijera + perfilado de barba con toalla caliente</span>
+          </span>
+          <span class="text-right">
+            <span class="block font-display text-lg font-semibold text-white">$6.500</span>
+            <span class="text-[11px] text-slate-500 group-hover:text-violet-300">Elegir →</span>
+          </span>
+        </button>
+
+        <button class="flex w-full items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-left transition-all hover:border-white/25 hover:bg-white/[0.06]">
+          <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/5 text-xl">💇</span>
+          <span class="flex-1">
+            <span class="font-medium text-white">Corte de pelo</span>
+            <span class="mt-0.5 block text-xs text-slate-400">45 min · Corte a máquina y tijera, lavado incluido</span>
+          </span>
+          <span class="text-right">
+            <span class="block font-display text-lg font-semibold text-white">$4.500</span>
+            <span class="text-[11px] text-slate-500">Elegir →</span>
+          </span>
+        </button>
+
+        <button class="flex w-full items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-left transition-all hover:border-white/25 hover:bg-white/[0.06]">
+          <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/5 text-xl">🧔</span>
+          <span class="flex-1">
+            <span class="font-medium text-white">Arreglo de barba</span>
+            <span class="mt-0.5 block text-xs text-slate-400">30 min · Perfilado y aseo con toalla caliente</span>
+          </span>
+          <span class="text-right">
+            <span class="block font-display text-lg font-semibold text-white">$2.800</span>
+            <span class="text-[11px] text-slate-500">Elegir →</span>
+          </span>
+        </button>
+
+        <button class="flex w-full items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-left transition-all hover:border-white/25 hover:bg-white/[0.06]">
+          <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/5 text-xl">🎨</span>
+          <span class="flex-1">
+            <span class="font-medium text-white">Coloración</span>
+            <span class="mt-0.5 block text-xs text-slate-400">90 min · Color completo con producto premium</span>
+          </span>
+          <span class="text-right">
+            <span class="block font-display text-lg font-semibold text-white">$12.000</span>
+            <span class="text-[11px] text-slate-500">Elegir →</span>
+          </span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ================= Resumen lateral ================= -->
+    <aside class="hidden lg:block">
+      <div class="sticky top-24 rounded-2xl border border-white/10 bg-[#0B1224]/90 p-6 shadow-[0_0_50px_-20px_rgba(139,92,246,0.45)] backdrop-blur-xl">
+        <h3 class="font-display text-sm font-semibold text-white">Tu reserva</h3>
+        <p class="mt-1 text-xs text-slate-500">Vas en el paso 1 de 3</p>
+
+        <div class="mt-5 space-y-3 border-t border-white/10 pt-5">
+          <div class="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
+            <span class="text-lg">✂️</span>
+            <div class="flex-1">
+              <p class="text-sm font-medium text-white">Corte + barba</p>
+              <p class="text-xs text-slate-400">45 min</p>
+            </div>
+            <p class="text-sm font-semibold text-white">$6.500</p>
+          </div>
+          <div class="flex items-center gap-3 rounded-xl border border-dashed border-white/10 p-3 opacity-50">
+            <span class="text-lg">📅</span>
+            <p class="flex-1 text-sm text-slate-400">Día y hora</p>
+          </div>
+          <div class="flex items-center gap-3 rounded-xl border border-dashed border-white/10 p-3 opacity-50">
+            <span class="text-lg">👤</span>
+            <p class="flex-1 text-sm text-slate-400">Tus datos</p>
+          </div>
+        </div>
+
+        <p class="mt-5 flex items-center gap-2 text-xs text-slate-500">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8L12 2z" fill="#a78bfa"/></svg>
+          Cancelación gratis hasta 3 hs antes
+        </p>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ================= Barra inferior móvil ================= -->
+  <div class="fixed inset-x-0 bottom-0 z-20 border-t border-white/10 bg-[#0B1224]/95 p-4 backdrop-blur-lg lg:hidden">
+    <div class="mx-auto flex max-w-md items-center gap-3">
+      <div class="flex-1">
+        <p class="text-xs text-slate-400">Seleccionaste</p>
+        <p class="text-sm font-semibold text-white">Corte + barba · $6.500</p>
+      </div>
+      <button class="rounded-xl bg-white px-5 py-2.5 text-sm font-semibold text-slate-900">Continuar</button>
+    </div>
+  </div>
+</main>
+</body>
+</html>

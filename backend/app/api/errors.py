@@ -127,6 +127,29 @@ class PaymentRequiredError(AppError):
     error_type = "about:blank"
 
 
+class BusinessPausedError(AppError):
+    """403: el negocio existe pero no acepta reservas online ahora.
+
+    Diferente de `NotFoundError` a proposito. La URL del cliente es correcta --el
+    slug existe--, lo que pasa es que el negocio no paga (trial vencido o Pro
+    caducado) y la plataforma pauso sus reservas. El 403 con `code="business_paused"`
+    le dice al frontend exactamente eso, para que muestre la pantalla "Este negocio
+    pausó reservas" en vez del 404 generico de "no encontramos esta pagina", que
+    haria creer al cliente que escribio mal el link.
+    """
+
+    status_code = status.HTTP_403_FORBIDDEN
+    title = "Reservas pausadas"
+    error_type = "about:blank"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Este negocio pausó sus reservas online por el momento. Contactalo "
+            "directamente para coordinar tu turno.",
+            extra={"code": "business_paused"},
+        )
+
+
 def problem_response(
     *,
     status_code: int,

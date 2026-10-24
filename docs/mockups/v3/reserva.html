@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="es" data-paso="1">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Estudio Nova — Reservá tu turno</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..600&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="estilos.css" />
+  <script>
+    (function () {
+      var p = new URLSearchParams(location.search).get("paso");
+      document.documentElement.dataset.paso = p === "2" || p === "3" ? p : "1";
+    })();
+  </script>
+</head>
+<body class="bk-page">
+  <header class="bk-top">
+    <div class="bk-tempus">
+      <img src="../../../frontend/public/isotipo-tempus.png" alt="Tempus" />
+      <span class="name">Tempus</span>
+      <span class="divider"></span>
+      <span class="claim">Reservas online</span>
+    </div>
+    <div class="bk-top-right">
+      <span>Palermo · CABA</span>
+      <a class="help" href="#"><i data-lucide="message-circle" class="ic-16"></i> <span>¿Necesitás ayuda?</span></a>
+    </div>
+  </header>
+
+  <!-- ---------------------------------------------------------------- portada -->
+  <section class="bk-hero">
+    <div class="bk-hero-art" aria-hidden="true">
+      <span class="arc a"></span><span class="arc b"></span><span class="arc c"></span>
+      <span class="watermark">en</span>
+      <span class="grain"></span>
+    </div>
+    <div class="bk-hero-inner">
+      <div class="bk-hero-id">
+        <span class="bk-monogram">EN</span>
+        <div>
+          <span class="bk-hero-kicker"><i></i> Peluquería &amp; color · Palermo</span>
+          <h1>Estudio Nova</h1>
+          <p class="bk-hero-sub">Color, corte y cuidado capilar. Elegí tu turno online y te esperamos con el café listo.</p>
+        </div>
+      </div>
+      <div class="bk-hero-side">
+        <span class="bk-open"><i></i> Abierto ahora · cierra 20:00</span>
+        <span class="addr"><i data-lucide="map-pin" class="ic-14"></i> Gorriti 4820, Palermo</span>
+        <span class="since">desde 2016</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="bk-grid">
+    <!-- ---------------------------------------------------------------- info del negocio -->
+    <aside class="bk-side">
+      <div class="bk-side-block">
+        <p class="bk-side-label">El estudio</p>
+        <p class="bk-about">Un espacio chico y tranquilo, especializado en <em>color y cortes con movimiento</em>. Trabajamos con turnos para dedicarte el tiempo que necesitás.</p>
+        <div class="map" style="margin-top:11px">
+          <span class="block b1"></span><span class="block b2"></span>
+          <span class="pin"><i data-lucide="map-pin" class="ic-14"></i></span>
+        </div>
+        <div class="map-addr">
+          <p>Gorriti 4820<small>Palermo, CABA</small></p>
+          <a href="#">Cómo llegar →</a>
+        </div>
+      </div>
+
+      <div class="bk-side-block">
+        <p class="bk-side-label">Horarios</p>
+        <div class="hours">
+          <div class="hours-row"><span>Lunes</span><b>Cerrado</b></div>
+          <div class="hours-row today"><span>Martes a viernes <span class="now">· hoy</span></span><b>9:00 – 20:00</b></div>
+          <div class="hours-row"><span>Sábado</span><b>9:00 – 18:00</b></div>
+          <div class="hours-row"><span>Domingo</span><b>Cerrado</b></div>
+        </div>
+      </div>
+
+      <div class="bk-side-block">
+        <p class="bk-side-label">Contacto</p>
+        <a class="contact-btn" href="#"><span class="ic"><i data-lucide="message-circle" class="ic-14"></i></span> Escribir por WhatsApp <i data-lucide="arrow-up-right" class="ic-14 arrow"></i></a>
+        <a class="contact-btn" href="#"><span class="ic"><i data-lucide="instagram" class="ic-14"></i></span> @estudionova <i data-lucide="arrow-up-right" class="ic-14 arrow"></i></a>
+      </div>
+
+      <div class="bk-side-note">
+        <i data-lucide="shield-check" class="ic-16"></i>
+        <span><b>Reserva segura.</b> Tus datos solo se usan para confirmar y recordar tu turno.</span>
+      </div>
+    </aside>
+
+    <!-- ---------------------------------------------------------------- flujo -->
+    <main class="bk-flow">
+      <!-- stepper -->
+      <div class="stepper only-1">
+        <div class="step st-1 active"><span class="n">1</span><span class="t">Servicio</span></div>
+        <span class="step-line"></span>
+        <div class="step st-2"><span class="n">2</span><span class="t">Fecha y hora</span></div>
+        <span class="step-line"></span>
+        <div class="step st-3"><span class="n">3</span><span class="t">Tus datos</span></div>
+      </div>
+      <div class="stepper only-2">
+        <div class="step st-1 done"><span class="n"><i data-lucide="check" class="ic-14"></i></span><span class="t">Servicio</span></div>
+        <span class="step-line done"></span>
+        <div class="step st-2 active"><span class="n">2</span><span class="t">Fecha y hora</span></div>
+        <span class="step-line"></span>
+        <div class="step st-3"><span class="n">3</span><span class="t">Tus datos</span></div>
+      </div>
+      <div class="stepper only-3">
+        <div class="step st-1 done"><span class="n"><i data-lucide="check" class="ic-14"></i></span><span class="t">Servicio</span></div>
+        <span class="step-line done"></span>
+        <div class="step st-2 done"><span class="n"><i data-lucide="check" class="ic-14"></i></span><span class="t">Fecha y hora</span></div>
+        <span class="step-line done"></span>
+        <div class="step st-3 active"><span class="n">3</span><span class="t">Tus datos</span></div>
+      </div>
+
+      <!-- ------------------------------------------------------------ PASO 1 -->
+      <div class="pane pane-1">
+        <div class="flow-head">
+          <div>
+            <h2>¿Qué te vas a <em>hacer</em> hoy?</h2>
+            <p>Elegí un servicio. Podés cambiar todo antes de confirmar.</p>
+          </div>
+          <div class="aside-note"><b>4 servicios</b>Disponibles esta semana</div>
+        </div>
+
+        <div class="services">
+          <button class="service selected" type="button">
+            <span class="ico"><i data-lucide="scissors" class="ic-20"></i></span>
+            <span class="main">
+              <span class="name">Corte + styling <span class="tag">Más pedido</span></span>
+              <span class="desc">Asesoramiento, lavado y peinado incluido.</span>
+              <span class="meta"><span><i data-lucide="clock" class="ic-14"></i> 45 min</span><span><i data-lucide="users" class="ic-14"></i> Nico o Valentina</span></span>
+            </span>
+            <span class="right"><span class="price">$18.000</span><span class="go"><i data-lucide="arrow-right" class="ic-14"></i></span></span>
+          </button>
+
+          <button class="service" type="button">
+            <span class="ico"><i data-lucide="palette" class="ic-20"></i></span>
+            <span class="main">
+              <span class="name">Color raíz</span>
+              <span class="desc">Cobertura de canas, brillo y tratamiento sellador.</span>
+              <span class="meta"><span><i data-lucide="clock" class="ic-14"></i> 90 min</span><span><i data-lucide="users" class="ic-14"></i> Valentina</span></span>
+            </span>
+            <span class="right"><span class="price">$32.000</span><span class="go"><i data-lucide="arrow-right" class="ic-14"></i></span></span>
+          </button>
+
+          <button class="service" type="button">
+            <span class="ico"><i data-lucide="droplets" class="ic-20"></i></span>
+            <span class="main">
+              <span class="name">Nutrición profunda</span>
+              <span class="desc">Ritual de hidratación, masaje y brillo espejo.</span>
+              <span class="meta"><span><i data-lucide="clock" class="ic-14"></i> 60 min</span><span><i data-lucide="users" class="ic-14"></i> Sofía</span></span>
+            </span>
+            <span class="right"><span class="price">$24.000</span><span class="go"><i data-lucide="arrow-right" class="ic-14"></i></span></span>
+          </button>
+
+          <button class="service" type="button">
+            <span class="ico"><i data-lucide="wind" class="ic-20"></i></span>
+            <span class="main">
+              <span class="name">Peinado</span>
+              <span class="desc">Para un evento o una salida. Incluye lavado.</span>
+              <span class="meta"><span><i data-lucide="clock" class="ic-14"></i> 30 min</span><span><i data-lucide="users" class="ic-14"></i> Nico</span></span>
+            </span>
+            <span class="right"><span class="price">$12.000</span><span class="go"><i data-lucide="arrow-right" class="ic-14"></i></span></span>
+          </button>
+        </div>
+
+        <div class="timezone-note" style="margin-top:14px">
+          <i data-lucide="info" class="ic-14"></i>
+          Los precios se abonan en el local. No se cobra nada al reservar.
+        </div>
+      </div>
+
+      <!-- ------------------------------------------------------------ PASO 2 -->
+      <div class="pane pane-2">
+        <a class="back-link" href="reserva.html?paso=1"><i data-lucide="chevron-left" class="ic-14"></i> Cambiar servicio</a>
+        <div class="flow-head">
+          <div>
+            <h2>Elegí día y <em>hora</em>.</h2>
+            <p>Corte + styling · 45 min · $18.000</p>
+          </div>
+          <div class="aside-note"><b>Martes 27</b>Hoy · 9 a 20 h</div>
+        </div>
+
+        <div class="pros">
+          <button class="pro any" type="button"><span class="av"><i data-lucide="users" class="ic-14"></i></span> Cualquiera</button>
+          <button class="pro active" type="button"><span class="av">N</span> Nico</button>
+          <button class="pro" type="button"><span class="av">V</span> Valentina</button>
+          <button class="pro" type="button"><span class="av">S</span> Sofía</button>
+        </div>
+
+        <div class="date-strip-head">
+          <h3>Próximos días</h3>
+          <a href="#">Ver calendario</a>
+        </div>
+        <div class="date-strip">
+          <button class="day closed" type="button"><span class="dow">lun</span><span class="num">26</span><span class="mon">oct</span></button>
+          <button class="day active" type="button"><span class="dow">mar</span><span class="num">27</span><span class="mon">oct</span></button>
+          <button class="day" type="button"><span class="dow">mié</span><span class="num">28</span><span class="mon">oct</span></button>
+          <button class="day" type="button"><span class="dow">jue</span><span class="num">29</span><span class="mon">oct</span></button>
+          <button class="day" type="button"><span class="dow">vie</span><span class="num">30</span><span class="mon">oct</span></button>
+          <button class="day" type="button"><span class="dow">sáb</span><span class="num">31</span><span class="mon">oct</span></button>
+          <button class="day closed" type="button"><span class="dow">dom</span><span class="num">1</span><span class="mon">nov</span></button>
+          <button class="day closed" type="button"><span class="dow">lun</span><span class="num">2</span><span class="mon">nov</span></button>
+        </div>
+
+        <div class="times-head">
+          <h3>Martes 27 de octubre</h3>
+          <span class="free"><i></i> 12 horarios libres</span>
+        </div>
+
+        <div class="slot-group">
+          <p class="slot-label">Mañana</p>
+          <div class="slots">
+            <button class="slot" type="button">09:00</button>
+            <button class="slot" type="button">09:45</button>
+            <button class="slot" type="button">10:30</button>
+            <button class="slot off" type="button">11:15</button>
+          </div>
+        </div>
+
+        <div class="slot-group">
+          <p class="slot-label">Tarde</p>
+          <div class="slots">
+            <button class="slot" type="button">14:00</button>
+            <button class="slot" type="button">14:45</button>
+            <button class="slot active" type="button">15:30</button>
+            <button class="slot" type="button">16:15</button>
+            <button class="slot" type="button">17:00</button>
+            <button class="slot" type="button">17:45</button>
+            <button class="slot" type="button">18:30</button>
+            <button class="slot off" type="button">19:15</button>
+          </div>
+        </div>
+
+        <div class="slot-group">
+          <p class="slot-label">Noche</p>
+          <div class="slots">
+            <button class="slot" type="button">19:00</button>
+            <button class="slot" type="button">19:30</button>
+            <button class="slot off" type="button">20:00</button>
+            <button class="slot off" type="button">20:30</button>
+          </div>
+        </div>
+
+        <div class="timezone-note">
+          <i data-lucide="globe-2" class="ic-14"></i>
+          Horarios de Argentina (GMT-3) · martes 27 de octubre
+        </div>
+      </div>
+
+      <!-- ------------------------------------------------------------ PASO 3 -->
+      <div class="pane pane-3">
+        <a class="back-link" href="reserva.html?paso=2"><i data-lucide="chevron-left" class="ic-14"></i> Cambiar día u hora</a>
+        <div class="flow-head">
+          <div>
+            <h2>Un último paso, <em>tus datos</em>.</h2>
+            <p>Solo lo necesario para confirmarte y avisarte si algo cambia.</p>
+          </div>
+          <div class="aside-note"><b>Sin cuenta</b>No tenés que registrarte</div>
+        </div>
+
+        <div class="selection-strip">
+          <span class="icon"><i data-lucide="scissors" class="ic-16"></i></span>
+          <div class="txt">
+            <strong>Corte + styling · Nico</strong>
+            <small>Martes 27 de octubre · 15:30 a 16:15 · $18.000</small>
+          </div>
+          <a href="reserva.html?paso=2">Cambiar</a>
+        </div>
+
+        <form class="bk-form" onsubmit="return false">
+          <div class="row">
+            <div class="bk-field">
+              <label for="nombre">Nombre</label>
+              <div class="bk-input focus"><input id="nombre" type="text" value="Tomás" autocomplete="given-name" /></div>
+            </div>
+            <div class="bk-field">
+              <label for="apellido">Apellido</label>
+              <div class="bk-input"><input id="apellido" type="text" value="Iriarte" autocomplete="family-name" /></div>
+            </div>
+          </div>
+
+          <div class="bk-field">
+            <label for="telefono">WhatsApp <span>(con código de país)</span></label>
+            <div class="bk-input"><span class="prefix">+54 9</span><input id="telefono" type="tel" value="11 2345 6789" autocomplete="tel" /></div>
+            <p class="help">Te mandamos el recordatorio 24 h y 2 h antes. Sin esto, el estudio no puede avisarte.</p>
+          </div>
+
+          <div class="bk-turnstile">
+            <span class="ok"><i data-lucide="check" class="ic-14"></i></span>
+            <div class="txt"><strong>Verificación completada</strong><small>Protegemos tu reserva del spam.</small></div>
+            <div class="cf"><b>Cloudflare</b>Turnstile</div>
+          </div>
+
+          <button class="btn-dark" type="submit">Confirmar turno <i data-lucide="arrow-right" class="ic-16"></i></button>
+          <p class="pay-note"><i data-lucide="lock-keyhole" class="ic-14"></i> No se cobra nada ahora. El pago se hace en el local.</p>
+        </form>
+      </div>
+    </main>
+
+    <!-- ---------------------------------------------------------------- resumen -->
+    <aside class="bk-summary">
+      <div class="summary-top">
+        <div class="summary-kicker">
+          <span class="k">Tu reserva</span>
+          <span class="lock"><i data-lucide="lock-keyhole" class="ic-14"></i> Segura</span>
+        </div>
+
+        <div class="sum sum-1">
+          <div class="summary-service">
+            <h3>Corte + styling</h3>
+            <p class="sub">45 min · con Nico o Valentina</p>
+          </div>
+          <div class="summary-rows">
+            <div class="srow"><span class="si"><i data-lucide="users" class="ic-14"></i></span><span class="sl">Profesional</span><span class="sv">Cualquiera</span></div>
+            <div class="srow"><span class="si"><i data-lucide="calendar-days" class="ic-14"></i></span><span class="sl">Fecha</span><span class="sv muted">Elegí el día</span></div>
+            <div class="srow"><span class="si"><i data-lucide="clock" class="ic-14"></i></span><span class="sl">Hora</span><span class="sv muted">Elegí el horario</span></div>
+          </div>
+          <div class="summary-divider"></div>
+          <div class="summary-total">
+            <div class="lbl">Total estimado<small>Se abona en el local</small></div>
+            <div class="amount">$18.000</div>
+          </div>
+          <div class="summary-cta">
+            <a class="btn-terra" href="reserva.html?paso=2">Elegir día y hora <i data-lucide="arrow-right" class="ic-16"></i></a>
+          </div>
+        </div>
+
+        <div class="sum sum-2">
+          <div class="summary-service">
+            <h3>Corte + styling</h3>
+            <p class="sub">45 min · con Nico</p>
+          </div>
+          <div class="summary-rows">
+            <div class="srow"><span class="si"><i data-lucide="users" class="ic-14"></i></span><span class="sl">Profesional</span><span class="sv">Nico</span></div>
+            <div class="srow"><span class="si"><i data-lucide="calendar-days" class="ic-14"></i></span><span class="sl">Fecha</span><span class="sv">Martes 27 de octubre</span></div>
+            <div class="srow"><span class="si"><i data-lucide="clock" class="ic-14"></i></span><span class="sl">Hora</span><span class="sv">15:30 – 16:15</span></div>
+          </div>
+          <div class="summary-divider"></div>
+          <div class="summary-total">
+            <div class="lbl">Total estimado<small>Se abona en el local</small></div>
+            <div class="amount">$18.000</div>
+          </div>
+          <div class="summary-cta">
+            <a class="btn-terra" href="reserva.html?paso=3">Continuar con mis datos <i data-lucide="arrow-right" class="ic-16"></i></a>
+          </div>
+        </div>
+
+        <div class="sum sum-3">
+          <div class="summary-service">
+            <h3>Corte + styling</h3>
+            <p class="sub">45 min · con Nico</p>
+          </div>
+          <div class="summary-rows">
+            <div class="srow"><span class="si"><i data-lucide="calendar-days" class="ic-14"></i></span><span class="sl">Fecha</span><span class="sv">Martes 27 de octubre</span></div>
+            <div class="srow"><span class="si"><i data-lucide="clock" class="ic-14"></i></span><span class="sl">Hora</span><span class="sv">15:30 – 16:15</span></div>
+            <div class="srow"><span class="si"><i data-lucide="map-pin" class="ic-14"></i></span><span class="sl">Lugar</span><span class="sv">Gorriti 4820</span></div>
+          </div>
+          <div class="summary-divider"></div>
+          <div class="summary-total">
+            <div class="lbl">Total estimado<small>Se abona en el local</small></div>
+            <div class="amount">$18.000</div>
+          </div>
+          <div class="summary-cta">
+            <a class="btn-terra" href="confirmacion.html">Confirmar turno <i data-lucide="check" class="ic-16"></i></a>
+          </div>
+        </div>
+      </div>
+
+      <div class="summary-foot">
+        <i data-lucide="info" class="ic-14"></i>
+        <span>No se cobra nada ahora. Si necesitás cambiarlo, podés hacerlo desde el link de tu reserva.</span>
+      </div>
+
+      <div class="summary-perks">
+        <span><i data-lucide="shield-check" class="ic-14"></i> Reserva protegida por Tempus</span>
+        <span><i data-lucide="message-circle" class="ic-14"></i> Recordatorio por WhatsApp</span>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ---------------------------------------------------------------- footer -->
+  <footer class="bk-top" style="padding-top:0;padding-bottom:26px;justify-content:center;gap:16px">
+    <span style="display:flex;align-items:center;gap:7px;font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted-2)">
+      <img src="../../../frontend/public/isotipo-tempus.png" alt="" style="width:15px;height:15px;opacity:.55" />
+      Reservas gestionadas por Tempus
+    </span>
+  </footer>
+
+  <!-- ---------------------------------------------------------------- barra móvil -->
+  <div class="bk-mobile-bar only-1">
+    <div class="info"><small>Tu elección</small><strong>Corte + styling · $18.000</strong></div>
+    <a class="btn-terra" href="reserva.html?paso=2">Elegir día <i data-lucide="arrow-right" class="ic-16"></i></a>
+  </div>
+  <div class="bk-mobile-bar only-2">
+    <div class="info"><small>Martes 27 · 15:30</small><strong>Corte + styling · $18.000</strong></div>
+    <a class="btn-terra" href="reserva.html?paso=3">Continuar <i data-lucide="arrow-right" class="ic-16"></i></a>
+  </div>
+  <div class="bk-mobile-bar only-3">
+    <div class="info"><small>Total en el local</small><strong>$18.000 · sin seña</strong></div>
+    <a class="btn-terra" href="confirmacion.html">Confirmar <i data-lucide="check" class="ic-16"></i></a>
+  </div>
+
+  <script src="https://unpkg.com/lucide@0.417.0/dist/umd/lucide.min.js"></script>
+  <script>window.lucide && window.lucide.createIcons();</script>
+</body>
+</html>

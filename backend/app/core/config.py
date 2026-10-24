@@ -134,9 +134,49 @@ class Settings(BaseSettings):
         ),
     )
 
+    # --- Plan Pro por transferencia (Naranja X) ----------------------------
+    #:
+    #: Cobro manual sin pasarela: el dueno transfiere a la cuenta del banco del
+    #: administrador y manda el comprobante por WhatsApp. La activacion es humana
+    #: (el admin revisa y la aprueba en `/admin`), por eso no hay token ni webhook:
+    #: la "pasarela" es la persona de soporte. No usar para nada mas.
+    pro_transfer_price_ars: float = Field(
+        default=45000.0,
+        ge=0,
+        description="Precio mensual del plan Pro en ARS para el cobro por transferencia.",
+    )
+    pro_transfer_bank: str = Field(
+        default="Naranja X",
+        description="Banco receptor de las transferencias del plan Pro.",
+    )
+    pro_transfer_cbu: str = Field(
+        default="4530000800010461169871",
+        description="CBU/CVU receptor de las transferencias del plan Pro.",
+    )
+    pro_transfer_alias: str = Field(
+        default="Tempus.app",
+        description="Alias receptor de las transferencias del plan Pro.",
+    )
+    pro_transfer_titular: str = Field(
+        default="Yesica Soledad Medina",
+        description="Titular de la cuenta receptora del plan Pro.",
+    )
+    pro_support_whatsapp: str = Field(
+        default="5493772468309",
+        description="WhatsApp de soporte para enviar comprobantes del plan Pro (sin +).",
+    )
+    admin_secret: SecretStr = Field(
+        default=SecretStr(""),
+        description=(
+            "Secreto del panel administrativo (`/admin?key=`). Vacio desactiva el "
+            "panel: las rutas responden 401. Va por `wrangler secret put` o variable "
+            "de entorno, nunca en codigo."
+        ),
+    )
+
     # --- Periodo de gracia del trial (Fase 9.2) ---------------------------
     trial_dias: int = Field(
-        default=30,
+        default=14,
         ge=1,
         description=(
             "Dias de mes gratis desde que nace el negocio. Vencido el plazo sin plan "

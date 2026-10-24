@@ -38,6 +38,7 @@ from app.api.routers.public.schemas import (
     RescheduleRequest,
     ServicePublicInfo,
 )
+from app.api.errors import BusinessPausedError
 from app.core.config import Settings
 from app.core.rate_limit import (
     WINDOW_HOUR,
@@ -140,25 +141,22 @@ async def limitar_reserva(*, telefono: str, ip: str, settings: Settings) -> None
     )
 
 
-async def _resolve_business_by_slug(session: AsyncSession, slug: str) -> Business | None:
-    """Negocio publicable por slug, o `None`.
+async def _resolver_negocio_por_slug(session: AsyncSession, slug: str) -> Business | None:
+    """Negocio por slug, o `None` si no existe.
 
     `businesses` es una tabla global sin RLS, asi que se puede leer sin contexto
     de tenant. Por eso la busqueda va en una sesion propia y no en la del
     endpoint: el `business_id` todavia no se conoce cuando hay que buscarlo.
 
-    El filtro ya **no** es `status == 'active'` en SQL: la publicabilidad depende
-    del plan y de la ventana del mes gratis, y esa regla es una sola
-    (`publicacion.es_publicable`). Se resuelve por `slug` (UNIQUE, a lo sumo una
-    fila) y se aplica la regla en memoria. Un negocio vencido o suspendido da
-    `None`, que el endpoint traduce a 404: no se toman reservas para un negocio
-    que ya no se publica.
+    **Ya no decide publicabilidad**: si el negocio no existe devuelve `None` y el
+    endpoint responde 404. Si existe pero no es publicable, el endpoint distingue
+    ese caso y responde 403 con `code="business_paused"` -- es un negocio real al
+    que su dueño no le pagó el plan, no una URL mal escrita, y el frontend muestra
+    la pantalla de pausa en vez del 404 generico. La regla es una sola:
+    `publicacion.es_publicable`.
     """
     result = await session.execute(select(Business).where(Business.slug == slug))
-    business = result.scalar_one_or_none()
-    if business is None or not es_publicable(business):
-        return None
-    return business
+    return result.scalar_one_or_none()
 
 
 @asynccontextmanager
@@ -214,12 +212,14 @@ async def _public_session(
      viva por request y elimina las tres.
     """
     async with session_scope() as resolver_session:
-        business = await _resolve_business_by_slug(resolver_session, slug)
+        business = await _resolver_negocio_por_slug(resolver_session, slug)
 
-    # Fuera del `with` a proposito: la 404 tiene que propagarse sin haber abierto
+    # Fuera del `with` a proposito: el error tiene que propagarse sin haber abierto
     # una sesion de tenant para un negocio que no existe.
     if business is None:
         raise HTTPException(status_code=404, detail="Negocio no encontrado")
+    if not es_publicable(business):
+        raise BusinessPausedError()
 
     async with tenant_session(business.id) as session:
         yield session, business
@@ -240,9 +240,11 @@ async def get_business_public_info(
 ) -> BusinessPublicInfo:
     """Devuelve la información pública de un negocio para su página de reserva."""
     async with session_scope() as session:
-        business = await _resolve_business_by_slug(session, slug)
+        business = await _resolver_negocio_por_slug(session, slug)
         if business is None:
             raise HTTPException(status_code=404, detail="Negocio no encontrado")
+        if not es_publicable(business):
+            raise BusinessPausedError()
 
     return BusinessPublicInfo(
         id=business.id,

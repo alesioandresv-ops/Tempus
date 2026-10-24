@@ -6,6 +6,8 @@ import AdminPage from './pages/AdminPage'
 import ProfessionalPage from './pages/ProfessionalPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
+import CheckoutProPage from './pages/CheckoutProPage'
+import AdminPlataformaPage from './pages/AdminPlataformaPage'
 import LandingPage from './pages/landing/LandingPage'
 import ProtectedRoute from './components/ProtectedRoute'
 import { avisarFinDeSesion } from './services/api'
@@ -51,6 +53,14 @@ function App() {
 
         {/* Login */}
         <Route path="/login" element={<LoginPage />} />
+
+        {/* Checkout PRO: cobro manual por transferencia. Va ANTES de /:slug
+            para que "checkout-pro" no se interprete como el slug de un negocio. */}
+        <Route path="/checkout-pro" element={<CheckoutProPage />} />
+
+        {/* Panel de la plataforma: /admin-plataforma?key=... . Va ANTES de /:slug
+            por la misma razon que /admin. */}
+        <Route path="/admin-plataforma" element={<AdminPlataformaPage />} />
 
         {/* Gestion de reserva por token */}
         <Route path="/r/:token" element={<ManageBookingPage />} />
