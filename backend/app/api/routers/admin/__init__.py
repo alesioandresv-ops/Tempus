@@ -27,7 +27,7 @@ from app.api.dependencies import get_settings_dep
 from app.core.config import Settings
 from app.core.logging import get_logger
 from app.core.time import now
-from app.db.session import admin_session
+from app.db.session import get_admin_session
 from app.models.enums import BusinessPlan, BusinessStatus
 from app.modules.businesses.models import Business
 from app.modules.businesses.publicacion import dias_restantes, fin_del_trial
@@ -38,7 +38,10 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
-Sesion = Annotated[AsyncSession, Depends(admin_session)]
+# Dependency de FastAPI. **Generador plano, no `@asynccontextmanager`**: FastAPI
+# no puede entrar a un context manager como dependency con yield (Python 3.13:
+# `'_AsyncGeneratorContextManager' object is not an async iterator`).
+Sesion = Annotated[AsyncSession, Depends(get_admin_session)]
 
 
 def _verificar_secreto(

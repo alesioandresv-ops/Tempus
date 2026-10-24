@@ -107,7 +107,14 @@ def _admin_kwargs() -> dict[str, Any]:
 
 @asynccontextmanager
 async def admin_session() -> AsyncIterator[AsyncSession]:
-    """Sesión transaccional con el rol de migraciones (router admin / cron)."""
+    """Sesión transaccional con el rol de migraciones, para uso con `async with`.
+
+    **No usarla como dependency de FastAPI**: un `@asynccontextmanager` no es un
+    async generator a los ojos de `Depends` (en Python 3.13 lanza
+    `'_AsyncGeneratorContextManager' object is not an async iterator`). Para
+    dependencies existe `get_admin_session`, que es el mismo código sin el
+    decorador — un generador plano, que es lo que FastAPI espera.
+    """
     session = async_sessionmaker(
         get_admin_engine(), class_=AsyncSession, expire_on_commit=False, autoflush=False
     )()
@@ -117,6 +124,28 @@ async def admin_session() -> AsyncIterator[AsyncSession]:
     except BaseException:
         await session.rollback()
         raise
+    finally:
+        await session.close()
+
+
+async def get_admin_session() -> AsyncIterator[AsyncSession]:
+    """Dependency de FastAPI para las rutas del router admin.
+
+    Es `admin_session` sin el decorador: un async generator plano con `yield`,
+    que es lo único que `Depends` sabe iterar. Mismo ciclo de vida: commit al
+    salir bien, rollback ante cualquier excepción, close siempre.
+    """
+    session = async_sessionmaker(
+        get_admin_engine(), class_=AsyncSession, expire_on_commit=False, autoflush=False
+    )()
+    try:
+        yield session
+        await session.commit()
+    except BaseException:
+        await session.rollback()
+        raise
+    finally:
+        await session.close()
 
 
 def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
