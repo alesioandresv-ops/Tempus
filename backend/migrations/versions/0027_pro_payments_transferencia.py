@@ -30,6 +30,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 import app.db.types
+from migrations.rls_safe import claim_and_open, restore
 
 revision: str = "0027_pro_payments_transferencia"
 down_revision: str | None = "0026_asignar_servicios_al_alta"
@@ -66,10 +67,14 @@ def _crear_trigger_updated_at() -> None:
     )
     op.execute(
         """
-        DROP TRIGGER IF EXISTS trg_pro_payments_updated_at ON pro_payments;
+        DROP TRIGGER IF EXISTS trg_pro_payments_updated_at ON pro_payments
+        """
+    )
+    op.execute(
+        """
         CREATE TRIGGER trg_pro_payments_updated_at
             BEFORE UPDATE ON pro_payments
-            FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+            FOR EACH ROW EXECUTE FUNCTION set_updated_at()
         """
     )
 
@@ -124,8 +129,6 @@ def upgrade() -> None:
 
     # La FK de `pro_payments` apunta a `businesses`, que está protegida: se abre
     # con `claim_and_open` y se cierra al final. Es el patrón de 0019.
-    from alembic_postgresql_compat import claim_and_open, restore
-
     claim_and_open("businesses")
 
     op.create_table(
