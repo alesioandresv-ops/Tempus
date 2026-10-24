@@ -53,4 +53,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 # idempotente--ya aplicado, no hace nada-- asi que reiniciar un pod no rompe nada,
 # y hace que no exista el despliegue en el que la app arranca contra un esquema viejo.
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
