@@ -168,10 +168,52 @@ class Settings(BaseSettings):
     admin_secret: SecretStr = Field(
         default=SecretStr(""),
         description=(
-            "Secreto del panel administrativo (`/admin?key=`). Vacio desactiva el "
-            "panel: las rutas responden 401. Va por `wrangler secret put` o variable "
-            "de entorno, nunca en codigo."
+            "Secreto del endpoint LEGACY del panel (`/api/v1/admin?key=`). Solo se "
+            "acepta si `ALLOW_LEGACY_ADMIN_KEY=true`; el panel web nuevo usa "
+            "`ADMIN_USER` + `ADMIN_PASSWORD_HASH` + `SECRET_KEY`. Vacio desactiva el "
+            "camino legacy. Va por variable de entorno, nunca en codigo."
         ),
+    )
+
+    # --- Panel administrativo web (`/admin`) ------------------------------
+    #: Usuario unico del panel. Es deliberadamente una sola cuenta: el panel
+    #: administra la plataforma, no un tenant. Si algun dia hay varios operadores,
+    #: se reemplaza por una tabla, no por una lista en una variable.
+    admin_user: str = Field(
+        default="",
+        description=(
+            "Usuario del panel administrativo `/admin`. Vacio desactiva el login "
+            "(las rutas existentes redirigen al login, que informa que falta "
+            "configuracion)."
+        ),
+    )
+    admin_password_hash: SecretStr = Field(
+        default=SecretStr(""),
+        description=(
+            "Hash bcrypt de la password del panel. Se genera con "
+            "`python -c \"import bcrypt; print(bcrypt.hashpw(b'...', bcrypt.gensalt()).decode())\"`."
+        ),
+    )
+    secret_key: SecretStr = Field(
+        default=SecretStr(""),
+        description=(
+            "Clave HMAC con la que `itsdangerous` firma la cookie de sesion del "
+            "panel admin (`SECRET_KEY`). Distinta de JWT_SECRET_KEY y de "
+            "ENCRYPTION_KEY. Minimo recomendado: 32 bytes."
+        ),
+    )
+    allow_legacy_admin_key: bool = Field(
+        default=False,
+        description=(
+            "Habilita el endpoint legacy `/api/v1/admin?key=ADMIN_SECRET`. Apagado "
+            "por defecto, y debe quedar apagado en produccion: la key en la query "
+            "termina en logs, historial y proxies."
+        ),
+    )
+    rate_limit_admin_login_per_ip: int = Field(
+        default=5,
+        ge=1,
+        description="Intentos de login del panel por IP en una ventana de 15 minutos.",
     )
 
     # --- Periodo de gracia del trial (Fase 9.2) ---------------------------

@@ -51,7 +51,7 @@ Meta WhatsApp Cloud API <-> Webhooks firmados -> FastAPI -> Outbox -> Job drain
 Cloudflare Worker cron -> GET /internal/scheduler/tick -> FastAPI
 FastAPI -> R2 media presigned
 
-## 5. Modelo de datos (27 tablas)
+## 5. Modelo de datos (32 tablas)
 businesses(id, slug UNIQUE, name, timezone, locale, currency, slot_interval 15, min_lead 60, max_advance 60, cancellation_window 120, status[trial,active,suspended], phone_e164, address, brand_color)
 business_users(id, business_id, email UNIQUE(business_id,email), password_hash Argon2id, full_name, role[admin,staff])
 platform_users SEPARADA.
@@ -65,27 +65,32 @@ bookings(id, business_id, professional_id, service_id, customer_id, start_ts, en
 booking_events, idempotency_keys
 whatsapp_connections(business_id UNIQUE, phone_number_id, token_encrypted)
 whatsapp_templates, notification_requests[booking_confirmed,professional_new,reminder_2h,reminder_1h], webhook_events
-jobs(business_id NULL), refresh_tokens(user_id NULL, platform_user_id NULL, token_hash, family_id), audit_log, media, slug_reservations(slug UNIQUE), rate_limit_buckets
+jobs(business_id NULL), refresh_tokens(user_id NULL, platform_user_id NULL, token_hash, family_id), audit_log, media, slug_reservations(slug UNIQUE), rate_limit_buckets, pro_payments(business_id, email, amount, status[pending,approved,rejected]), admin_audit_log(admin_user, action, business_id NULL, ip)
 
-RLS: 23 con RLS FORCE (bookings, business_hours, etc) y 7 sin RLS: businesses, platform_users, slug_reservations, rate_limit_buckets, webhook_events, refresh_tokens, jobs. Los detalles de cuáles son globales y con qué permiso en §5.8.
+RLS: 24 con RLS FORCE (bookings, business_hours, etc) y 8 sin RLS: businesses, platform_users, slug_reservations, rate_limit_buckets, webhook_events, refresh_tokens, jobs, admin_audit_log. Los detalles de cuáles son globales y con qué permiso en §5.8.
 
 ### 5.8 Qué tablas llevan RLS y cuáles no
 
-De las 30 tablas, **23 llevan `ROW LEVEL SECURITY` y `FORCE ROW LEVEL SECURITY`**, y
-7 no llevan ninguna de las dos. La lista no es una convención: está escrita en
+De las 32 tablas, **24 llevan `ROW LEVEL SECURITY` y `FORCE ROW LEVEL SECURITY`**, y
+8 no llevan ninguna de las dos. La lista no es una convención: está escrita en
 `app/models/__init__.py` como `GLOBAL_TABLES`, la aplica la migración `0002` (y `0019`
 para las tablas de Mercado Pago), y `tests/unit/test_orm_metadata.py` falla si el
 modelo y la base se separan.
 
-**Las 23 con RLS**, todas de tenant:
+**Las 24 con RLS**, todas de tenant:
 `audit_log`, `blocks`, `booking_events`, `bookings`, `booking_payments`,
 `business_exception_windows`, `business_exceptions`, `business_hours`, `business_users`,
 `customers`, `holidays`, `idempotency_keys`, `media`, `mp_payment_accounts`,
-`mp_subscriptions`, `notification_requests`, `professional_schedules`,
+`mp_subscriptions`, `notification_requests`, `pro_payments`, `professional_schedules`,
 `professional_services`, `professionals`, `services`, `time_off`,
 `whatsapp_connections`, `whatsapp_templates`.
 
-**Las 7 sin RLS**, y por qué:
+`pro_payments` suma una política **`SELECT ... TO tempus_owner`**
+(`pro_payments_admin_read`, migración `0029`) para que el panel de plataforma lea los
+comprobantes de cualquier negocio y cuente los pendientes. No aplica a `tempus_app`:
+el aislamiento de tenant queda igual. Ver ADR-0020.
+
+**Las 8 sin RLS**, y por qué:
 
 | tabla | razón |
 |---|---|
@@ -96,8 +101,9 @@ modelo y la base se separan.
 | `webhook_events` | Bandeja de entrada de Meta. Es de la plataforma, no de un negocio. |
 | `refresh_tokens` | No tiene `business_id`: cuelga de `user_id` o `platform_user_id`. Ver la nota de abajo. |
 | `jobs` | La cola es del sistema. El dispatcher saca trabajos de varias cuentas a la vez a propósito; filtrarla por tenant rompería el drenado. `business_id` sigue nullable y presente en la fila para poder depurar y para que un handler de negocio verifique que no le llego algo global. |
+| `admin_audit_log` | Auditoría del panel de plataforma (`/admin`). Su `business_id` es el **objetivo** de la acción, no el dueño de la fila, y es nullable porque un login no apunta a ningún negocio. La escribe solo el rol de migraciones (`get_admin_session`); `tempus_app` no tiene grants (migración `0029`, ADR-0020). Una política por `business_id` impediría registrar los logins y no aislaría nada. |
 
-**La nota sobre `refresh_tokens`.** Es la única de las siete cuyo aislamiento no
+**La nota sobre `refresh_tokens`.** Es la única de las ocho cuyo aislamiento no
 depende de una decisión de permisos sino de que la aplicación filtre bien. No hay
 `business_id` porque el token pertenece a una *persona*, que puede ser de un negocio
 o de la plataforma, y la tabla tiene un CHECK que exige exactamente uno de los dos
@@ -117,7 +123,7 @@ dejarlo implícito:
   para proteger metadatos, y el costo no está justificado mientras el hash impida
   el uso del token. **Es una decisión, no un olvido**, y por eso está escrita acá.
 
-**Total: de las 30 tablas, 23 con RLS y 7 sin ella.**
+**Total: de las 32 tablas, 24 con RLS y 8 sin ella.**
 
 ### 5.9 Publicabilidad del negocio
 

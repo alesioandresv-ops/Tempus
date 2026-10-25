@@ -12,11 +12,21 @@ import datetime as dt
 import enum
 from decimal import Decimal
 
-from sqlalchemy import Numeric, String, Text, text
+from sqlalchemy import (
+    CheckConstraint,
+    Enum,
+    ForeignKeyConstraint,
+    Index,
+    Numeric,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TenantBase, tenant_unique_key
 from app.db.types import UtcDateTime
+
 
 class ProPaymentStatus(enum.StrEnum):
     """Estado de un intento de pago del plan Pro.
@@ -32,9 +42,7 @@ class ProPaymentStatus(enum.StrEnum):
     REJECTED = "rejected"
 
 
-from sqlalchemy import Enum as SQLAlchemyEnum  # noqa: E402
-
-pro_payment_status_enum = SQLAlchemyEnum(
+pro_payment_status_enum = Enum(
     ProPaymentStatus,
     name="pro_payment_status",
     values_callable=lambda e: [m.value for m in e],
@@ -53,7 +61,19 @@ class ProPayment(TenantBase, Base):
     """
 
     __tablename__ = "pro_payments"
-    __table_args__ = (tenant_unique_key("pro_payments"),)
+    __table_args__ = (
+        tenant_unique_key("pro_payments"),
+        ForeignKeyConstraint(
+            ["business_id"],
+            ["businesses.id"],
+            name="fk_pro_payments_business_id_businesses",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint("amount >= 0", name="amount_non_negative"),
+        # La usa el admin para listar los pagos pendientes por fecha: el panel
+        # filtra por estado y ordena por `created_at`.
+        Index("ix_pro_payments_status_created_at", "status", "created_at"),
+    )
 
     business_name: Mapped[str] = mapped_column(Text, nullable=False)
     email: Mapped[str] = mapped_column(Text, nullable=False)
@@ -62,7 +82,9 @@ class ProPayment(TenantBase, Base):
     status: Mapped[ProPaymentStatus] = mapped_column(
         pro_payment_status_enum, nullable=False, server_default=text("'pending'")
     )
-    method: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'naranja_x'"))
+    method: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'naranja_x'")
+    )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     approved_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime(), nullable=True)
 

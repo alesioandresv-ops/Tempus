@@ -21,16 +21,19 @@ from sqlalchemy.types import Uuid
 #: Numero de tablas de §7. La arquitectura decia 26; el numero real es 27, porque
 #: el conteo original de la lista se saltó `webhook_events` (la unica tabla global
 #: que no es de plataforma). La Fase 9.1 sumo las tres de Mercado Pago
-#: (`mp_payment_accounts`, `mp_subscriptions`, `booking_payments`), asi que ahora son
-#: 30. El desvio se documenta en `ARCHITECTURE.md`; aca se fija el valor que el
-#: codigo implementa, para que el desync falle en un test y no en una review.
-EXPECTED_TABLE_COUNT = 30
+#: (`mp_payment_accounts`, `mp_subscriptions`, `booking_payments`): 30. El cobro
+#: manual por transferencia sumo `pro_payments` (0027): 31. El panel administrativo
+#: seguro sumo `admin_audit_log` (0029): 32. El desvio se documenta en
+#: `ARCHITECTURE.md`; aca se fija el valor que el codigo implementa, para que el
+#: desync falle en un test y no en una review.
+EXPECTED_TABLE_COUNT = 32
 
 #: Las tablas que §7 nombra una por una. Comparar contra la lista en vez de
 #: contar es lo que hace util el test: al agregar una tabla sin updating la
 #: arquitectura, el nombre falta y el error dice cual.
 EXPECTED_TABLES = {
-    # Globales (7)
+    # Globales (8)
+    "admin_audit_log",
     "businesses",
     "jobs",
     "platform_users",
@@ -38,7 +41,7 @@ EXPECTED_TABLES = {
     "refresh_tokens",
     "slug_reservations",
     "webhook_events",
-    # De tenant (23)
+    # De tenant (24)
     "audit_log",
     "blocks",
     "booking_events",
@@ -55,6 +58,7 @@ EXPECTED_TABLES = {
     "mp_payment_accounts",
     "mp_subscriptions",
     "notification_requests",
+    "pro_payments",
     "professional_schedules",
     "professional_services",
     "professionals",
@@ -113,16 +117,20 @@ class TestTableCount:
 
 
 class TestTenancyClassification:
-    def test_jobs_es_la_unica_excepcion(self) -> None:
-        """`jobs` tiene `business_id` pero no lleva RLS.
+    def test_excepciones_de_rls(self) -> None:
+        """Las tablas con `business_id` que no llevan RLS, y por que.
 
-        El dispatcher procesa filas de todos los tenants en la misma transaccion.
-        Con RLS tendria que hacer un `SET LOCAL` por negocio, lo cual lo obliga a
-        abrir una transaccion por fila y destruye el batching que justifica que
-        exista. La columna esta para poder filtrar en la aplicacion, no para que la
-        base proteja.
+        `jobs`: el dispatcher procesa filas de todos los tenants en la misma
+        transaccion. Con RLS tendria que hacer un `SET LOCAL` por negocio, lo cual
+        lo obliga a abrir una transaccion por fila y destruye el batching que
+        justifica que exista. La columna esta para poder filtrar en la aplicacion,
+        no para que la base proteja.
+
+        `admin_audit_log`: su `business_id` es el objetivo de una accion de
+        plataforma, no el dueno de la fila (un login no tiene negocio). La escribe
+        el panel con el rol de migraciones y el rol de la app no tiene grants.
         """
-        assert frozenset({"jobs"}) == NO_RLS_TABLES
+        assert frozenset({"jobs", "admin_audit_log"}) == NO_RLS_TABLES
 
     @pytest.mark.parametrize("table", sorted(TENANT_TABLES))
     def test_toda_tabla_con_rls_tiene_business_id(self, table: str) -> None:

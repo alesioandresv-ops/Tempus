@@ -1,0 +1,157 @@
+{% extends "admin/base.html" %}
+{% block title %}Negocios{% endblock %}
+
+{% block topbar_acciones %}
+<div class="topbar__acciones">
+  <span class="topbar__usuario">{{ admin_user }}</span>
+  <form method="post" action="/admin/logout" class="en-linea">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="boton boton--fantasma">Salir</button>
+  </form>
+</div>
+{% endblock %}
+
+{% block content %}
+{% if aviso %}
+  <div class="alerta alerta--ok" role="status">{{ aviso }}</div>
+{% endif %}
+
+<section class="stats">
+  <div class="stat">
+    <span class="stat__numero">{{ stats.total }}</span>
+    <span class="stat__etiqueta">Negocios</span>
+  </div>
+  <div class="stat">
+    <span class="stat__numero">{{ stats.trial }}</span>
+    <span class="stat__etiqueta">En mes gratis</span>
+  </div>
+  <div class="stat">
+    <span class="stat__numero">{{ stats.pro_activos }}</span>
+    <span class="stat__etiqueta">Pro activos</span>
+  </div>
+  <div class="stat">
+    <span class="stat__numero">{{ stats.vencidos }}</span>
+    <span class="stat__etiqueta">Vencidos</span>
+  </div>
+  <div class="stat">
+    <span class="stat__numero">{{ stats.bloqueados }}</span>
+    <span class="stat__etiqueta">Bloqueados</span>
+  </div>
+  <div class="stat">
+    <span class="stat__numero">{{ stats.pendientes_pago }}</span>
+    <span class="stat__etiqueta">Pagos pendientes</span>
+  </div>
+</section>
+
+<section class="panel-filtros">
+  <nav class="filtros" aria-label="Filtros de estado">
+    {% for opcion in filtros %}
+      {% set etiqueta = {
+        'todos': 'Todos',
+        'trial': 'Mes gratis',
+        'pro': 'Pro',
+        'bloqueados': 'Bloqueados',
+        'vencidos': 'Vencidos'
+      }[opcion] %}
+      <a class="filtro{% if filtro == opcion %} filtro--activo{% endif %}"
+         href="/admin?filtro={{ opcion }}{% if q %}&amp;q={{ q|urlencode }}{% endif %}">{{ etiqueta }}</a>
+    {% endfor %}
+  </nav>
+
+  <form method="get" action="/admin" class="buscador" role="search">
+    {% if filtro != 'todos' %}
+      <input type="hidden" name="filtro" value="{{ filtro }}">
+    {% endif %}
+    <label class="oculto" for="q">Buscar por slug o nombre</label>
+    <input id="q" name="q" type="search" value="{{ q }}" maxlength="100"
+           placeholder="Buscar por slug o nombre">
+    <button type="submit" class="boton">Buscar</button>
+    {% if q %}
+      <a class="boton boton--fantasma" href="/admin?filtro={{ filtro }}">Limpiar</a>
+    {% endif %}
+  </form>
+</section>
+
+<div class="tabla-contenedor">
+  <table class="tabla">
+    <thead>
+      <tr>
+        <th>Slug</th>
+        <th>Negocio</th>
+        <th>Email</th>
+        <th>Plan</th>
+        <th>Estado</th>
+        <th>Pro hasta</th>
+        <th>Días trial</th>
+        <th class="col-acciones">Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for fila in filas %}
+        <tr>
+          <td><code>{{ fila.slug }}</code></td>
+          <td>{{ fila.business_name }}</td>
+          <td>{{ fila.email or '—' }}</td>
+          <td>{{ fila.plan }}</td>
+          <td>
+            <span class="estado estado--{{ fila.estado }}">
+              {{ etiquetas_estado.get(fila.estado, fila.estado) }}
+            </span>
+          </td>
+          <td>{{ fila.pro_until.strftime('%d/%m/%Y') if fila.pro_until else '—' }}</td>
+          <td class="numero">{{ fila.trial_dias_restantes }}</td>
+          <td>
+            <div class="acciones">
+              <button type="button" class="boton boton--primario boton--chico"
+                      data-activar
+                      data-id="{{ fila.id }}"
+                      data-nombre="{{ fila.business_name }}">Activar Pro</button>
+
+              {% if fila.bloqueado %}
+                <form method="post" action="/admin/businesses/{{ fila.id }}/desbloquear" class="en-linea">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="filtro" value="{{ filtro }}">
+                  <input type="hidden" name="q" value="{{ q }}">
+                  <button type="submit" class="boton boton--chico">Desbloquear</button>
+                </form>
+              {% else %}
+                <form method="post" action="/admin/businesses/{{ fila.id }}/bloquear" class="en-linea">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="filtro" value="{{ filtro }}">
+                  <input type="hidden" name="q" value="{{ q }}">
+                  <button type="submit" class="boton boton--peligro boton--chico">Bloquear</button>
+                </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="8" class="vacio">
+            No hay negocios que coincidan con el filtro.
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p class="nota">{{ filas|length }} de {{ total_filas }} negocios.</p>
+
+<dialog id="modal-activar" class="modal" aria-labelledby="modal-titulo">
+  <form id="form-activar" method="post" action="">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="filtro" value="{{ filtro }}">
+    <input type="hidden" name="q" value="{{ q }}">
+    <h2 id="modal-titulo">Activar plan Pro</h2>
+    <p class="modal__negocio" id="modal-negocio"></p>
+    <label for="dias">Días de vigencia (1 a 365)</label>
+    <input id="dias" name="dias" type="number" min="1" max="365" value="30" required>
+    <p class="nota">Si el Pro sigue vigente, los días se suman a la fecha actual.</p>
+    <div class="modal__acciones">
+      <button type="button" class="boton" data-cerrar>Cancelar</button>
+      <button type="submit" class="boton boton--primario">Activar</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}

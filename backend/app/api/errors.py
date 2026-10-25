@@ -158,6 +158,7 @@ def problem_response(
     request: Request,
     error_type: str = "about:blank",
     extra: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     """Construye la respuesta de problema."""
     body: dict[str, Any] = {
@@ -181,6 +182,7 @@ def problem_response(
         status_code=status_code,
         content=body,
         media_type=PROBLEM_CONTENT_TYPE,
+        headers=headers,
     )
 
 
@@ -252,11 +254,15 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         detail = exc.detail if isinstance(exc.detail, str) else "Error."
+        # `headers` se preserva porque los 302 del panel llevan `Location` ahi.
+        # Sin esto, el redirect se convertia en un 302 sin destino y el navegador
+        # se quedaba en la misma pagina sin decir por que.
         return problem_response(
             status_code=exc.status_code,
             title="Error",
             detail=detail,
             request=request,
+            headers=exc.headers,
         )
 
     @app.exception_handler(Exception)

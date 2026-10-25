@@ -66,6 +66,7 @@ if TYPE_CHECKING:  # pragma: no cover - solo para el chequeo de tipos
         WebhookStatus,
         WhatsAppConnectionStatus,
     )
+    from app.modules.admin.models import AdminAuditLog
     from app.modules.auth.models import BusinessUser, PlatformUser, RefreshToken
     from app.modules.bookings.models import Booking, BookingEvent, IdempotencyKey
     from app.modules.businesses.models import Business, Media, SlugReservation
@@ -77,6 +78,7 @@ if TYPE_CHECKING:  # pragma: no cover - solo para el chequeo de tipos
         WhatsAppTemplate,
     )
     from app.modules.payments.models import BookingPayment, MpPaymentAccount, MpSubscription
+    from app.modules.payments.pro_models import ProPayment
     from app.modules.professionals.models import Professional
     from app.modules.schedules.models import (
         Block,
@@ -127,6 +129,7 @@ _EXPORTS: dict[str, str] = {
     "BusinessUser": "app.modules.auth.models",
     "PlatformUser": "app.modules.auth.models",
     "RefreshToken": "app.modules.auth.models",
+    "AdminAuditLog": "app.modules.admin.models",
     "Booking": "app.modules.bookings.models",
     "BookingEvent": "app.modules.bookings.models",
     "IdempotencyKey": "app.modules.bookings.models",
@@ -141,6 +144,7 @@ _EXPORTS: dict[str, str] = {
     "BookingPayment": "app.modules.payments.models",
     "MpPaymentAccount": "app.modules.payments.models",
     "MpSubscription": "app.modules.payments.models",
+    "ProPayment": "app.modules.payments.pro_models",
     "Professional": "app.modules.professionals.models",
     "Block": "app.modules.schedules.models",
     "BusinessException": "app.modules.schedules.models",
@@ -196,7 +200,14 @@ def __dir__() -> list[str]:
 #: del job y **falla ruidosamente** si el job no lo tiene. Declarar la excepcion de
 #: forma explicita es lo que evita que la proxima tabla con `business_id` y sin RLS
 #: pase desapercibida.
-NO_RLS_TABLES: frozenset[str] = frozenset({"jobs"})
+#:
+#: `admin_audit_log` es la segunda excepcion, por la razon opuesta: su
+#: `business_id` es el **objetivo** de una accion de plataforma, no el dueno de la
+#: fila. La escribe el panel con el rol de migraciones (`get_admin_session`) y el
+#: rol de la app no tiene grants; una politica por `business_id` impediria
+#: registrar un login--que no tiene negocio-- y no aislaria nada, porque la tabla
+#: entera es de la plataforma.
+NO_RLS_TABLES: frozenset[str] = frozenset({"jobs", "admin_audit_log"})
 
 
 #: Tablas **globales**--sin columna `business_id`-- que aun asi llevan RLS.
@@ -232,7 +243,7 @@ def _tablas() -> frozenset[str]:
 
 
 #: Modulos ya importados por `_importar_todos`. Es lo que evita que un acceso a
-#: `TABLE_COUNT` reimporte los 30 modelos en cada llamada.
+#: `TABLE_COUNT` reimporte los 32 modelos en cada llamada.
 _importados: set[str] = set()
 
 
@@ -262,7 +273,7 @@ def registrar_modelos() -> None:
     arriba-- y `target_metadata` queda vacio.
 
     Con la metadata vacia, `alembic check` y `--autogenerate` proponen **borrar las
-    30 tablas**: el diff es exactamente "remove_table" para cada una. El sintoma es
+    32 tablas**: el diff es exactamente "remove_table" para cada una. El sintoma es
     especialmente traicionero porque el grafo de migraciones esta impecable y
     `alembic heads` coincide; lo unico que cambia es el modelo, y este modulo--que
     "reexporta los modelos"-- es el que lo deja sin registrar.
@@ -285,7 +296,7 @@ def _constants() -> dict[str, Any]:
     se importo primero, y el fallo aparece en un test que compara `TABLE_COUNT`
     contra la documentacion sin senalar que la causa es el orden de importacion.
 
-    Recorrer 30 tablas y mirar sus columnas cuesta microsegundos, y a estos
+    Recorrer 32 tablas y mirar sus columnas cuesta microsegundos, y a estos
     niveles se lee una vez por proceso. El tradeoff es asimetrico y obvio: no
     cachear cuesta nanosegundos por arranque, cachear mal cuesta un bug que
     aparece sin relacion con su causa.
@@ -339,6 +350,7 @@ __all__ = [
     "NO_RLS_TABLES",
     "TABLE_COUNT",
     "TENANT_TABLES",
+    "AdminAuditLog",
     "AuditActorType",
     "AuditLog",
     "Base",
@@ -376,6 +388,7 @@ __all__ = [
     "NotificationStatus",
     "PlatformRole",
     "PlatformUser",
+    "ProPayment",
     "Professional",
     "ProfessionalSchedule",
     "ProfessionalService",

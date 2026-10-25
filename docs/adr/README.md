@@ -37,6 +37,7 @@ nuevo que marque al anterior como `Reemplazada por ADR-XXXX`. No se editan a pos
 | [0017](0017-publicabilidad-y-plan.md) | Estado administrativo y publicabilidad por plan y vigencia | Aceptada | Producto |
 | [0018](0018-una-sola-definicion-de-elegibilidad-de-servicio.md) | Una sola definición de "qué profesional puede hacer qué servicio" | Aceptada (ver 0019) | Dominio |
 | [0019](0019-asignacion-automatica-al-alta.md) | El alta asigna los servicios; el paso manual restringe | Aceptada | Dominio |
+| [0020](0020-panel-administrativo-seguro.md) | Panel de plataforma con sesión firmada y auditoría | Aceptada | Seguridad |
 
 ## Decisiones agrupadas por lo que protegen
 
@@ -55,6 +56,8 @@ nuevo que marque al anterior como `Reemplazada por ADR-XXXX`. No se editan a pos
 - [0010](0010-tenant-from-jwt.md) — el IDOR eliminado de raíz, no mitigado.
 - [0009](0009-hashed-secure-tokens.md) — el token del cliente no se persiste en claro
   y no existe ninguna ruta que lo adivine.
+- [0020](0020-panel-administrativo-seguro.md) — la operación de plataforma no comparte
+  identidad con el negocio y deja rastro de quién hizo cada cambio.
 
 **Corrección del dominio**
 

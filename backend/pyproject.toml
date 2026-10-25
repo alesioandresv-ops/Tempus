@@ -64,6 +64,25 @@ dependencies = [
     # negocio, `app/core/encryption.py`). El mismo motivo que httpx: es codigo
     # que corre en la API, no en el dev.
     "cryptography>=42.0",
+    # --- Panel administrativo web (/admin) ---
+    # Jinja2 renderiza las plantillas del panel. El panel es server-side a
+    # proposito: la cookie de sesion es HttpOnly y el formulario de login no
+    # necesita una SPA para existir.
+    "jinja2>=3.1",
+    # itsdangerous firma la cookie de sesion y el token CSRF. Es la misma
+    # primitiva que usa Starlette para las sesiones, sin el middleware generico
+    # que guardaria la sesion entera en el cliente.
+    "itsdangerous>=2.2",
+    # bcrypt verifica el hash de `ADMIN_PASSWORD_HASH`. Para el login de
+    # usuarios se sigue usando Argon2id (ver el bloque de la Fase 1): aca se usa
+    # bcrypt porque el operador pega un hash ya generado y no una password que
+    # este codigo tenga que hashear.
+    "bcrypt>=4.2",
+    # `request.form()` de Starlette delega el parseo de
+    # `application/x-www-form-urlencoded` y `multipart/form-data` en esta
+    # libreria. Sin ella, cada POST del panel (login, activar, bloquear) muere
+    # en runtime con "The python-multipart library must be installed".
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]

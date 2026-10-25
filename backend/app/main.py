@@ -11,14 +11,17 @@ import time as _time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.errors import register_exception_handlers
 from app.api.routers import health
+from app.api.routers.admin.security import AdminSecurityHeadersMiddleware
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging, get_logger, set_request_id
 from app.db.session import dispose_engine, get_engine
@@ -197,6 +200,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     app.add_middleware(RequestContextMiddleware)
+    # El panel es la unica superficie HTML y la unica con formularios de
+    # plataforma: sus cabeceras van en un middleware y no en las plantillas para
+    # que tambien cubran los 302 al login y los 403/429 que no renderizan HTML.
+    app.add_middleware(AdminSecurityHeadersMiddleware)
     app.add_middleware(
         CORSMiddleware,
         # Se lee de `settings.cors_origins` y no de una lista literal. Antes estaba
@@ -218,6 +225,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     register_exception_handlers(app)
 
+    # Estaticos del panel (CSS y el JS del modal). Se montan antes de los routers
+    # para que `/static/...` no compita con ninguna ruta de la API.
+    app.mount(
+        "/static",
+        StaticFiles(directory=str(Path(__file__).resolve().parent / "static")),
+        name="static",
+    )
+
     # Health checks fuera del prefijo de version: las plataformas de hosting los
     # piden en la raiz y versionarlos seria una friccion sin beneficio.
     app.include_router(health.router)
@@ -230,9 +245,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from app.api.routers import onboarding as onboarding_router
     from app.api.routers import public as public_router
     from app.api.routers import webhooks as webhooks_router
+    from app.api.routers.admin import ui as admin_ui_router
 
     app.include_router(auth_router.router, prefix="/api/v1")
     app.include_router(admin_router.router, prefix="/api/v1")
+    # El panel HTML no lleva prefijo de version: es una pagina, no un contrato de
+    # API. Su router ya declara `prefix="/admin"`.
+    app.include_router(admin_ui_router.router)
     app.include_router(onboarding_router.router, prefix="/api/v1")
     app.include_router(public_router.router, prefix="/api/v1")
     app.include_router(internal_router.router, prefix="/api/v1")

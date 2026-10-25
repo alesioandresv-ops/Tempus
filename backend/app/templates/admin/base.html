@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Administración{% endblock %} · Tempus</title>
+  <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar__marca">
+      <span class="punto"></span>
+      <strong>Tempus</strong>
+      <span class="topbar__seccion">Panel de plataforma</span>
+    </div>
+    {% block topbar_acciones %}{% endblock %}
+  </header>
+  <main class="contenido">
+    {% block content %}{% endblock %}
+  </main>
+  <script src="/static/admin.js" defer></script>
+</body>
+</html>
