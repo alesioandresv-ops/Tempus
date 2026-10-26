@@ -122,6 +122,11 @@
                   <button type="submit" class="boton boton--peligro boton--chico">Bloquear</button>
                 </form>
               {% endif %}
+              <button type="button" class="boton boton--peligro boton--chico"
+                      data-eliminar
+                      data-id="{{ fila.id }}"
+                      data-nombre="{{ fila.business_name }}"
+                      data-slug="{{ fila.slug }}">Eliminar</button>
             </div>
           </td>
         </tr>
@@ -151,6 +156,26 @@
     <div class="modal__acciones">
       <button type="button" class="boton" data-cerrar>Cancelar</button>
       <button type="submit" class="boton boton--primario">Activar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="modal-eliminar" class="modal" aria-labelledby="modal-eliminar-titulo">
+  <form id="form-eliminar" method="post" action="">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="filtro" value="{{ filtro }}">
+    <input type="hidden" name="q" value="{{ q }}">
+    <h2 id="modal-eliminar-titulo" class="peligro">Eliminar negocio</h2>
+    <p class="modal__negocio" id="modal-eliminar-negocio"></p>
+    <p>
+      Se borran <strong>todos</strong> sus datos: reservas, clientes, servicios,
+      profesionales y horarios. No se puede deshacer.
+    </p>
+    <label for="confirmar-slug">Escribí <strong id="modal-eliminar-slug"></strong> para confirmar</label>
+    <input id="confirmar-slug" name="confirmar_slug" autocomplete="off" required>
+    <div class="modal__acciones">
+      <button type="button" class="boton" data-cerrar>Cancelar</button>
+      <button type="submit" class="boton boton--peligro" disabled>Eliminar definitivamente</button>
     </div>
   </form>
 </dialog>

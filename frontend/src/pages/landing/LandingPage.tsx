@@ -59,7 +59,7 @@ const NAV = [
 /** Tira de garantias bajo el hero. Cortas y verificables: nada que no podamos cumplir. */
 const CONFIANZA = [
   { icono: ShieldCheck, texto: "Sin tarjeta para empezar" },
-  { icono: Clock, texto: "El primer mes es gratis" },
+  { icono: Clock, texto: "14 días de prueba gratis" },
   { icono: Heart, texto: "Cancelás cuando quieras" },
   { icono: MessageCircle, texto: "Te contesta una persona" },
 ];
@@ -126,7 +126,7 @@ const GARANTIAS = [
   {
     icono: ShieldCheck,
     titulo: "Sin tarjeta para empezar",
-    texto: "El primer mes es gratis y no te pedimos ningún medio de pago para probarlo.",
+    texto: "14 días de prueba gratis y no te pedimos ningún medio de pago para empezar.",
   },
   {
     icono: Heart,
@@ -240,11 +240,11 @@ const PLANES: Plan[] = [
 const PREGUNTAS = [
   {
     p: "¿Necesito tarjeta de crédito para empezar?",
-    r: "No. El primer mes es gratis y no te pedimos ningún medio de pago. Recién cuando decidas seguir, te pasamos el link para abonar.",
+    r: "No. Los 14 días de prueba son gratis y no te pedimos ningún medio de pago. Recién cuando decidas seguir, te pasamos el link para abonar.",
   },
   {
-    p: "¿Qué pasa cuando se termina el mes gratis?",
-    r: "Te avisamos unos días antes. Cuando se cumple el mes, el panel te avisa que para seguir usando Tempus hay que abonar el Pro. Si no abonás, no te cobramos nada.",
+    p: "¿Qué pasa cuando se termina la prueba?",
+    r: "Te avisamos unos días antes. Al cumplir los 14 días, el panel te avisa que para seguir usando Tempus hay que abonar el Pro. Si no abonás, no te cobramos nada.",
   },
   {
     p: "¿Cómo abono el Pro?",

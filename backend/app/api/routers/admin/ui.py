@@ -25,6 +25,7 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import FormData
 
@@ -52,6 +53,7 @@ from app.api.routers.admin.security import (
 from app.core.config import Settings
 from app.core.logging import get_logger
 from app.db.session import get_admin_session
+from app.modules.businesses.models import Business
 from app.modules.admin import service as admin_service
 from app.modules.admin.service import (
     ACCION_ACTIVAR,
@@ -410,6 +412,64 @@ async def desbloquear(
     logger.info("admin_desbloqueado", business_id=str(bid), admin_user=principal.user)
     return RedirectResponse(
         _destino_dashboard(_form_str(form, "filtro"), _form_str(form, "q"), "desbloqueado"),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/businesses/{business_id}/eliminar")
+async def eliminar(
+    business_id: str,
+    request: Request,
+    principal: SesionAdminDep,
+    sesion: Sesion,
+) -> Response:
+    """Elimina el negocio y todos sus datos.
+
+    La confirmacion por slug es **obligatoria** y se revalida aca, no solo en el
+    navegador: el modal la exige para habilitar el submit, pero un POST armado a
+    mano sin ella no debe pasar. La auditoria registra la eliminacion con el
+    usuario que la aprobo.
+    """
+    bid = _uuid_o_400(business_id)
+    form = await _validar_csrf(request, principal)
+    escrito = _form_str(form, "confirmar_slug").strip().lower()
+    negocio = await sesion.get(Business, bid)
+    if negocio is None:
+        raise HTTPException(status_code=404, detail="Negocio no encontrado")
+    if negocio.slug == "the-peluche":
+        raise HTTPException(status_code=403, detail="El negocio principal no se puede eliminar")
+    if negocio.slug.lower() != escrito:
+        raise HTTPException(status_code=400, detail="La confirmacion no coincide con el slug del negocio")
+    total = (await sesion.execute(select(func.count()).select_from(Business))).scalar_one()
+    if total <= 1:
+        raise HTTPException(status_code=403, detail="No se puede eliminar el ultimo negocio")
+
+    nombre = negocio.name
+    slug = negocio.slug
+    # El cascade completo vive en el router de API (`DELETE /api/v1/admin/...`):
+    # mismo orden de FKs, mismo manejo de RLS. Duplicarlo seria tener dos
+    # versiones de la misma operacion destructiva.
+    from app.api.routers.admin import _eliminar_negocio_cascade
+
+    filas = await _eliminar_negocio_cascade(sesion, bid)
+    await registrar_auditoria(
+        sesion,
+        admin_user=principal.user,
+        action="eliminar_negocio",
+        business_id=bid,
+        request=request,
+    )
+    await sesion.commit()
+    logger.info(
+        "admin_negocio_eliminado",
+        business_id=str(bid),
+        slug=slug,
+        nombre=nombre,
+        filas=filas,
+        admin_user=principal.user,
+    )
+    return RedirectResponse(
+        _destino_dashboard(_form_str(form, "filtro"), _form_str(form, "q"), "eliminado"),
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

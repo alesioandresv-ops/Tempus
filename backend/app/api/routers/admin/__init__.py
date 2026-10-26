@@ -355,9 +355,13 @@ async def cron_vencer(sesion: Sesion):
     return {"suspendidos": vencidos}
 
 
-@router.delete("/businesses/{business_id}", summary="Eliminar un negocio y todos sus datos")
-async def eliminar_negocio(business_id: str, sesion: Sesion) -> AdminActionOut:
-    """Borra un negocio y todo lo que depende de el, con cascade manual.
+async def _eliminar_negocio_cascade(sesion: AsyncSession, business_id: uuid.UUID) -> int:
+    """Borra el negocio y todo lo que depende de el. Devuelve filas eliminadas.
+
+    La operacion destructiva compartida por el endpoint API (DELETE) y el panel
+    HTML (POST /eliminar): un solo lugar define el orden de FKs y el manejo de
+    RLS, y no dos copias que divergen. **No valida precondiciones** (slug
+    reservado, ultimo negocio): eso lo hace el llamador antes de invocarla.
 
     Las FKs son RESTRICT, asi que el orden importa: reservas (por customer y
     por negocio), customers, y despues el resto de las tablas hijas. Cada
@@ -367,20 +371,7 @@ async def eliminar_negocio(business_id: str, sesion: Sesion) -> AdminActionOut:
     empezar y se restauran al final en una transaccion propia; si algo falla a
     mitad, la transaccion muere y los ALTERs (DDL transaccional) se revierten
     solos.
-
-    **No se puede borrar el ultimo negocio** ni el negocio principal
-    (`the-peluche`, slug reservado): una BD sin negocios no tiene camino de
-    vuelta desde el panel.
     """
-    negocio = await sesion.get(Business, uuid.UUID(business_id))
-    if negocio is None:
-        raise HTTPException(status_code=404, detail="Negocio no encontrado")
-    if negocio.slug == "the-peluche":
-        raise HTTPException(status_code=403, detail="El negocio principal no se puede eliminar")
-    total = (await sesion.execute(select(func.count()).select_from(Business))).scalar_one()
-    if total <= 1:
-        raise HTTPException(status_code=403, detail="No se puede eliminar el ultimo negocio")
-
     await sesion.execute(text("SET LOCAL row_security = off"))
     tablas = ["bookings", "customers", "professional_services", "professionals",
               "services", "business_hours", "businesses"]
@@ -402,12 +393,12 @@ async def eliminar_negocio(business_id: str, sesion: Sesion) -> AdminActionOut:
     borradas = 0
     for sql in orden:
         try:
-            r = await sesion.execute(text(sql), {"id": negocio.id})
+            r = await sesion.execute(text(sql), {"id": business_id})
             borradas += r.rowcount or 0
         except Exception:
             await sesion.rollback()
 
-    await sesion.execute(text("DELETE FROM businesses WHERE id = :id"), {"id": negocio.id})
+    await sesion.execute(text("DELETE FROM businesses WHERE id = :id"), {"id": business_id})
     await sesion.commit()
 
     # Restaurar FORCE: la transaccion principal ya commitio los NO FORCE, asi
@@ -424,9 +415,29 @@ async def eliminar_negocio(business_id: str, sesion: Sesion) -> AdminActionOut:
                     pass
     finally:
         await restaurador.close()
+    return borradas
 
-    logger.info("admin_negocio_eliminado", business_id=business_id, filas=borradas)
-    return AdminActionOut(ok=True, mensaje=f"Negocio eliminado ({borradas} filas borradas)")
+
+@router.delete("/businesses/{business_id}", summary="Eliminar un negocio y todos sus datos")
+async def eliminar_negocio(business_id: str, sesion: Sesion) -> AdminActionOut:
+    """Borra un negocio y todo lo que depende de el, con cascade manual.
+
+    **No se puede borrar el ultimo negocio** ni el negocio principal
+    (`the-peluche`, slug reservado): una BD sin negocios no tiene camino de
+    vuelta desde el panel.
+    """
+    negocio = await sesion.get(Business, uuid.UUID(business_id))
+    if negocio is None:
+        raise HTTPException(status_code=404, detail="Negocio no encontrado")
+    if negocio.slug == "the-peluche":
+        raise HTTPException(status_code=403, detail="El negocio principal no se puede eliminar")
+    total = (await sesion.execute(select(func.count()).select_from(Business))).scalar_one()
+    if total <= 1:
+        raise HTTPException(status_code=403, detail="No se puede eliminar el ultimo negocio")
+
+    filas = await _eliminar_negocio_cascade(sesion, negocio.id)
+    logger.info("admin_negocio_eliminado", business_id=business_id, filas=filas)
+    return AdminActionOut(ok=True, mensaje=f"Negocio eliminado ({filas} filas borradas)")
 
 
 def _whatsapp_de(negocio: Business, _pago: ProPayment | None) -> str:
