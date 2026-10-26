@@ -177,15 +177,15 @@ const PLANES: Plan[] = [
   {
     nombre: "Básico",
     precio: "$ 0",
-    periodo: "el primer mes",
-    resumen: "Probalo un mes entero, sin tarjeta.",
+    periodo: "14 días de prueba",
+    resumen: "Probalo 14 días completos, sin tarjeta.",
     destacado: false,
     beneficios: [
       "Reservas online ilimitadas",
       "1 profesional",
       "Página pública + QR",
       "Recordatorios por WhatsApp (100 / mes)",
-      "Al mes, si querés seguir, pasás a Pro",
+      "Al terminar la prueba, si querés seguir, pasás a Pro",
     ],
     cta: "Empezar gratis",
     href: "/register",
@@ -248,7 +248,7 @@ const PREGUNTAS = [
   },
   {
     p: "¿Cómo abono el Pro?",
-    r: "Te pasamos el link de pago por Mercado Pago. Lo abonás una vez al mes y tu cuenta sigue funcionando igual que siempre.",
+    r: "Por transferencia a nuestra cuenta (Naranja X) y nos mandás el comprobante por WhatsApp. Lo activamos en menos de 2 horas y tu cuenta sigue funcionando igual que siempre.",
   },
   {
     p: "¿Mis clientes tienen que instalar una aplicación?",
@@ -780,8 +780,8 @@ export default function LandingPage() {
           ))}
         </div>
         <p className={`mt-6 text-center text-xs ${t.textoSuave}`}>
-          El primer mes de Básico es gratis y no te pedimos tarjeta. Pro se cobra en pesos
-          por Mercado Pago, y podés darte de baja cuando quieras.
+          Los 14 días de Básico son gratis y no te pedimos tarjeta. Pro se cobra en pesos
+          por transferencia, y podés darte de baja cuando quieras.
         </p>
       </Seccion>
 
