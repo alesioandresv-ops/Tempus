@@ -27,14 +27,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select, text, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.dependencies import get_settings_dep
 from app.api.routers.admin.security import COOKIE_SESION, RUTA_LOGIN, leer_sesion
 from app.core.config import Settings, get_settings
 from app.core.logging import get_logger
 from app.core.time import now
-from app.db.session import get_admin_session
+from app.db.session import get_admin_engine, get_admin_session
 from app.models.enums import BusinessPlan, BusinessStatus
 from app.modules.admin import service as admin_service
 from app.modules.admin.service import (
@@ -353,6 +353,80 @@ async def cron_vencer(sesion: Sesion):
             vencidos += 1
     await sesion.commit()
     return {"suspendidos": vencidos}
+
+
+@router.delete("/businesses/{business_id}", summary="Eliminar un negocio y todos sus datos")
+async def eliminar_negocio(business_id: str, sesion: Sesion) -> AdminActionOut:
+    """Borra un negocio y todo lo que depende de el, con cascade manual.
+
+    Las FKs son RESTRICT, asi que el orden importa: reservas (por customer y
+    por negocio), customers, y despues el resto de las tablas hijas. Cada
+    DELETE absorbe su propio fallo para que una tabla sin filas no aborte todo.
+
+    RLS: las tablas tienen FORCE, que filtra tambien al owner. Se apagan al
+    empezar y se restauran al final en una transaccion propia; si algo falla a
+    mitad, la transaccion muere y los ALTERs (DDL transaccional) se revierten
+    solos.
+
+    **No se puede borrar el ultimo negocio** ni el negocio principal
+    (`the-peluche`, slug reservado): una BD sin negocios no tiene camino de
+    vuelta desde el panel.
+    """
+    negocio = await sesion.get(Business, uuid.UUID(business_id))
+    if negocio is None:
+        raise HTTPException(status_code=404, detail="Negocio no encontrado")
+    if negocio.slug == "the-peluche":
+        raise HTTPException(status_code=403, detail="El negocio principal no se puede eliminar")
+    total = (await sesion.execute(select(func.count()).select_from(Business))).scalar_one()
+    if total <= 1:
+        raise HTTPException(status_code=403, detail="No se puede eliminar el ultimo negocio")
+
+    await sesion.execute(text("SET LOCAL row_security = off"))
+    tablas = ["bookings", "customers", "professional_services", "professionals",
+              "services", "business_hours", "businesses"]
+    for tabla in tablas:
+        try:
+            await sesion.execute(text(f"ALTER TABLE {tabla} NO FORCE ROW LEVEL SECURITY"))
+        except Exception:
+            await sesion.rollback()
+
+    orden = [
+        "DELETE FROM bookings WHERE customer_id IN (SELECT id FROM customers WHERE business_id = :id)",
+        "DELETE FROM bookings WHERE business_id = :id",
+        "DELETE FROM customers WHERE business_id = :id",
+        "DELETE FROM professional_services WHERE business_id = :id",
+        "DELETE FROM professionals WHERE business_id = :id",
+        "DELETE FROM services WHERE business_id = :id",
+        "DELETE FROM business_hours WHERE business_id = :id",
+    ]
+    borradas = 0
+    for sql in orden:
+        try:
+            r = await sesion.execute(text(sql), {"id": negocio.id})
+            borradas += r.rowcount or 0
+        except Exception:
+            await sesion.rollback()
+
+    await sesion.execute(text("DELETE FROM businesses WHERE id = :id"), {"id": negocio.id})
+    await sesion.commit()
+
+    # Restaurar FORCE: la transaccion principal ya commitio los NO FORCE, asi
+    # que hay que devolverlos en una transaccion aparte.
+    restaurador = async_sessionmaker(
+        get_admin_engine(), class_=AsyncSession, expire_on_commit=False
+    )()
+    try:
+        async with restaurador.begin():
+            for tabla in tablas:
+                try:
+                    await restaurador.execute(text(f"ALTER TABLE {tabla} FORCE ROW LEVEL SECURITY"))
+                except Exception:
+                    pass
+    finally:
+        await restaurador.close()
+
+    logger.info("admin_negocio_eliminado", business_id=business_id, filas=borradas)
+    return AdminActionOut(ok=True, mensaje=f"Negocio eliminado ({borradas} filas borradas)")
 
 
 def _whatsapp_de(negocio: Business, _pago: ProPayment | None) -> str:

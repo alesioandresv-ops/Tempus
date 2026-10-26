@@ -31,6 +31,7 @@ from app.db.session import dispose_engine, get_engine
 # Importar el submodulo directo saltaria ese registro y el dispatcher arrancaria con
 # la tabla de handlers vacia.
 from app.workers import InlineScheduler
+from app.workers.cron_vencer import DailyJob
 
 logger = get_logger(__name__)
 
@@ -72,6 +73,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         scheduler = InlineScheduler(settings.scheduler_tick_seconds)
         scheduler.start()
         app.state.scheduler = scheduler
+        # El corte diario de trials vencidos corre en el mismo proceso. Con un
+        # pod unico (Render Free) es la unica garantia de que corra; con el cron
+        # externo del Worker ya cubierto por el endpoint /admin/cron/vencer, este
+        # job es el cinturon y el endpoint el suspendedor.
+        cron_diario = DailyJob()
+        cron_diario.start()
+        app.state.cron_diario = cron_diario
     else:
         # Se deja el atributo en `None` y no ausente a proposito: un `hasattr` que
         # devuelve `False` y un `None` son indistinguibles para el codigo que
@@ -87,6 +95,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # apagado termina en una excepcion que se lee como un fallo del worker.
         if scheduler is not None:
             await scheduler.stop()
+        cron = getattr(app.state, "cron_diario", None)
+        if cron is not None:
+            await cron.stop()
         await dispose_engine()
 
 

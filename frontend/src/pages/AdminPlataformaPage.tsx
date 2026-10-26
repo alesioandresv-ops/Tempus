@@ -60,7 +60,7 @@ const ETIQUETAS: Record<Fila['estado'], string> = {
   bloqueado: 'Bloqueado',
 }
 
-async function llamadaAdmin(key: string, path: string, metodo: 'PUT' | 'POST' = 'PUT') {
+async function llamadaAdmin(key: string, path: string, metodo: 'PUT' | 'POST' | 'DELETE' = 'PUT') {
   const res = await fetch(`/api/v1${path}?key=${encodeURIComponent(key)}`, {
     method: metodo,
     headers: { 'Content-Type': 'application/json' },
@@ -97,7 +97,8 @@ export default function AdminPlataformaPage() {
   })
 
   const accion = useMutation({
-    mutationFn: ({ path }: { path: string }) => llamadaAdmin(key, path),
+    mutationFn: ({ path, metodo }: { path: string; metodo?: 'PUT' | 'POST' | 'DELETE' }) =>
+      llamadaAdmin(key, path, metodo ?? 'PUT'),
     onSuccess: () => {
       setError(null)
       void qc.invalidateQueries({ queryKey: ['admin-plataforma'] })
@@ -137,6 +138,9 @@ export default function AdminPlataformaPage() {
     )
   }
 
+  const [paraEliminar, setParaEliminar] = useState<Fila | null>(null)
+  const [confirmacionEliminar, setConfirmacionEliminar] = useState('')
+
   const visibles =
     filas.data?.filter((f) => {
       if (tab === 'todos') return true
@@ -148,6 +152,57 @@ export default function AdminPlataformaPage() {
 
   return (
     <div className="min-h-screen bg-[#070B1A] font-inter text-slate-100">
+      {/* Modal de eliminacion: doble confirmacion con el nombre del negocio. */}
+      {paraEliminar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-rose-500/30 bg-[#0B1224] p-6 shadow-2xl">
+            <h2 className="font-display text-lg font-semibold text-rose-300">Eliminar negocio</h2>
+            <p className="mt-2 text-sm text-slate-300">
+              Vas a eliminar <strong className="text-white">{paraEliminar.business_name}</strong> y
+              todos sus datos: reservas, clientes, servicios, profesionales y horarios.{' '}
+              <strong className="text-rose-300">No se puede deshacer.</strong>
+            </p>
+            <p className="mt-3 text-xs text-slate-400">
+              Escribí <code className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-rose-300">{paraEliminar.slug}</code> para confirmar:
+            </p>
+            <input
+              value={confirmacionEliminar}
+              onChange={(e) => setConfirmacionEliminar(e.target.value)}
+              placeholder={paraEliminar.slug}
+              className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white outline-none focus:border-rose-400/50 focus:ring-2 focus:ring-rose-400/30"
+            />
+            {accion.isError && (
+              <p className="mt-3 rounded-lg border border-rose-400/20 bg-rose-500/10 p-3 text-sm text-rose-200">
+                {accion.error instanceof Error ? accion.error.message : 'Error'}
+              </p>
+            )}
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={() => setParaEliminar(null)}
+                className="flex-1 rounded-xl border border-white/10 py-2.5 text-sm text-slate-300 hover:bg-white/5"
+              >
+                Cancelar
+              </button>
+              <button
+                disabled={confirmacionEliminar !== paraEliminar.slug || accion.isPending}
+                onClick={() =>
+                  accion.mutate(
+                    { path: `/admin/businesses/${paraEliminar.id}`, metodo: 'DELETE' },
+                    {
+                      onSuccess: () => {
+                        setParaEliminar(null)
+                      },
+                    }
+                  )
+                }
+                className="flex-1 rounded-xl bg-rose-600 py-2.5 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-40"
+              >
+                {accion.isPending ? 'Eliminando…' : 'Eliminar definitivamente'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-8">
         <header className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500">
@@ -291,6 +346,16 @@ export default function AdminPlataformaPage() {
                             className="flex items-center gap-1 rounded-lg border border-rose-500/40 px-2.5 py-1 text-[11px] text-rose-300 hover:bg-rose-500/10"
                           >
                             <PauseCircle className="h-3 w-3" /> Bloquear
+                          </button>
+                          <button
+                            onClick={() => {
+                              setParaEliminar(f)
+                              setConfirmacionEliminar('')
+                            }}
+                            className="rounded-lg border border-rose-500/40 px-2.5 py-1 text-[11px] text-rose-400 hover:bg-rose-500/15 hover:text-rose-300"
+                            title="Eliminar el negocio y todos sus datos"
+                          >
+                            Eliminar
                           </button>
                         </>
                       )}
