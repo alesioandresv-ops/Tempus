@@ -104,9 +104,10 @@ def _render_login(
         # En voz alta y en cada visita: es el sintoma que no deja rastro en el
         # log si nadie lo declara. Solo bools y longitudes, nunca el valor.
         logger.warning(
-            "admin_disabled: missing user=%s hash=%s secret=%s hash_len=%s",
+            "admin_disabled: missing user=%s hash=%s has_plain=%s secret=%s hash_len=%s",
             bool(settings.admin_user),
             bool(settings.admin_password_hash.get_secret_value()),
+            bool(settings.admin_password.get_secret_value()),
             bool(settings.secret_key.get_secret_value()),
             len(settings.admin_password_hash.get_secret_value()),
         )

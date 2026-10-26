@@ -8,7 +8,8 @@
   {% if not configurado %}
     <div class="alerta alerta--error" role="alert">
       El panel no está configurado en este entorno. Faltan
-      <code>ADMIN_USER</code>, <code>ADMIN_PASSWORD_HASH</code> o <code>SECRET_KEY</code>.
+      <code>ADMIN_USER</code>, <code>ADMIN_PASSWORD_HASH</code> (o
+      <code>ADMIN_PASSWORD</code>) y <code>SECRET_KEY</code>.
       El acceso permanece cerrado hasta que estén definidos.
     </div>
   {% else %}

@@ -67,6 +67,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         "ADMIN_CHECK",
         user=bool(settings.admin_user),
         hash=bool(settings.admin_password_hash.get_secret_value()),
+        has_plain=bool(settings.admin_password.get_secret_value()),
         secret=bool(settings.secret_key.get_secret_value()),
         hash_len=len(settings.admin_password_hash.get_secret_value()),
         legacy=bool(settings.allow_legacy_admin_key),

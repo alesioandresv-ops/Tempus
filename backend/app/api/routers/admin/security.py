@@ -67,15 +67,19 @@ class SesionAdmin:
 
 
 def panel_configurado(settings: Settings) -> bool:
-    """Si estan las tres piezas que el login necesita.
+    """Si estan las piezas que el login necesita.
 
-    Sin usuario, hash o secreto no se puede autenticar a nadie. Se informa en la
-    pagina de login en vez de dejar un 500: el operador que despliega un entorno
-    nuevo tiene que poder ver *que* falta sin leer el codigo.
+    Hay dos caminos validos: hash bcrypt (`ADMIN_PASSWORD_HASH`) o password
+    plana (`ADMIN_PASSWORD`). El segundo es el bypass para Render Free, que
+    descarta variables que contienen el `$` de bcrypt. Con cualquiera de los
+    dos + usuario + secreto, el panel esta operativo.
     """
     return bool(
         settings.admin_user
-        and settings.admin_password_hash.get_secret_value()
+        and (
+            settings.admin_password_hash.get_secret_value()
+            or settings.admin_password.get_secret_value()
+        )
         and settings.secret_key.get_secret_value()
     )
 
@@ -226,12 +230,19 @@ def borrar_cookie_csrf(response: Response) -> None:
 def credenciales_validas(settings: Settings, user: str, password: str) -> bool:
     """Compara usuario y password sin filtrar por cual de los dos fallo.
 
-    `bcrypt.checkpw` se ejecuta **siempre**, aun cuando el usuario no coincide, y
-    el resultado se combina al final. Cortar antes cuando el usuario esta mal
-    haria que un usuario inexistente respondiera en microsegundos y uno valido
-    tardara lo que tarda bcrypt: la diferencia se mide y confirma la cuenta.
+    La verificacion cara (bcrypt, o la comparacion) corre **siempre**, aun
+    cuando el usuario no coincida, y el resultado se combina al final. Cortar
+    antes cuando el usuario esta mal haria que un usuario inexistente respondiera
+    en microsegundos y uno valido tardara lo que tarda bcrypt: la diferencia se
+    mide y confirma la cuenta.
+
+    Dos caminos de password: si hay `ADMIN_PASSWORD_HASH`, bcrypt (camino
+    normal); si solo hay `ADMIN_PASSWORD` (bypass de Render Free), comparacion
+    en tiempo constante. Nunca los dos a la vez, y el hash tiene prioridad:
+    cuando Render deje pasar el `$`, el camino plano queda sin efecto solo.
     """
     hash_configurado = settings.admin_password_hash.get_secret_value()
+    password_plana = settings.admin_password.get_secret_value()
     password_ok = False
     if hash_configurado:
         try:
@@ -241,6 +252,10 @@ def credenciales_validas(settings: Settings, user: str, password: str) -> bool:
             # deja rastro, sin devolverle el hash ni el error al cliente.
             logger.warning("admin_password_hash_invalido")
             password_ok = False
+    elif password_plana:
+        password_ok = hmac.compare_digest(
+            password.encode("utf-8"), password_plana.encode("utf-8")
+        )
     user_ok = hmac.compare_digest(user.encode("utf-8"), settings.admin_user.encode("utf-8"))
     return user_ok and password_ok
 

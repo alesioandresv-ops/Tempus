@@ -191,7 +191,18 @@ class Settings(BaseSettings):
         default=SecretStr(""),
         description=(
             "Hash bcrypt de la password del panel. Se genera con "
-            "`python -c \"import bcrypt; print(bcrypt.hashpw(b'...', bcrypt.gensalt()).decode())\"`."
+            '`python -c "import bcrypt; print(bcrypt.hashpw(b\'...\', bcrypt.gensalt()).decode())"`. '
+            "Si llega vacio y hay ADMIN_PASSWORD, se usa esa (ver abajo): Render "
+            "Free descarta variables que contienen `$` de bcrypt."
+        ),
+    )
+    admin_password: SecretStr = Field(
+        default=SecretStr(""),
+        description=(
+            "Password del panel en texto plano. Es el BYPASS para Render Free, que "
+            "descarta variables con `$` de bcrypt: si ADMIN_PASSWORD_HASH no llega, "
+            "esta se usa y el login compara en tiempo constante. Es temporal: cuando "
+            "Render deje pasar el hash, este campo se elimina. Preferir el hash."
         ),
     )
     secret_key: SecretStr = Field(
@@ -492,6 +503,18 @@ class Settings(BaseSettings):
         if len(limpio) >= 2 and limpio[0] == limpio[-1] and limpio[0] in "\"'":
             limpio = limpio[1:-1]
         limpio = limpio.replace("$$", "$")
+        return SecretStr(limpio)
+
+    @field_validator("admin_password", mode="after")
+    @classmethod
+    def _normalizar_password_admin(cls, value: SecretStr) -> SecretStr:
+        """Limpia la password plana: sin comillas ni espacios de borde."""
+        raw = value.get_secret_value()
+        if not raw:
+            return value
+        limpio = raw.strip()
+        if len(limpio) >= 2 and limpio[0] == limpio[-1] and limpio[0] in "\"'":
+            limpio = limpio[1:-1]
         return SecretStr(limpio)
 
     @field_validator("trial_grace_from")
