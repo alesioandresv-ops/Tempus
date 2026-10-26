@@ -59,6 +59,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         database_host=_safe_host(settings.database_url),
         app_role=settings.db_app_role,
     )
+    # Diagnostico del panel admin: el sintoma de "cartel rojo en /admin/login" no
+    # deja ningun error en el log, asi que aca se declara en voz alta si las tres
+    # piezas estan. Solo bools y longitudes: nunca el valor del hash ni del
+    # secreto.
+    logger.info(
+        "ADMIN_CHECK",
+        user=bool(settings.admin_user),
+        hash=bool(settings.admin_password_hash.get_secret_value()),
+        secret=bool(settings.secret_key.get_secret_value()),
+        hash_len=len(settings.admin_password_hash.get_secret_value()),
+        legacy=bool(settings.allow_legacy_admin_key),
+    )
 
     # No se hace ninguna consulta de negocio en el arranque. Un /readyz que depende
     # de que haya migraciones aplicadas convierte un despliegue ordenado en un

@@ -100,6 +100,16 @@ def _render_login(
 ) -> Response:
     """Renderiza el login y renueva el token CSRF de double-submit."""
     configurado = panel_configurado(settings)
+    if not configurado:
+        # En voz alta y en cada visita: es el sintoma que no deja rastro en el
+        # log si nadie lo declara. Solo bools y longitudes, nunca el valor.
+        logger.warning(
+            "admin_disabled: missing user=%s hash=%s secret=%s hash_len=%s",
+            bool(settings.admin_user),
+            bool(settings.admin_password_hash.get_secret_value()),
+            bool(settings.secret_key.get_secret_value()),
+            len(settings.admin_password_hash.get_secret_value()),
+        )
     token = crear_token_csrf(settings) if configurado else ""
     response = templates.TemplateResponse(
         request=request,

@@ -466,6 +466,34 @@ class Settings(BaseSettings):
             )
         return self
 
+    @field_validator("admin_password_hash", mode="after")
+    @classmethod
+    def _normalizar_hash_admin(cls, value: SecretStr) -> SecretStr:
+        """Limpia el hash que llega por variable de entorno.
+
+        Dos contaminaciones reales que este validador absorbe:
+
+        1. **Comillas**: el dashboard de Render (y un .env copiado a mano) traen
+           el valor envuelto en comillas si se copio de un `.env` con
+           `HASH='$2b$...'`. El valor literal incluye `''` y el chequeo de bcrypt
+           falla silenciosamente en el login.
+        2. **`$$` escapado**: un shell, o la UI de la plataforma, puede tratar el
+           `$` de bcrypt como interpolacion y doblarlo (`$2b$$12$`).
+        `python-dotenv` no expande `$2b` (los nombres validos empiezan con letra
+           o `_`), pero prevenir cuesta una linea.
+
+        No se usa `os.path.expandvars` ni nada que expanda: el hash va tal cual,
+        solo se limpian los envoltorios.
+        """
+        raw = value.get_secret_value()
+        if not raw:
+            return value
+        limpio = raw.strip()
+        if len(limpio) >= 2 and limpio[0] == limpio[-1] and limpio[0] in "\"'":
+            limpio = limpio[1:-1]
+        limpio = limpio.replace("$$", "$")
+        return SecretStr(limpio)
+
     @field_validator("trial_grace_from")
     @classmethod
     def _trial_grace_con_tz(cls, value: dt.datetime) -> dt.datetime:
