@@ -196,7 +196,12 @@ export default function BusinessPage() {
       celdas.push(fechaLocal(new Date(anio, mes, dia)))
     }
     return {
-      titulo: base.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }),
+      // Capitalizado a mano y no con `capitalize` de Tailwind: sobre "octubre de
+      // 2026" el CSS capitaliza tambien la preposicion ("Octubre De 2026"), que
+      // se lee mal.
+      titulo: base
+        .toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })
+        .replace(/^./, (c) => c.toUpperCase()),
       celdas,
     }
   }, [mesOffset])
@@ -646,7 +651,7 @@ export default function BusinessPage() {
                     >
                       <ChevronLeft className="h-4 w-4" />
                     </button>
-                    <p className="font-display text-sm font-semibold capitalize text-white">
+                    <p className="font-display text-sm font-semibold text-white">
                       {calendario.titulo}
                     </p>
                     <button
