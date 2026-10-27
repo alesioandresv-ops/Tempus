@@ -7,6 +7,7 @@ import ProfessionalPage from './pages/ProfessionalPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import LegalPage from './pages/LegalPage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import CheckoutProPage from './pages/CheckoutProPage'
 import AdminPlataformaPage from './pages/AdminPlataformaPage'
 import LandingPage from './pages/landing/LandingPage'
@@ -62,6 +63,12 @@ function App() {
         {/* Paginas legales. Va ANTES de /:slug por la misma razon que /checkout-pro. */}
         <Route path="/terminos" element={<LegalPage tipo="terminos" />} />
         <Route path="/privacidad" element={<LegalPage tipo="privacidad" />} />
+
+        {/* Recuperacion de contrasena: pedir el enlace y fijar la nueva. El mismo
+            componente atiende las dos pantallas; /reset-password llega del email
+            con ?token=... Va ANTES de /:slug por la misma razon. */}
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ForgotPasswordPage />} />
 
         {/* Panel de la plataforma: /admin-plataforma?key=... . Va ANTES de /:slug
             por la misma razon que /admin. */}

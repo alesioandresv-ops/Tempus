@@ -268,7 +268,14 @@ function terminarSesion(): void {
  * le diria a la persona que su password esta mal. Las demas van sin token porque son
  * publicas y mandarlo no aporta nada.
  */
-const RUTAS_SIN_TOKEN = ['/auth/login', '/auth/platform/login', '/auth/refresh', '/auth/logout']
+const RUTAS_SIN_TOKEN = [
+  '/auth/login',
+  '/auth/platform/login',
+  '/auth/refresh',
+  '/auth/logout',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+]
 
 /** Peticiones que renuevan el access token: las que van con cookie, no con Bearer. */
 const RUTAS_CON_COOKIE = ['/auth/refresh', '/auth/logout']
@@ -442,6 +449,20 @@ export const api = {
     fetchApi<LoginResponse>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(datos),
+    }),
+
+  /** Pide el email de recuperación. Responde igual exista o no la cuenta. */
+  forgotPassword: (email: string) =>
+    fetchApi<{ mensaje: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  /** Consume el token del email y fija la contraseña nueva. */
+  resetPassword: (token: string, password: string) =>
+    fetchApi<{ mensaje: string }>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
     }),
 
   /**

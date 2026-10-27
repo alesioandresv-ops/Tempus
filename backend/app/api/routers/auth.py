@@ -70,10 +70,19 @@ from app.api.dependencies import (
     get_settings_dep,
     verify_csrf_and_origin,
 )
-from app.api.routers.schemas import BusinessLoginRequest, LoginRequest
+from app.api.errors import ValidationError
+from app.api.routers.schemas import (
+    BusinessLoginRequest,
+    ForgotPasswordRequest,
+    LoginRequest,
+    ResetPasswordRequest,
+)
 from app.core.config import Settings
 from app.core.logging import get_logger
+from app.core.rate_limit import WINDOW_HOUR, enforce_rate_limit
+from app.core.security import hash_token
 from app.core.time import now
+from app.modules.auth import mailer, reset_service
 from app.modules.auth.service import (
     RefreshedPlatformIdentity,
     authenticate_business_user,
@@ -319,3 +328,104 @@ async def logout(
     # calculadora de cookies pone y se devuelven tal cual.
     response.status_code = status.HTTP_204_NO_CONTENT
     return response
+
+
+# --------------------------------------------------------------------------- #
+# Recuperación de contraseña (flujo "olvidé mi contraseña")
+# --------------------------------------------------------------------------- #
+
+
+@router.post(
+    "/forgot-password",
+    status_code=status.HTTP_200_OK,
+    summary="Pedir el enlace de recuperación de contraseña",
+    responses={
+        200: {"description": "Siempre 200, exista o no la cuenta (anti-enumeración)"},
+        429: {"description": "Demasiados pedidos (3/h por email, 10/h por IP)"},
+    },
+)
+async def forgot_password(
+    datos: ForgotPasswordRequest,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings_dep),
+    ip_address: str = Depends(get_request_ip),
+) -> dict[str, str]:
+    """Registra el pedido de reset y manda el email con el enlace.
+
+    **La respuesta es siempre la misma** exista o no la cuenta: es lo que hace
+    que este endpoint no sea un oráculo de enumeración de emails. El rate
+    limit (3/h por email, 10/h por IP) se aplica dentro del servicio, antes de
+    mirar la base, para que el contador mismo tampoco sea un oráculo.
+
+    Si el SMTP no está configurado (local, o un deploy sin correo), el link se
+    loguea en el servidor para poder probar el flujo completo sin casilla.
+    """
+
+    async def _enviar(para: str, asunto: str, cuerpo: str) -> None:
+        if not mailer.smtp_configurado(settings):
+            # Modo local/sin SMTP: el link queda en el log del servidor.
+            logger.warning(
+                "reset_email_no_enviado_smtp_sin_configurar",
+                destino=para[:3] + "***",
+                link=cuerpo.splitlines()[4] if len(cuerpo.splitlines()) > 4 else "",
+            )
+            return
+        await mailer.enviar_email_seguro(settings, para=para, asunto=asunto, cuerpo=cuerpo)
+
+    await reset_service.solicitar_reset(
+        session,
+        email=datos.email,
+        ip_address=ip_address,
+        enviar_email=_enviar,
+    )
+    # Sin commit manual: `get_session` es `session_scope` y commitea al salir.
+    # Un commit explicito aca romperia el contrato de los tests (la sesion del
+    # test no puede commitear una transaccion anidada).
+    return {
+        "mensaje": (
+            "Si el correo tiene cuenta, te enviamos un enlace para restablecer "
+            "la contraseña. Revisá también la carpeta de spam."
+        )
+    }
+
+
+@router.post(
+    "/reset-password",
+    status_code=status.HTTP_200_OK,
+    summary="Restablecer la contraseña con el token del email",
+    responses={
+        200: {"description": "Contraseña cambiada y sesiones revocadas"},
+        400: {"description": "Token inválido, vencido o ya usado (un solo mensaje)"},
+        429: {"description": "Demasiados intentos"},
+    },
+)
+async def reset_password(
+    datos: ResetPasswordRequest,
+    session: AsyncSession = Depends(get_session),
+    ip_address: str = Depends(get_request_ip),
+) -> dict[str, str]:
+    """Consume el token y cambia la contraseña en todas las membresías del email.
+
+    Un 400 no distingue "no existe" de "vencido" de "ya usado": distinguirlos
+    le diría a quien robó un link si todavía le sirve.
+
+    Al cambiar la contraseña se revocan los refresh tokens de la persona en
+    todos sus negocios: la sesión robada muere con el reset.
+    """
+    await enforce_rate_limit(
+        key=hash_token(f"reset-consumo:ip:{ip_address}"),
+        limit=10,
+        window_seconds=WINDOW_HOUR,
+        scope="reset-consumo:ip",
+        detail="Demasiados intentos. Reintentá en un rato.",
+    )
+    try:
+        await reset_service.consumir_reset(
+            session,
+            token=datos.token,
+            nueva_password=datos.password,
+            ip_address=ip_address,
+        )
+    except ValueError as error:
+        raise ValidationError(str(error)) from error
+    return {"mensaje": "Contraseña actualizada. Ya podés entrar con la nueva."}

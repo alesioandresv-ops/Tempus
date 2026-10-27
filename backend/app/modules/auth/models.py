@@ -174,8 +174,61 @@ class RefreshToken(GlobalBase, Base):
         return f"<RefreshToken titular={self.principal_id} revocado={self.revoked_at is not None}>"
 
 
+class PasswordResetToken(GlobalBase, Base):
+    """Token de un solo uso para el flujo "olvide mi contrasena".
+
+    Igual criterio que `RefreshToken`: se guarda el **hash** (SHA-256), nunca el
+    token en claro, para que una lectura de la base no sirva para resetear
+    cuentas.
+
+    Es global (sin tenant) porque llega por email sin contexto de negocio: el
+    mismo email puede ser miembro de varios negocios, y el reset tiene que
+    cubrirlos a todos. Al consumirse el token se invalidan los refresh tokens
+    de la persona en **todos** sus negocios.
+
+    `used_at` y `expires_at` son las dos fronteras: un token se puede usar una
+    vez, dentro de la ventana, y un pedido nuevo **invalida el anterior**
+    (ultimo-token-gana): asi un atacante que robe un link viejo no lo usa
+    despues de que la persona pidio otro.
+    """
+
+    __tablename__ = "password_reset_tokens"
+    __table_args__ = (
+        Index("ix_password_reset_tokens_email", "email"),
+        Index("ix_password_reset_tokens_user_id", "user_id"),
+    )
+
+    #: La persona que pide el reset. FK a la membresia: si el negocio se borra,
+    #: el token no tiene sentido y cae por CASCADE.
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(
+            "business_users.id",
+            ondelete="CASCADE",
+            name="fk_password_reset_tokens_user_id_business_users",
+        ),
+        nullable=False,
+    )
+    #: Denormalizado a proposito: el limpiador de tokens vencidos (o la
+    #: respuesta del endpoint) puede encontrarlos sin join, y es la columna por
+    #: la que un operador de soporte busca "cuantos pedidos hizo este email".
+    email: Mapped[str] = mapped_column(CITEXT, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    expires_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), nullable=False)
+    used_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    requested_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), nullable=False)
+    #: Para la pista de auditoria: quien pidio el reset y desde donde.
+    ip_address: Mapped[str | None] = mapped_column(INET, nullable=True)
+
+    def is_usable(self, moment: dt.datetime) -> bool:
+        return self.used_at is None and self.expires_at > moment
+
+    def __repr__(self) -> str:  # pragma: no cover - ayuda de depuracion
+        return f"<PasswordResetToken email={self.email} usado={self.used_at is not None}>"
+
+
 __all__ = [
     "BusinessUser",
+    "PasswordResetToken",
     "PlatformUser",
     "RefreshToken",
 ]

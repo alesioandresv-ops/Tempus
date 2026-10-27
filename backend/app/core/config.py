@@ -191,7 +191,7 @@ class Settings(BaseSettings):
         default=SecretStr(""),
         description=(
             "Hash bcrypt de la password del panel. Se genera con "
-            '`python -c "import bcrypt; print(bcrypt.hashpw(b\'...\', bcrypt.gensalt()).decode())"`. '
+            "`python -c \"import bcrypt; print(bcrypt.hashpw(b'...', bcrypt.gensalt()).decode())\"`. "
             "Si llega vacio y hay ADMIN_PASSWORD, se usa esa (ver abajo): Render "
             "Free descarta variables que contienen `$` de bcrypt."
         ),
@@ -379,6 +379,24 @@ class Settings(BaseSettings):
     meta_embedded_signup_app_id: str = Field(default="")
     meta_embedded_signup_config_id: str = Field(default="")
     support_email: str = Field(default="ayuda@tempus.app")
+
+    # --- Correo saliente (recuperación de contraseña) ----------------------
+    #:
+    #: Gmail SMTP con una Contraseña de Aplicación (no la contraseña de la
+    #: cuenta: Google la rechaza). Vacío = el flujo de resetea opera en modo
+    #: "email deshabilitado": el endpoint responde 200 y loguea el link en el
+    #: servidor para poder probar el flujo localmente sin SMTP.
+    smtp_host: str = Field(default="smtp.gmail.com")
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_user: str = Field(default="")
+    smtp_password: SecretStr = SecretStr("")
+    smtp_from: str = Field(
+        default="",
+        description=(
+            "Remitente visible. Vacío = usar SMTP_USER. Gmail exige que sea la "
+            "misma cuenta o un alias verificado."
+        ),
+    )
 
     # =====================================================================
     # Validadores

@@ -348,6 +348,11 @@ export default function LoginPage() {
                   elegiste.
                 </div>
               )}
+              {location.state && location.state.contrasena_actualizada && (
+                <div className="rounded-lg border border-emerald-400/20 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+                  Contrasena actualizada. Entra con la nueva.
+                </div>
+              )}
 
               <div className="space-y-2">
                 <label htmlFor="email" className="text-sm text-slate-300">
@@ -453,10 +458,20 @@ export default function LoginPage() {
               </Button>
             </form>
 
-            <div className="mt-6 border-t border-white/10 pt-5 text-center text-sm text-slate-400">
-              <Link to="/register" className="text-violet-300 hover:text-violet-200">
-                No tenes negocio? Crear uno
-              </Link>
+            <div className="mt-6 space-y-3 border-t border-white/10 pt-5 text-center text-sm text-slate-400">
+              <div>
+                <Link
+                  to="/forgot-password"
+                  className="text-violet-300 hover:text-violet-200"
+                >
+                  Olvidaste tu contrasena?
+                </Link>
+              </div>
+              <div>
+                <Link to="/register" className="text-violet-300 hover:text-violet-200">
+                  No tenes negocio? Crear uno
+                </Link>
+              </div>
             </div>
           </div>
         </div>

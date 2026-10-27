@@ -30,6 +30,19 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    """Pedido de recuperación: solo el email."""
+
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    """Consumo del token de recuperación con la contraseña nueva."""
+
+    token: str = Field(min_length=32, max_length=128)
+    password: str = Field(min_length=12, max_length=128)
+
+
 class BusinessLoginRequest(LoginRequest):
     """Credenciales de login de negocio, con el slug como desambiguador opcional.
 
@@ -128,6 +141,8 @@ __all__ = [
     "PHONE_E164_RE",
     "BusinessLoginRequest",
     "BusinessRegisterRequest",
+    "ForgotPasswordRequest",
     "LoginRequest",
     "NegocioRegistradoOut",
+    "ResetPasswordRequest",
 ]
