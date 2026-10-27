@@ -26,7 +26,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 import pytest_asyncio
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.encryption import encrypt_string
 from app.db.session import TENANT_GUC
 from app.modules.auth.scopes import Scope
@@ -142,6 +142,30 @@ def _token() -> str:
 
 def _configurar_precio(monkeypatch: pytest.MonkeyPatch, precio: str = "15000") -> None:
     monkeypatch.setenv("MERCADOPAGO_PRO_PLAN_PRICE", precio)
+    _sin_env_file(monkeypatch)
+    get_settings.cache_clear()
+
+
+def _sin_env_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Neutraliza el `.env` local para que la config no lo lea.
+
+    pydantic-settings lee `backend/.env` ademas de las variables de entorno, asi
+    que `monkeypatch.delenv` solo no alcanza: si el `.env` de la maquina define
+    `MERCADOPAGO_PRO_PLAN_PRICE`, el test de "sin precio" ve el valor igual y
+    falla (era el caso real: el `.env` local lo tenia y el test veia 45000).
+    Con `env_file=None` la config depende solo del entorno que el test controla.
+    """
+    monkeypatch.setattr(
+        Settings,
+        "model_config",
+        {**Settings.model_config, "env_file": None},
+    )
+
+
+def _configurar_precio_vacio(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Deja la config sin precio de plan Pro, sin importar el `.env` local."""
+    monkeypatch.delenv("MERCADOPAGO_PRO_PLAN_PRICE", raising=False)
+    _sin_env_file(monkeypatch)
     get_settings.cache_clear()
 
 
@@ -229,8 +253,7 @@ async def test_activar_sin_precio_configurado_es_422(
     monkeypatch,
 ) -> None:
     """Sin `MERCADOPAGO_PRO_PLAN_PRICE` la activacion dice exactamente eso."""
-    monkeypatch.delenv("MERCADOPAGO_PRO_PLAN_PRICE", raising=False)
-    get_settings.cache_clear()
+    _configurar_precio_vacio(monkeypatch)
     await set_tenant(BUSINESS)
     respuesta = await http_client.post(
         "/api/v1/business/suscripcion/activar",

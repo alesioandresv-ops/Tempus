@@ -342,20 +342,11 @@ function Suscripcion() {
   })
 
   /*
-   * Activar redirige al `init_point` de MP. El plan no cambia acá: MP confirma
-   * por webhook y recién ahí el negocio pasa a `pro`. Por eso, al volver, esta
-   * tarjeta puede seguir mostrando `pending` hasta que llegue el webhook.
+   * El Pro se cobra por **transferencia** (Naranja X), no por pasarela: el
+   * checkout de `/checkout-pro` muestra CBU/alias, registra el intento y abre
+   * WhatsApp con el comprobante. La activación es humana: el admin la aprueba
+   * en `/admin-plataforma` y recién ahí el negocio pasa a `pro`.
    */
-  const activar = useMutation({
-    mutationFn: () =>
-      api.activarSuscripcion({
-        back_url: `${window.location.origin}/admin?tab=pagos`,
-      }),
-    onSuccess: (data) => {
-      window.location.href = data.init_point
-    },
-  })
-
   const cancelar = useMutation({
     mutationFn: () => api.cancelarSuscripcion(),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['panel', 'suscripcion'] }),
@@ -411,19 +402,14 @@ function Suscripcion() {
 
             {!esPro && (
               <div className="space-y-2">
-                <Button
-                  onClick={() => activar.mutate()}
-                  disabled={activar.isPending}
-                >
-                  {activar.isPending ? 'Generando pago…' : 'Activar plan Pro'}
+                <Button onClick={() => (window.location.href = '/checkout-pro')}>
+                  Activar plan Pro
                 </Button>
                 <p className="text-xs text-muted-foreground">
-                  Te lleva a Mercado Pago a autorizar el cobro. El plan se activa
-                  cuando MP lo confirma.
+                  Te lleva al checkout con los datos de transferencia (Naranja X).
+                  Mandás el comprobante por WhatsApp y el plan se activa cuando lo
+                  aprobamos.
                 </p>
-                {activar.isError && (
-                  <MensajeDeError error={mensajeDeError(activar.error)} />
-                )}
               </div>
             )}
 
