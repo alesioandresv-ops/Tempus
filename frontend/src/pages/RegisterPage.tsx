@@ -50,6 +50,10 @@ const esquema = z.object({
   password: z.string().min(12, 'La contrasena necesita al menos 12 caracteres').max(128),
   phone: z.string().max(32, 'El telefono es demasiado largo').optional(),
   timezone: z.string().min(1, 'La zona horaria es obligatoria'),
+  /** Aceptación explícita de los términos: sin el checkbox no se puede crear la cuenta. */
+  acepta_terminos: z
+    .boolean()
+    .refine((v) => v, 'Tenés que aceptar los Términos y la Política de Privacidad'),
 })
 
 type FormularioAlta = z.infer<typeof esquema>
@@ -119,6 +123,8 @@ export default function RegisterPage() {
   const slugEscrito = watch('slug')
   const contrasenaEscrita = watch('password') || ''
   const nombreNegocio = watch('business_name') || ''
+  /** El checkbox de términos: el botón final no se habilita sin tildarlo. */
+  const aceptaTerminos = watch('acepta_terminos')
 
   // Debounce del slug
   useEffect(() => {
@@ -169,7 +175,8 @@ export default function RegisterPage() {
       return
     }
     const telefono = (datos.phone || '').trim()
-    altaMutation.mutate({ ...datos, phone: telefono ? telefono : null, turnstile_token: turnstileToken })
+    const { acepta_terminos: _, ...datosParaElBackend } = datos
+    altaMutation.mutate({ ...datosParaElBackend, phone: telefono ? telefono : null, turnstile_token: turnstileToken })
   })
 
   const fuerza = medirContrasena(contrasenaEscrita)
@@ -638,6 +645,45 @@ export default function RegisterPage() {
 
                   <Turnstile onVerify={setTurnstileToken} />
 
+                  {/* Aceptación de términos: obligatoria para crear la cuenta.
+                      El botón final no se habilita sin el checkbox tildado. */}
+                  <div className="space-y-2">
+                    <label htmlFor="acepta_terminos" className="flex items-start gap-2.5 text-sm text-slate-300">
+                      <input
+                        id="acepta_terminos"
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border-white/20 bg-white/5 accent-violet-500"
+                        {...register('acepta_terminos')}
+                      />
+                      <span>
+                        Leí y acepto los{' '}
+                        <a
+                          href="/terminos"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-violet-300 underline hover:text-violet-200"
+                        >
+                          Términos y Condiciones
+                        </a>{' '}
+                        y la{' '}
+                        <a
+                          href="/privacidad"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-violet-300 underline hover:text-violet-200"
+                        >
+                          Política de Privacidad
+                        </a>
+                        .
+                      </span>
+                    </label>
+                    {errors.acepta_terminos && (
+                      <p className="flex items-center gap-1.5 text-sm text-rose-400">
+                        <X className="h-3.5 w-3.5" /> {errors.acepta_terminos.message}
+                      </p>
+                    )}
+                  </div>
+
                   {altaMutation.isError && Object.keys(errors).length === 0 && (
                     <p className="rounded-lg border border-rose-400/20 bg-rose-500/10 p-3 text-sm text-rose-200">
                       {altaMutation.error instanceof Error
@@ -659,7 +705,11 @@ export default function RegisterPage() {
                     <Button
                       type="submit"
                       className="flex-1 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 py-2.5 font-semibold text-white shadow-lg shadow-violet-500/25 transition-all hover:shadow-xl hover:shadow-violet-500/40 hover:-translate-y-0.5"
-                      disabled={altaMutation.isPending || (turnstileHabilitado && !turnstileToken)}
+                      disabled={
+                        altaMutation.isPending ||
+                        !aceptaTerminos ||
+                        (turnstileHabilitado && !turnstileToken)
+                      }
                     >
                       {altaMutation.isPending ? (
                         <>

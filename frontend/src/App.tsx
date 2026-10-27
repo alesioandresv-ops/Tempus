@@ -6,6 +6,7 @@ import AdminPage from './pages/AdminPage'
 import ProfessionalPage from './pages/ProfessionalPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
+import LegalPage from './pages/LegalPage'
 import CheckoutProPage from './pages/CheckoutProPage'
 import AdminPlataformaPage from './pages/AdminPlataformaPage'
 import LandingPage from './pages/landing/LandingPage'
@@ -57,6 +58,10 @@ function App() {
         {/* Checkout PRO: cobro manual por transferencia. Va ANTES de /:slug
             para que "checkout-pro" no se interprete como el slug de un negocio. */}
         <Route path="/checkout-pro" element={<CheckoutProPage />} />
+
+        {/* Paginas legales. Va ANTES de /:slug por la misma razon que /checkout-pro. */}
+        <Route path="/terminos" element={<LegalPage tipo="terminos" />} />
+        <Route path="/privacidad" element={<LegalPage tipo="privacidad" />} />
 
         {/* Panel de la plataforma: /admin-plataforma?key=... . Va ANTES de /:slug
             por la misma razon que /admin. */}
