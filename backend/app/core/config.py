@@ -398,6 +398,25 @@ class Settings(BaseSettings):
         ),
     )
 
+    # --- Resend (API HTTP de email) -----------------------------------------
+    #:
+    #: Render **bloquea los puertos SMTP salientes (25/465/587)** por política
+    #: anti-spam: `smtp.gmail.com:587` no es alcanzable desde un servicio de
+    #: Render (se ve como `[Errno 101] Network is unreachable`). La salida es
+    #: mandar el email por una API HTTPS, puerto 443, que sí está abierto.
+    #: Resend ofrece 100 emails/dia gratis y basta para la recuperacion de
+    #: contrasena. Con RESEND_API_KEY definida se usa la API y el SMTP queda
+    #: como fallback para local.
+    resend_api_key: SecretStr = SecretStr("")
+    resend_from: str = Field(
+        default="",
+        description=(
+            "Remitente con Resend. En el modo de prueba (sin dominio verificado) "
+            "tiene que ser onboarding@resend.dev; con dominio verificado, "
+            "cualquier direccion @tudominio."
+        ),
+    )
+
     # =====================================================================
     # Validadores
     # =====================================================================

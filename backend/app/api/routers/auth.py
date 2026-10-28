@@ -361,10 +361,11 @@ async def forgot_password(
     """
 
     async def _enviar(para: str, asunto: str, cuerpo: str) -> None:
-        if not mailer.smtp_configurado(settings):
-            # Modo local/sin SMTP: el link queda en el log del servidor.
+        if not mailer.canal_disponible(settings):
+            # Sin canal de email (RESEND_API_KEY ni SMTP): el link queda en el
+            # log del servidor para poder probar el flujo sin casilla.
             logger.warning(
-                "reset_email_no_enviado_smtp_sin_configurar",
+                "reset_email_no_enviado_sin_canal",
                 destino=para[:3] + "***",
                 link=cuerpo.splitlines()[4] if len(cuerpo.splitlines()) > 4 else "",
             )
