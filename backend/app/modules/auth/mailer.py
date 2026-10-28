@@ -35,13 +35,19 @@ logger = get_logger(__name__)
 #: dependencia nueva (httpx ya es dependencia del proyecto).
 _RESEND_URL = "https://api.resend.com/emails"
 
+#: Endpoint de la API v3 de Brevo (ex-Sendinblue). Mismo criterio: HTTPS,
+#: sin SDK.
+_BREVO_URL = "https://api.brevo.com/v3/smtp/email"
+
 #: Timeout del envío: un email de reset no justifica retener el request más
 #: de esto. Resend contesta en cientos de ms normalmente.
 _TIMEOUT = httpx.Timeout(30.0)
 
 
 def canal_disponible(settings: Settings) -> str | None:
-    """Qué canal de envío hay configurado: 'resend', 'smtp' o None."""
+    """Qué canal de envío hay configurado: 'brevo', 'resend', 'smtp' o None."""
+    if settings.brevo_api_key.get_secret_value():
+        return "brevo"
     if settings.resend_api_key.get_secret_value():
         return "resend"
     if settings.smtp_user and settings.smtp_password.get_secret_value():
@@ -56,6 +62,48 @@ def smtp_configurado(settings: Settings) -> bool:
 
 def _remitente(settings: Settings) -> str:
     return settings.smtp_from or settings.smtp_user
+
+
+async def _enviar_brevo(
+    settings: Settings,
+    *,
+    para: str,
+    asunto: str,
+    cuerpo: str,
+) -> None:
+    """Envía por la API v3 de Brevo (HTTPS 443, alcanzable desde Render).
+
+    El remitente tiene que estar verificado en "Senders & IPs" del panel de
+    Brevo: sin dominio propio basta confirmar el codigo que Brevo manda a la
+    casilla remitente.
+    """
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as cliente:
+        respuesta = await cliente.post(
+            _BREVO_URL,
+            headers={
+                "api-key": settings.brevo_api_key.get_secret_value(),
+                "Content-Type": "application/json",
+                "accept": "application/json",
+            },
+            json={
+                "sender": {
+                    "email": settings.brevo_from_email or _remitente(settings),
+                    "name": settings.brevo_from_name,
+                },
+                "to": [{"email": para}],
+                "subject": asunto,
+                "textContent": cuerpo,
+            },
+        )
+    if respuesta.status_code >= 400:
+        # El cuerpo del error de Brevo va al log: dice si el remitente no esta
+        # verificado (401/400 con message puntual) o la key es invalida.
+        logger.error(
+            "brevo_rechazo",
+            status=respuesta.status_code,
+            cuerpo=respuesta.text[:300],
+        )
+        respuesta.raise_for_status()
 
 
 async def _enviar_resend(
@@ -125,7 +173,9 @@ async def enviar_email(
     (el router de reset lo loguea y no lo propaga).
     """
     canal = canal_disponible(settings)
-    if canal == "resend":
+    if canal == "brevo":
+        await _enviar_brevo(settings, para=para, asunto=asunto, cuerpo=cuerpo)
+    elif canal == "resend":
         await _enviar_resend(settings, para=para, asunto=asunto, cuerpo=cuerpo)
     elif canal == "smtp":
         await _enviar_smtp(settings, para=para, asunto=asunto, cuerpo=cuerpo)

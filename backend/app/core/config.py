@@ -417,6 +417,26 @@ class Settings(BaseSettings):
         ),
     )
 
+    # --- Brevo (API HTTP de email, sin dominio propio) -----------------------
+    #:
+    #: Alternativa a Resend cuando no hay dominio propio: Brevo (ex-Sendinblue)
+    #: deja verificar el remitente con un **codigo que llega por email** a la
+    #: casilla que se quiere usar como remitente — sin DNS, sin dominio. Con
+    #: BREVO_API_KEY definida tiene prioridad sobre Resend (300 emails/dia
+    #: gratis). Registrarse en https://app.brevo.com, verificar
+    #: soportetempusapp@gmail.com como remitente (Senders & IPs), y pegar la
+    #: API key (v3, prefijo xkeys-).
+    brevo_api_key: SecretStr = SecretStr("")
+    brevo_from_email: str = Field(
+        default="",
+        description=(
+            "Remitente con Brevo: tiene que ser un email verificado en "
+            "Senders & IPs (sin dominio propio, basta verificar la casilla "
+            "con el codigo que Brevo manda)."
+        ),
+    )
+    brevo_from_name: str = Field(default="Tempus")
+
     # =====================================================================
     # Validadores
     # =====================================================================
