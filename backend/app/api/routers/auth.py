@@ -59,7 +59,7 @@ Argon2 extra en cada login viejo a cambio de nada.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.cookies import clear_refresh_cookie, set_refresh_cookie
@@ -70,7 +70,6 @@ from app.api.dependencies import (
     get_settings_dep,
     verify_csrf_and_origin,
 )
-from app.api.errors import ValidationError
 from app.api.routers.schemas import (
     BusinessLoginRequest,
     ForgotPasswordRequest,
@@ -427,5 +426,7 @@ async def reset_password(
             ip_address=ip_address,
         )
     except ValueError as error:
-        raise ValidationError(str(error)) from error
+        # 400 (y no ValidationError/422): el error no es de formato del request,
+        # es de estado del token. Y un solo mensaje para las tres causas.
+        raise HTTPException(status_code=400, detail=str(error)) from error
     return {"mensaje": "Contraseña actualizada. Ya podés entrar con la nueva."}
