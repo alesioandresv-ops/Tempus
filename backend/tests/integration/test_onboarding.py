@@ -412,14 +412,14 @@ class TestValidacionesDelAlta:
         )
 
     async def test_contrasena_corta_responde_422(self, http_client: AsyncClient) -> None:
-        """El piso de 12 caracteres--el unico punto donde la API acepta que alguien
+        """El piso de 8 caracteres--el unico punto donde la API acepta que alguien
         elija una contrasena-- lo responde el esquema, antes de hashear nada.
 
-        Que lo rechace el esquema y no el servicio importa por costo: hashear once
+        Que lo rechace el esquema y no el servicio importa por costo: hashear siete
         caracteres para descubrir despues que no servian seria trabajo de Argon2
         regalado a cualquiera que haga POST.
         """
-        respuesta = await http_client.post(URL_ALTA, json=_cuerpo(password="corta12345"))
+        respuesta = await http_client.post(URL_ALTA, json=_cuerpo(password="corta12"))
 
         assert respuesta.status_code == 422, respuesta.text
 

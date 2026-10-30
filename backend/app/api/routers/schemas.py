@@ -40,7 +40,7 @@ class ResetPasswordRequest(BaseModel):
     """Consumo del token de recuperación con la contraseña nueva."""
 
     token: str = Field(min_length=32, max_length=128)
-    password: str = Field(min_length=12, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
 
 
 class BusinessLoginRequest(LoginRequest):
@@ -81,7 +81,7 @@ class BusinessRegisterRequest(BaseModel):
     slug: str = Field(min_length=3, max_length=50)
     owner_name: str = Field(min_length=2, max_length=200)
     email: EmailStr
-    password: str = Field(min_length=12, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
     # El tope del **input**, no el de la columna. Lo que se guarda--E.164 sin `+`-- no
     # pasa de 15 digitos y la columna es `Text`, pero lo que llega tiene espacios,
     # guiones y un `+`: `+54 9 11 2345-6789` son dieciocho caracteres. Con un tope de

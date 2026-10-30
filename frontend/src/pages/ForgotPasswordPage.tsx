@@ -18,11 +18,11 @@ import { api, ApiError } from '@/services/api'
  * 2. `/reset-password?token=...` llega desde el email. Si el token no sirve,
  *    el 400 del backend se muestra con el botón de volver a pedir el enlace.
  *
- * El mínimo de contraseña replica el del backend (`Field(min_length=12)`).
+ * El mínimo de contraseña replica el del backend (`Field(min_length=8)`).
  */
 
 const esquemaContrasena = z.object({
-  password: z.string().min(12, 'La contraseña necesita al menos 12 caracteres').max(128),
+  password: z.string().min(8, 'La contraseña necesita al menos 8 caracteres').max(128),
 })
 
 function EsquemaClases() {
@@ -161,7 +161,7 @@ function FijarContrasena({ token }: { token: string }) {
           required
         />
         <p className="text-xs text-slate-500">
-          Mínimo 12 caracteres. Mezcla mayúsculas, números y símbolos.
+          Mínimo 8 caracteres. Mezcla mayúsculas, números y símbolos.
         </p>
       </div>
 

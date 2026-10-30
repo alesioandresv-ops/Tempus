@@ -3725,7 +3725,7 @@ class TestOnboarding:
         assert respuesta.status_code == 422, respuesta.text
 
     async def test_una_password_corta_responde_422(self, http_client: AsyncClient) -> None:
-        respuesta = await http_client.post(URL_ALTA, json=_cuerpo_registro(password="corta"))
+        respuesta = await http_client.post(URL_ALTA, json=_cuerpo_registro(password="corta12"))
         assert respuesta.status_code == 422, respuesta.text
 
     async def test_un_email_invalido_responde_422(self, http_client: AsyncClient) -> None:

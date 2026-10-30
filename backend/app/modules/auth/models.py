@@ -215,7 +215,12 @@ class PasswordResetToken(GlobalBase, Base):
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     expires_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), nullable=False)
     used_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime(), nullable=True)
-    requested_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), nullable=False)
+    # server_default 'now()' para que el modelo coincida con la tabla de `0030`,
+    # que define la columna con `server_default=sa.text("now()")`. Sin el, cada
+    # `alembic check` proponia un drift de default que no existe.
+    requested_at: Mapped[dt.datetime] = mapped_column(
+        UtcDateTime(), nullable=False, server_default=text("now()")
+    )
     #: Para la pista de auditoria: quien pidio el reset y desde donde.
     ip_address: Mapped[str | None] = mapped_column(INET, nullable=True)
 

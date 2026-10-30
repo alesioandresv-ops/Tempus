@@ -47,7 +47,7 @@ const esquema = z.object({
   slug: z.string().min(3, 'La URL necesita al menos 3 caracteres').max(50),
   owner_name: z.string().min(2, 'El nombre es demasiado corto').max(200),
   email: z.string().email('El correo no tiene un formato valido'),
-  password: z.string().min(12, 'La contrasena necesita al menos 12 caracteres').max(128),
+  password: z.string().min(8, 'La contrasena necesita al menos 8 caracteres').max(128),
   phone: z.string().max(32, 'El telefono es demasiado largo').optional(),
   timezone: z.string().min(1, 'La zona horaria es obligatoria'),
   /** Aceptación explícita de los términos: sin el checkbox no se puede crear la cuenta. */
@@ -65,7 +65,7 @@ const ESPERA_SLUG_MS = 400
 const LARGO_MINIMO_SLUG = 3
 
 /** El piso del backend, replicado aca para el medidor. No es una regla nuestra. */
-const LARGO_MINIMO_CONTRASENA = 12
+const LARGO_MINIMO_CONTRASENA = 8
 
 type NivelContrasena = {
   puntaje: number
