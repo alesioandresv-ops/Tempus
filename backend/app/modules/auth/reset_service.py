@@ -226,7 +226,10 @@ async def consumir_reset(
     afectadas = int(
         (
             await session.execute(
-                text("SELECT auth_reset_password_for_email(:email, :hash)"),
+                text(
+                    "SELECT auth_reset_password_for_email("
+                    "CAST(:email AS citext), CAST(:hash AS text))"
+                ),
                 {"email": fila.email, "hash": hash_password(nueva_password)},
             )
         ).scalar_one()
