@@ -6,7 +6,7 @@ import datetime as dt
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field, field_validator
 
 
 class BusinessPublicInfo(BaseModel):
@@ -127,12 +127,19 @@ class BookingCreateRequest(BaseModel):
         default=None,
         description="ID del profesional, o null para asignación automática",
     )
-    customer_first_name: str
-    customer_last_name: str
+    customer_first_name: str = Field(min_length=1, max_length=120)
+    customer_last_name: str = Field(min_length=1, max_length=120)
     customer_phone_e164: str = Field(description="Teléfono en formato E.164")
-    starts_at: dt.datetime = Field(description="Inicio del servicio (UTC)")
-    ends_at: dt.datetime = Field(description="Fin del servicio (UTC)")
-    local_date: dt.date = Field(description="Fecha local del negocio")
+    # `AwareDatetime` y no `datetime`: una fecha sin zona es ambigua y el servidor
+    # la interpretaba como UTC, corriendo el turno varias horas para cualquier
+    # negocio de LatAm. Mejor un 422 que explica el problema que un turno mal
+    # guardado que nadie relaciona con la zona horaria.
+    starts_at: AwareDatetime = Field(description="Inicio del servicio (UTC)")
+    ends_at: AwareDatetime = Field(description="Fin del servicio (UTC)")
+    # Se acepta por compatibilidad con `docs/api.md`, pero **no se usa**: el
+    # servidor deriva la fecha local de `starts_at` y la zona del negocio. Un
+    # `local_date` del cliente equivocado archivaba el turno en el dia equivocado.
+    local_date: dt.date = Field(description="Fecha local del negocio (informativa)")
     idempotency_key: str | None = Field(
         default=None,
         description="Clave de idempotencia (opcional)",
@@ -145,6 +152,20 @@ class BookingCreateRequest(BaseModel):
         ),
     )
 
+    @field_validator("customer_first_name", "customer_last_name")
+    @classmethod
+    def _nombre_no_vacio(cls, valor: str) -> str:
+        """Recorta y rechaza un nombre vacio.
+
+        `min_length=1` no alcanza: `"   "` mide tres y se guardaria como nombre de
+        la reserva. El snapshot se muestra tal cual en la agenda y en WhatsApp, y
+        un espacio no es un nombre.
+        """
+        limpio = valor.strip()
+        if not limpio:
+            raise ValueError("El nombre no puede estar vacio")
+        return limpio
+
 
 class RescheduleRequest(BaseModel):
     """Request para reprogramar una reserva.
@@ -154,8 +175,8 @@ class RescheduleRequest(BaseModel):
     sueltos habilita el caso de un turno de 90 minutos con `ends_at` a 60.
     """
 
-    new_starts_at: dt.datetime = Field(description="Nuevo inicio (UTC)")
-    new_ends_at: dt.datetime = Field(description="Nuevo fin (UTC)")
+    new_starts_at: AwareDatetime = Field(description="Nuevo inicio (UTC)")
+    new_ends_at: AwareDatetime = Field(description="Nuevo fin (UTC)")
     new_duration_minutes: int = Field(
         gt=0,
         description="Duracion real del servicio",

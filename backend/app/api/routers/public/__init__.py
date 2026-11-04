@@ -24,6 +24,7 @@ from app.api.dependencies import (
     get_settings_dep,
     limit_public_per_ip,
 )
+from app.api.errors import BusinessPausedError
 from app.api.routers.public.schemas import (
     AvailabilityDetailResponse,
     AvailabilityRequest,
@@ -38,7 +39,6 @@ from app.api.routers.public.schemas import (
     RescheduleRequest,
     ServicePublicInfo,
 )
-from app.api.errors import BusinessPausedError
 from app.core.config import Settings
 from app.core.rate_limit import (
     WINDOW_HOUR,
@@ -643,7 +643,7 @@ async def create_booking_endpoint(
         # de confirmacion-- era el unico que veia la version incompleta. La fila
         # recien creada viene en el resultado, asi que no hace falta volver a
         # consultarla.
-        if booking_result.booking is None:
+        if booking_result.booking is None or booking_result.replay_sin_token:
             # Solo llega en el replay de una fila de idempotencia anterior a que
             # existiera `response_body`. No hay token que devolver y tampoco se
             # puede reconstruir la respuesta completa, asi que se dice en vez de
@@ -823,7 +823,13 @@ async def _booking_response(session: AsyncSession, booking: Booking, token: str)
         professional_name=professional.display_name if professional else None,
         # Solo el nombre, nunca email ni telefono: la misma regla que aplica al
         # resto de la respuesta, y el motivo es el mismo --esta URL se comparte.
-        customer_first_name=customer.first_name if customer else None,
+        # El nombre de la reserva manda sobre la ficha del cliente: un telefono
+        # reusado no puede renombrar un turno ya hecho.
+        customer_first_name=(
+            booking.customer_first_name
+            if booking.customer_first_name
+            else (customer.first_name if customer else None)
+        ),
         local_date=booking.local_date,
         price=booking.price_snapshot,
         currency=booking.currency,
@@ -895,7 +901,6 @@ async def cancel_booking_endpoint(
             raise HTTPException(status_code=409, detail=str(e)) from e
 
         return await _booking_response(session, booking, token)
-    raise HTTPException(status_code=404, detail="Reserva no encontrada")
 
 
 @router.post(
@@ -939,6 +944,10 @@ async def reschedule_booking_endpoint(
                 new_ends_at=payload.new_ends_at,
                 new_duration_minutes=payload.new_duration_minutes,
                 timezone=business.timezone if business else "UTC",
+                # Revalida contra el mismo motor que la disponibilidad publica:
+                # mover un turno a un domingo cerrado o a un feriado tiene que
+                # rechazarse igual que crearlo ahi.
+                agenda=ReglasAgenda.de_negocio(business) if business else None,
             )
         except ValueError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e

@@ -253,9 +253,7 @@ def credenciales_validas(settings: Settings, user: str, password: str) -> bool:
             logger.warning("admin_password_hash_invalido")
             password_ok = False
     elif password_plana:
-        password_ok = hmac.compare_digest(
-            password.encode("utf-8"), password_plana.encode("utf-8")
-        )
+        password_ok = hmac.compare_digest(password.encode("utf-8"), password_plana.encode("utf-8"))
     user_ok = hmac.compare_digest(user.encode("utf-8"), settings.admin_user.encode("utf-8"))
     return user_ok and password_ok
 

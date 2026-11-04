@@ -20,6 +20,7 @@ dependencia de router y el unico punto de autenticacion de esta superficie.
 
 from __future__ import annotations
 
+import contextlib
 import secrets
 import uuid
 from typing import Annotated
@@ -373,8 +374,15 @@ async def _eliminar_negocio_cascade(sesion: AsyncSession, business_id: uuid.UUID
     solos.
     """
     await sesion.execute(text("SET LOCAL row_security = off"))
-    tablas = ["bookings", "customers", "professional_services", "professionals",
-              "services", "business_hours", "businesses"]
+    tablas = [
+        "bookings",
+        "customers",
+        "professional_services",
+        "professionals",
+        "services",
+        "business_hours",
+        "businesses",
+    ]
     for tabla in tablas:
         try:
             await sesion.execute(text(f"ALTER TABLE {tabla} NO FORCE ROW LEVEL SECURITY"))
@@ -409,10 +417,8 @@ async def _eliminar_negocio_cascade(sesion: AsyncSession, business_id: uuid.UUID
     try:
         async with restaurador.begin():
             for tabla in tablas:
-                try:
+                with contextlib.suppress(Exception):
                     await restaurador.execute(text(f"ALTER TABLE {tabla} FORCE ROW LEVEL SECURITY"))
-                except Exception:
-                    pass
     finally:
         await restaurador.close()
     return borradas

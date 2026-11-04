@@ -72,6 +72,8 @@ from app.api.routers.business.schemas import (
     OcupacionProfesionalOut,
     PaymentConfigIn,
     PaymentConfigOut,
+    PaymentIntentIn,
+    PaymentIntentOut,
     PaymentPolicyIn,
     PaymentPolicyOut,
     ProfesionalCreate,
@@ -93,8 +95,6 @@ from app.api.routers.business.schemas import (
     SubscriptionStatusOut,
     TransferenciaOut,
     VentanaOut,
-    PaymentIntentIn,
-    PaymentIntentOut,
     WalkinIn,
     WhatsappConfigIn,
     WhatsappConfigOut,
@@ -110,6 +110,7 @@ from app.modules.auth.tokens import Principal
 from app.modules.bookings import admin as bookings_admin
 from app.modules.bookings import reportes
 from app.modules.bookings.models import BookingEvent
+from app.modules.bookings.service import ReglasAgenda
 from app.modules.businesses import service as negocios
 from app.modules.businesses.models import Business
 from app.modules.customers import service as clientes
@@ -1122,6 +1123,10 @@ async def reprogramar_reserva(
         new_duration_minutes=cuerpo.new_duration_minutes,
         timezone=business.timezone,
         actor_user_id=principal.user_id,
+        # El panel escribe la hora a mano: grilla de 1 minuto y sin antelacion,
+        # pero con las reglas reales de agenda (horario, bloqueos, feriados,
+        # solapamiento) verificadas por el mismo motor que la vista publica.
+        agenda=ReglasAgenda.de_negocio(business, min_lead_minutes=0, slot_interval_minutes=1),
     )
     detalle = await bookings_admin.obtener_reserva(sesion, booking_id, business_id=_bid(principal))
     return _a_reserva_out(detalle)
@@ -1850,7 +1855,10 @@ async def crear_payment_intent(
         raise NotFoundError("Negocio no encontrado")
     if datos.business_name and datos.business_name != negocio.name:
         raise ValidationError("El nombre del negocio no coincide con la cuenta.")
-    if datos.amount is not None and abs(datos.amount - get_settings().pro_transfer_price_ars) > 0.01:
+    if (
+        datos.amount is not None
+        and abs(datos.amount - get_settings().pro_transfer_price_ars) > 0.01
+    ):
         raise ValidationError("El monto no coincide con el precio del plan Pro.")
 
     pago = await pro_pagos.crear_intento(

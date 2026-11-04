@@ -468,6 +468,66 @@ class TestBookingsAdmin:
         )
         assert r2.status_code == 409, r2.text
 
+    async def test_walkin_horario_fuera_de_grilla_se_registra(
+        self, http_client: AsyncClient, negocio_admin: str, admin_token: str, set_tenant
+    ) -> None:
+        """El mostrador no elige de la grilla: las 10:07 son un turno valido.
+
+        El docstring de `registrar_walkin` prometia aceptar horarios fuera de la
+        grilla, pero pasaba las reglas del negocio con su grilla de 15 minutos y
+        el motor rechazaba las 10:07 con "ese horario ya no esta disponible". El
+        panel no podia registrar la realidad. La grilla es una restriccion de la
+        pantalla publica, no de la agenda.
+        """
+        await set_tenant(BUSINESS)
+
+        tz = ZoneInfo(TIMEZONE)
+        base = dt.datetime.now(ZoneInfo(TIMEZONE)).date() + dt.timedelta(days=30)
+        lunes = base + dt.timedelta(days=(-base.weekday()) % 7)
+        local = dt.datetime(lunes.year, lunes.month, lunes.day, 10, 7, tzinfo=tz)
+        starts_at = local.astimezone(dt.UTC)
+
+        resp = await http_client.post(
+            "/api/v1/business/reservas/walkin",
+            headers=_auth_header(admin_token),
+            json={
+                "service_id": str(SERVICE),
+                "professional_id": str(PROFESSIONAL),
+                "starts_at": starts_at.isoformat().replace("+00:00", "Z"),
+                "customer_first_name": "Marta",
+                "customer_last_name": "Diaz",
+                "customer_phone_e164": "+54911888889",
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["starts_at"] == starts_at.isoformat().replace("+00:00", "Z")
+
+    async def test_walkin_fuera_de_horario_da_409(
+        self, http_client: AsyncClient, negocio_admin: str, admin_token: str, set_tenant
+    ) -> None:
+        """Registrar la realidad no es inventarla: a las 13:00 el negocio esta cerrado."""
+        await set_tenant(BUSINESS)
+
+        tz = ZoneInfo(TIMEZONE)
+        base = dt.datetime.now(ZoneInfo(TIMEZONE)).date() + dt.timedelta(days=30)
+        lunes = base + dt.timedelta(days=(-base.weekday()) % 7)
+        local = dt.datetime(lunes.year, lunes.month, lunes.day, 13, 0, tzinfo=tz)
+        starts_at = local.astimezone(dt.UTC)
+
+        resp = await http_client.post(
+            "/api/v1/business/reservas/walkin",
+            headers=_auth_header(admin_token),
+            json={
+                "service_id": str(SERVICE),
+                "professional_id": str(PROFESSIONAL),
+                "starts_at": starts_at.isoformat().replace("+00:00", "Z"),
+                "customer_first_name": "Marta",
+                "customer_last_name": "Diaz",
+                "customer_phone_e164": "+54911888890",
+            },
+        )
+        assert resp.status_code == 409, resp.text
+
     async def test_walkin_no_genera_notificaciones(
         self,
         http_client: AsyncClient,
@@ -622,6 +682,100 @@ class TestFaseC:
         assert data["starts_at"] == starts.isoformat().replace("+00:00", "Z")
         assert data["local_date"] == martes.date().isoformat()
         assert data["duration_minutes"] == 30
+
+    async def test_reprogramar_fuera_de_horario_da_409(
+        self,
+        http_client: AsyncClient,
+        negocio_admin: str,
+        admin_token: str,
+        booking_futuro: uuid.UUID,
+        set_tenant,
+    ) -> None:
+        """El panel tambien revalida el calendario, no solo la EXCLUDE.
+
+        Antes solo la restriccion anti-solapamiento miraba la base: el admin podia
+        mover el turno a un lunes 13:00 con el negocio cerrado y la agenda dejaba
+        de mostrarlo.
+        """
+        await set_tenant(BUSINESS)
+
+        tz = ZoneInfo(TIMEZONE)
+        lunes = _proximo_lunes(tz)
+        cerrado = lunes.replace(hour=13).astimezone(dt.UTC)
+
+        resp = await http_client.post(
+            f"/api/v1/business/reservas/{booking_futuro}/reprogramar",
+            headers=_auth_header(admin_token),
+            json={
+                "new_starts_at": cerrado.isoformat().replace("+00:00", "Z"),
+                "new_ends_at": (cerrado + dt.timedelta(minutes=30))
+                .isoformat()
+                .replace("+00:00", "Z"),
+                "new_duration_minutes": 30,
+            },
+        )
+        assert resp.status_code == 409, resp.text
+
+    async def test_reprogramar_fuera_de_grilla_se_permite(
+        self,
+        http_client: AsyncClient,
+        negocio_admin: str,
+        admin_token: str,
+        booking_futuro: uuid.UUID,
+        set_tenant,
+    ) -> None:
+        """El admin escribe la hora a mano: las 10:07 son validas si estan libres."""
+        await set_tenant(BUSINESS)
+
+        tz = ZoneInfo(TIMEZONE)
+        lunes = _proximo_lunes(tz)
+        nuevo = lunes.replace(hour=10, minute=7).astimezone(dt.UTC)
+
+        resp = await http_client.post(
+            f"/api/v1/business/reservas/{booking_futuro}/reprogramar",
+            headers=_auth_header(admin_token),
+            json={
+                "new_starts_at": nuevo.isoformat().replace("+00:00", "Z"),
+                "new_ends_at": (nuevo + dt.timedelta(minutes=30))
+                .isoformat()
+                .replace("+00:00", "Z"),
+                "new_duration_minutes": 30,
+            },
+        )
+        assert resp.status_code == 200, resp.text
+
+    async def test_reprogramar_solapando_su_horario_viejo_se_permite(
+        self,
+        http_client: AsyncClient,
+        negocio_admin: str,
+        admin_token: str,
+        booking_futuro: uuid.UUID,
+        set_tenant,
+    ) -> None:
+        """Mover un turno 15 minutos no lo bloquea contra si mismo.
+
+        La fila que se mueve sigue ocupando su horario viejo (09:00-09:30) hasta
+        el flush, asi que sin excluirla del calculo el motor veia el hueco nuevo
+        (09:15-09:45) como tomado. Es el caso normal de moverlo un poco.
+        """
+        await set_tenant(BUSINESS)
+
+        tz = ZoneInfo(TIMEZONE)
+        lunes = _proximo_lunes(tz)
+        nuevo = lunes.replace(minute=15).astimezone(dt.UTC)
+
+        resp = await http_client.post(
+            f"/api/v1/business/reservas/{booking_futuro}/reprogramar",
+            headers=_auth_header(admin_token),
+            json={
+                "new_starts_at": nuevo.isoformat().replace("+00:00", "Z"),
+                "new_ends_at": (nuevo + dt.timedelta(minutes=30))
+                .isoformat()
+                .replace("+00:00", "Z"),
+                "new_duration_minutes": 30,
+            },
+        )
+        assert resp.status_code == 200, resp.text
 
     async def test_reprogramar_a_slot_ocupado_da_409(
         self,

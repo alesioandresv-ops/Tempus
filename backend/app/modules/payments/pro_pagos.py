@@ -118,7 +118,11 @@ async def aprobar(
     pago.approved_at = now()
 
     # Pago sobre Pro vigente: extiende desde `pro_until`, no desde ahora.
-    base = negocio.pro_until if negocio.plan == BusinessPlan.PRO and negocio.pro_until and negocio.pro_until > now() else now()
+    base = (
+        negocio.pro_until
+        if negocio.plan == BusinessPlan.PRO and negocio.pro_until and negocio.pro_until > now()
+        else now()
+    )
     negocio.plan = BusinessPlan.PRO
     negocio.pro_until = base + dt.timedelta(days=dias)
     # Reactivar por si estaba suspendido: un pago aprobado es una decision
@@ -136,7 +140,9 @@ async def aprobar(
     return negocio
 
 
-async def rechazar(session: AsyncSession, payment_id: uuid.UUID, motivo: str | None = None) -> ProPayment:
+async def rechazar(
+    session: AsyncSession, payment_id: uuid.UUID, motivo: str | None = None
+) -> ProPayment:
     """Rechaza un comprobante. El negocio queda igual (vencido si lo estaba)."""
     pago = await session.get(ProPayment, payment_id)
     if pago is None:
@@ -152,7 +158,9 @@ async def rechazar(session: AsyncSession, payment_id: uuid.UUID, motivo: str | N
     return pago
 
 
-async def ultimos_pagos(session: AsyncSession, business_id: uuid.UUID, limite: int = 5) -> list[ProPayment]:
+async def ultimos_pagos(
+    session: AsyncSession, business_id: uuid.UUID, limite: int = 5
+) -> list[ProPayment]:
     """Ultimos intentos de pago de un negocio, para el panel y el admin."""
     result = await session.execute(
         select(ProPayment)

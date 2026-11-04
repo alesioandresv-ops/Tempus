@@ -31,9 +31,7 @@ APP_ROLE = "tempus_app"
 #: Columnas que el admin escribe al activar/bloquear. Nada mas.
 _COLUMNAS = ("plan", "pro_until", "status")
 
-_UP = (
-    f'GRANT UPDATE ({", ".join(_COLUMNAS)}) ON TABLE businesses TO "{APP_ROLE}"'
-)
+_UP = f'GRANT UPDATE ({", ".join(_COLUMNAS)}) ON TABLE businesses TO "{APP_ROLE}"'
 _DOWN = f'REVOKE UPDATE ({", ".join(_COLUMNAS)}) ON TABLE businesses FROM "{APP_ROLE}"'
 
 

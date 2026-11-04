@@ -271,3 +271,105 @@ class TestPublicTokenFlow:
         assert resp.status_code == 200, resp.text
         assert resp.json()["status"] == "confirmed"
         assert resp.json()["starts_at"] == body["new_starts_at"]
+
+    async def test_nombre_de_cada_reserva_no_se_pisa_por_telefono(
+        self, http_client: AsyncClient, negocio_token: str
+    ) -> None:
+        """El bug reportado: reservar con otro nombre no muestra el nombre viejo.
+
+        El telefono identifica al cliente (la ficha se reusa), pero la reserva
+        guarda el nombre tipeado en ese momento. La primera reserva sigue
+        diciendo "Ana" aunque la segunda use el mismo telefono como "Kemily".
+        """
+        primera = await _crear_reserva(http_client, "+54911000010")
+
+        cuerpo = _cuerpo_reserva(starts_at=_proximo_lunes(10), telefono="+54911000010")
+        cuerpo["customer_first_name"] = "Kemily"
+        cuerpo["customer_last_name"] = "Ledezma"
+        resp = await http_client.post("/api/v1/public/bookings", json=cuerpo)
+        assert resp.status_code == 201, resp.text
+        segunda = resp.json()
+
+        resp = await http_client.get(f"/api/v1/public/bookings/{primera['secure_token']}")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["customer_first_name"] == "Ana"
+
+        resp = await http_client.get(f"/api/v1/public/bookings/{segunda['secure_token']}")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["customer_first_name"] == "Kemily"
+
+    async def test_fecha_sin_zona_da_422(
+        self, http_client: AsyncClient, negocio_token: str
+    ) -> None:
+        """Una fecha sin zona es ambigua y se rechaza en vez de asumir UTC.
+
+        Asumir UTC corria el turno varias horas para cualquier negocio de LatAm,
+        y el sintoma --un turno a la hora equivocada-- no apuntaba a la zona.
+        """
+        cuerpo = _cuerpo_reserva(starts_at=_proximo_lunes(9), telefono="+54911000011")
+        cuerpo["starts_at"] = _proximo_lunes(9).replace(tzinfo=None).isoformat()
+        cuerpo["ends_at"] = (
+            _proximo_lunes(9).replace(tzinfo=None) + dt.timedelta(minutes=30)
+        ).isoformat()
+
+        resp = await http_client.post("/api/v1/public/bookings", json=cuerpo)
+        assert resp.status_code == 422, resp.text
+
+    async def test_local_date_del_cliente_se_ignora(
+        self, http_client: AsyncClient, negocio_token: str
+    ) -> None:
+        """`local_date` se deriva en el servidor con la zona del negocio.
+
+        Antes se confiaba en el valor del cliente: un `local_date` equivocado
+        archivaba el turno en otro dia y la agenda del dia real no lo mostraba.
+        """
+        starts_at = _proximo_lunes(9)
+        cuerpo = _cuerpo_reserva(starts_at=starts_at, telefono="+54911000012")
+        cuerpo["local_date"] = "1999-01-01"
+
+        resp = await http_client.post("/api/v1/public/bookings", json=cuerpo)
+        assert resp.status_code == 201, resp.text
+        assert (
+            resp.json()["local_date"] == starts_at.astimezone(ZoneInfo(TIMEZONE)).date().isoformat()
+        )
+
+    async def test_reprogramar_fuera_de_horario_da_409(
+        self, http_client: AsyncClient, negocio_token: str
+    ) -> None:
+        """La reprogramacion revalida el calendario, no solo la EXCLUDE.
+
+        El lunes a las 13:00 el negocio esta cerrado (atiende 09-12 y 16-20).
+        Antes el turno se movia igual y la agenda no lo mostraba.
+        """
+        creada = await _crear_reserva(http_client, "+54911000013")
+        token = creada["secure_token"]
+
+        nuevo = _proximo_lunes(13)
+        body = {
+            "new_starts_at": nuevo.isoformat().replace("+00:00", "Z"),
+            "new_ends_at": (nuevo + dt.timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
+            "new_duration_minutes": 30,
+        }
+        resp = await http_client.post(f"/api/v1/public/bookings/{token}/reschedule", json=body)
+        assert resp.status_code == 409, resp.text
+
+        # La reserva sigue en su horario original.
+        resp = await http_client.get(f"/api/v1/public/bookings/{token}")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["starts_at"] == creada["starts_at"]
+
+    async def test_reprogramar_fuera_de_grilla_da_409(
+        self, http_client: AsyncClient, negocio_token: str
+    ) -> None:
+        """La grilla publica sigue mandando: las 10:07 no son un slot ofrecido."""
+        creada = await _crear_reserva(http_client, "+54911000014")
+        token = creada["secure_token"]
+
+        nuevo = _proximo_lunes(9) + dt.timedelta(minutes=67)
+        body = {
+            "new_starts_at": nuevo.isoformat().replace("+00:00", "Z"),
+            "new_ends_at": (nuevo + dt.timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
+            "new_duration_minutes": 30,
+        }
+        resp = await http_client.post(f"/api/v1/public/bookings/{token}/reschedule", json=body)
+        assert resp.status_code == 409, resp.text

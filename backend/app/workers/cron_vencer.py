@@ -70,19 +70,17 @@ async def _ids_activos() -> list[str]:
     es el proceso de la plataforma.
     """
     engine = get_admin_engine()
-    async with engine.connect() as conn:
-        async with conn.begin():
-            await conn.execute(text("ALTER TABLE businesses NO FORCE ROW LEVEL SECURITY"))
-            filas = await conn.execute(text("SELECT id FROM businesses WHERE status = 'active'"))
-            return [str(r[0]) for r in filas]
+    async with engine.connect() as conn, conn.begin():
+        await conn.execute(text("ALTER TABLE businesses NO FORCE ROW LEVEL SECURITY"))
+        filas = await conn.execute(text("SELECT id FROM businesses WHERE status = 'active'"))
+        return [str(r[0]) for r in filas]
     return []
 
 
 async def _restaurar_force() -> None:
     engine = get_admin_engine()
-    async with engine.connect() as conn:
-        async with conn.begin():
-            await conn.execute(text("ALTER TABLE businesses FORCE ROW LEVEL SECURITY"))
+    async with engine.connect() as conn, conn.begin():
+        await conn.execute(text("ALTER TABLE businesses FORCE ROW LEVEL SECURITY"))
 
 
 async def vencer_negocios() -> int:
@@ -137,7 +135,6 @@ class DailyJob:
         self._task: asyncio.Task[None] | None = None
 
     async def _loop(self) -> None:
-        import contextlib
         import datetime as dt
 
         logger.info("cron_diario_iniciando", check_cada_s=self._intervalo)

@@ -158,6 +158,13 @@ class Booking(TenantBase, Base):
     )
 
     customer_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    # Snapshot del nombre que el cliente tipeo al reservar. `customers` es unico
+    # por telefono y se reusa entre reservas; sin este snapshot, una reserva nueva
+    # con un telefono ya usado mostraba el nombre viejo del cliente. Nullable para
+    # las filas anteriores a la migracion 0032 y para inserts directos de tests:
+    # las lecturas caen a `customers.first_name` con `COALESCE`.
+    customer_first_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    customer_last_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     professional_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     service_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     status: Mapped[BookingStatus] = mapped_column(

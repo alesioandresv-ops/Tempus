@@ -2,21 +2,22 @@
 
 Do not modify code - only tests.
 """
+
 from __future__ import annotations
 
 import inspect
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.api.routers.admin import router, _estado_de
+from app.api.routers.admin import _estado_de, router
 from app.db import session as session_mod
 from app.models.enums import BusinessPlan, BusinessStatus
 from app.modules.businesses.models import Business
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class TestGetAdminSession:
@@ -92,22 +93,26 @@ class TestAdminRouter:
             yield mock_admin_session
 
         from app.db.session import get_admin_session
+
         app.dependency_overrides[get_admin_session] = override_get_admin_session
         return app
 
     @pytest.mark.asyncio
-    async def test_get_businesses_with_valid_key_returns_200_and_list(self, app_with_mocked_admin_session, mock_admin_session):
+    async def test_get_businesses_with_valid_key_returns_200_and_list(
+        self, app_with_mocked_admin_session, mock_admin_session
+    ):
         """GET /api/v1/admin/businesses?key=valid -> 200 and lista de AdminBusinessOut"""
         from app.api.routers.admin import _verificar_secreto
+
         app_with_mocked_admin_session.dependency_overrides[_verificar_secreto] = lambda: None
 
         mock_business = MagicMock(spec=Business)
-        mock_business.id = __import__('uuid').uuid4()
+        mock_business.id = __import__("uuid").uuid4()
         mock_business.name = "Test Business"
         mock_business.slug = "test"
         mock_business.plan = BusinessPlan.FREE
         mock_business.status = BusinessStatus.ACTIVE
-        mock_business.created_at = datetime.now(timezone.utc)
+        mock_business.created_at = datetime.now(UTC)
         mock_business.pro_until = None
 
         mock_result = MagicMock()
@@ -116,9 +121,11 @@ class TestAdminRouter:
         mock_result_pagos.scalars.return_value = []
         mock_admin_session.execute = AsyncMock(side_effect=[mock_result, mock_result_pagos])
 
-        with patch("app.api.routers.admin.fin_del_trial") as mock_fin, \
-             patch("app.api.routers.admin.dias_restantes") as mock_dias:
-            mock_fin.return_value = datetime.now(timezone.utc)
+        with (
+            patch("app.api.routers.admin.fin_del_trial") as mock_fin,
+            patch("app.api.routers.admin.dias_restantes") as mock_dias,
+        ):
+            mock_fin.return_value = datetime.now(UTC)
             mock_dias.return_value = 30
             transport = ASGITransport(app=app_with_mocked_admin_session)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -128,15 +135,18 @@ class TestAdminRouter:
                 assert isinstance(data, list)
 
     @pytest.mark.asyncio
-    async def test_get_stats_with_valid_key_returns_200_with_counters(self, app_with_mocked_admin_session, mock_admin_session):
+    async def test_get_stats_with_valid_key_returns_200_with_counters(
+        self, app_with_mocked_admin_session, mock_admin_session
+    ):
         """GET /api/v1/admin/stats?key=valid -> 200 con contadores"""
         from app.api.routers.admin import _verificar_secreto
+
         app_with_mocked_admin_session.dependency_overrides[_verificar_secreto] = lambda: None
 
         mock_business = MagicMock(spec=Business)
         mock_business.plan = BusinessPlan.FREE
         mock_business.status = BusinessStatus.ACTIVE
-        mock_business.created_at = datetime.now(timezone.utc)
+        mock_business.created_at = datetime.now(UTC)
         mock_business.pro_until = None
 
         mock_result_negocios = MagicMock()
@@ -144,10 +154,12 @@ class TestAdminRouter:
         mock_result_pendientes = MagicMock()
         mock_result_pendientes.scalar_one.return_value = 0
 
-        mock_admin_session.execute = AsyncMock(side_effect=[mock_result_negocios, mock_result_pendientes])
+        mock_admin_session.execute = AsyncMock(
+            side_effect=[mock_result_negocios, mock_result_pendientes]
+        )
 
         with patch("app.api.routers.admin.fin_del_trial") as mock_fin:
-            mock_fin.return_value = datetime.now(timezone.utc)
+            mock_fin.return_value = datetime.now(UTC)
             transport = ASGITransport(app=app_with_mocked_admin_session)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.get("/admin/stats?key=valid")
@@ -161,9 +173,9 @@ class TestAdminRouter:
     @pytest.mark.asyncio
     async def test_get_businesses_with_invalid_key_returns_401(self, app_with_mocked_admin_session):
         """GET /api/v1/admin/businesses?key=invalid -> 401"""
+        from app.api.routers.admin import get_settings_dep
         from app.core.config import Settings
         from pydantic import SecretStr
-        from app.api.routers.admin import get_settings_dep
 
         settings = MagicMock(spec=Settings)
         settings.admin_secret = SecretStr("valid_secret")
@@ -180,9 +192,11 @@ class TestAdminRouter:
 
     def test_estado_de_returns_correct_for_all_cases(self):
         """_estado_de() devuelve correcto para trial / activo / pro_vencido / bloqueado / vencido"""
-        now = datetime.now(timezone.utc)
-        with patch("app.api.routers.admin.fin_del_trial") as mock_fin, \
-             patch("app.api.routers.admin.now") as mock_now:
+        now = datetime.now(UTC)
+        with (
+            patch("app.api.routers.admin.fin_del_trial") as mock_fin,
+            patch("app.api.routers.admin.now") as mock_now,
+        ):
             mock_now.return_value = now
             # trial
             b_trial = MagicMock(spec=Business)
@@ -234,36 +248,36 @@ class TestDeployConfig:
     def test_dockerfile_has_entrypoint_and_cmd_only_uvicorn(self):
         """Verificá backend/Dockerfile: ENTRYPOINT debe estar y CMD debe ser SOLO uvicorn... sin alembic"""
         dockerfile_path = "backend/Dockerfile"
-        with open(dockerfile_path, encoding='utf-8') as f:
+        with Path(dockerfile_path).open(encoding="utf-8") as f:
             content = f.read()
 
         assert 'ENTRYPOINT ["/app/docker-entrypoint.sh"]' in content
-        assert 'CMD uvicorn app.main:app' in content
+        assert "CMD uvicorn app.main:app" in content
         # The CMD with uvicorn should not contain alembic
         for line in content.splitlines():
-            if line.strip().startswith('CMD') and 'uvicorn' in line:
-                assert 'alembic' not in line.lower()
+            if line.strip().startswith("CMD") and "uvicorn" in line:
+                assert "alembic" not in line.lower()
                 break
         else:
-            assert False, "uvicorn CMD not found"
+            raise AssertionError("uvicorn CMD not found")
 
     def test_docker_entrypoint_runs_alembic_once_if_migration_url_set_then_exec(self):
         """Verificá backend/docker-entrypoint.sh: si existe DATABASE_MIGRATION_URL hace alembic upgrade head una sola vez, luego exec "$@" """
         entrypoint_path = "backend/docker-entrypoint.sh"
-        with open(entrypoint_path, encoding='utf-8') as f:
+        with Path(entrypoint_path).open(encoding="utf-8") as f:
             content = f.read()
 
-        assert 'DATABASE_MIGRATION_URL' in content
-        assert 'alembic upgrade head' in content
+        assert "DATABASE_MIGRATION_URL" in content
+        assert "alembic upgrade head" in content
         assert 'exec "$@"' in content
-        alembic_count = content.count('alembic upgrade head')
+        alembic_count = content.count("alembic upgrade head")
         assert alembic_count >= 1
 
     def test_no_old_admin_session_referenced(self):
         """Verificá que no haya admin_session viejo referenciado (debe ser get_admin_session)"""
         router_path = "backend/app/api/routers/admin/__init__.py"
-        with open(router_path, encoding='utf-8') as f:
+        with Path(router_path).open(encoding="utf-8") as f:
             content = f.read()
-        assert 'get_admin_session' in content
-        assert 'Depends(admin_session)' not in content
-        assert 'Sesion = Annotated[AsyncSession, Depends(get_admin_session)]' in content
+        assert "get_admin_session" in content
+        assert "Depends(admin_session)" not in content
+        assert "Sesion = Annotated[AsyncSession, Depends(get_admin_session)]" in content

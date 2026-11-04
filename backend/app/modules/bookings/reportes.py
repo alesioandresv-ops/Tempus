@@ -26,7 +26,7 @@ from datetime import date
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import ValidationError
@@ -99,7 +99,13 @@ async def reservas_del_mes(
             Booking.local_date <= hasta,
         )
         .add_columns(
-            Service.name, Professional.display_name, Customer.first_name, Customer.phone_e164
+            Service.name,
+            Professional.display_name,
+            # El nombre del snapshot de la reserva, no el de la ficha del cliente:
+            # un telefono reusado cambia de nombre y el reporte tiene que decir el
+            # que se uso en ese turno. `COALESCE` cubre las filas previas a 0032.
+            func.coalesce(Booking.customer_first_name, Customer.first_name),
+            Customer.phone_e164,
         )
         .order_by(Booking.starts_at, Booking.id)
     )

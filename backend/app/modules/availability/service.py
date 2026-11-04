@@ -189,15 +189,25 @@ async def _load_occupied_intervals(
     session: AsyncSession,
     professional_id: str,
     local_date: dt.date,
+    *,
+    exclude_booking_id: uuid.UUID | None = None,
 ) -> tuple[Interval, ...]:
-    """Carga reservas que ocupan la agenda del profesional."""
-    result = await session.execute(
-        select(Booking).where(
-            Booking.professional_id == professional_id,
-            Booking.local_date == local_date,
-            Booking.status.in_(OCCUPYING_STATUSES),
-        )
+    """Carga reservas que ocupan la agenda del profesional.
+
+    `exclude_booking_id` existe por la **reprogramacion**: la reserva que se esta
+    moviendo ocupa su horario viejo, y si no se excluyera, el motor veria ese
+    horario como tomado. Mover un turno a un hueco que solo esta ocupado por si
+    mismo --el caso normal de correrlo media hora-- fallaba con "ese horario ya no
+    esta disponible".
+    """
+    consulta = select(Booking).where(
+        Booking.professional_id == professional_id,
+        Booking.local_date == local_date,
+        Booking.status.in_(OCCUPYING_STATUSES),
     )
+    if exclude_booking_id is not None:
+        consulta = consulta.where(Booking.id != exclude_booking_id)
+    result = await session.execute(consulta)
     intervals = []
     for booking in result.scalars():
         intervals.append(Interval(start=booking.occupied_from, end=booking.occupied_to))
@@ -300,6 +310,7 @@ async def get_availability(
     service_id: str | None = None,
     min_lead_minutes: int = 60,
     current_time: dt.datetime | None = None,
+    exclude_booking_id: uuid.UUID | None = None,
 ) -> list[SlotDisponible]:
     """Calcula disponibilidad para un servicio.
 
@@ -316,6 +327,8 @@ async def get_availability(
             filtrar por quien realmente puede hacer el servicio.
         min_lead_minutes: Antelación mínima.
         current_time: Momento actual (para lead time). Usa `now()` si es None.
+        exclude_booking_id: Reserva que no debe contar como ocupada. Se usa al
+            reprogramar: el turno que se mueve no puede bloquearse a si mismo.
 
     Returns:
         Lista de `SlotDisponible` ordenada cronológicamente, cada uno con la lista
@@ -355,7 +368,12 @@ async def get_availability(
         prof_windows = await _load_professional_windows(
             session, professional_id, business_windows, local_date, timezone
         )
-        occupied = await _load_occupied_intervals(session, professional_id, local_date)
+        occupied = await _load_occupied_intervals(
+            session,
+            professional_id,
+            local_date,
+            exclude_booking_id=exclude_booking_id,
+        )
         blocked = await _load_blocked_intervals(session, professional_id, local_date, timezone)
 
         input_data = AvailabilityInput(
@@ -403,7 +421,12 @@ async def get_availability(
         professional_windows[key] = await _load_professional_windows(
             session, key, business_windows, local_date, timezone
         )
-        occupied_per_pro[key] = await _load_occupied_intervals(session, key, local_date)
+        occupied_per_pro[key] = await _load_occupied_intervals(
+            session,
+            key,
+            local_date,
+            exclude_booking_id=exclude_booking_id,
+        )
         blocked_per_pro[key] = await _load_blocked_intervals(session, key, local_date, timezone)
 
     per_professional = find_eligible_professionals(
@@ -523,6 +546,7 @@ async def buscar_slot(
     starts_at: dt.datetime,
     min_lead_minutes: int = 60,
     current_time: dt.datetime | None = None,
+    exclude_booking_id: uuid.UUID | None = None,
 ) -> SlotDisponible | None:
     """El `SlotDisponible` que empieza exactamente en `starts_at`, o `None`.
 
@@ -545,6 +569,7 @@ async def buscar_slot(
         service_id=service_id,
         min_lead_minutes=min_lead_minutes,
         current_time=current_time,
+        exclude_booking_id=exclude_booking_id,
     ):
         if slot.starts_at == starts_at:
             return slot

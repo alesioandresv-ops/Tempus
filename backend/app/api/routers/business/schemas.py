@@ -27,7 +27,7 @@ import uuid
 from decimal import Decimal
 from itertools import pairwise
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import (
     BlockKind,
@@ -594,8 +594,8 @@ class ReprogramarDesdePanelIn(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    new_starts_at: dt.datetime = Field(description="Nuevo inicio (UTC)")
-    new_ends_at: dt.datetime = Field(description="Nuevo fin (UTC)")
+    new_starts_at: AwareDatetime = Field(description="Nuevo inicio (UTC)")
+    new_ends_at: AwareDatetime = Field(description="Nuevo fin (UTC)")
     new_duration_minutes: int = Field(gt=0, description="Duracion real del servicio")
 
 
@@ -648,8 +648,26 @@ class WalkinIn(BaseModel):
     customer_first_name: str = Field(min_length=1, max_length=160)
     customer_last_name: str = Field(default="", max_length=160)
     customer_phone_e164: str = Field(min_length=8, max_length=20)
-    starts_at: dt.datetime
+    # `AwareDatetime`: el panel manda la hora desde un `datetime-local`, que el
+    # frontend convierte a ISO con zona. Una fecha sin zona se interpretaba como
+    # UTC y el turno se guardaba corrido.
+    starts_at: AwareDatetime
     notas: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("customer_first_name")
+    @classmethod
+    def _nombre_no_vacio(cls, valor: str) -> str:
+        """Recorta y rechaza un nombre hecho solo de espacios."""
+        limpio = valor.strip()
+        if not limpio:
+            raise ValueError("El nombre no puede estar vacio")
+        return limpio
+
+    @field_validator("customer_last_name")
+    @classmethod
+    def _apellido_recortado(cls, valor: str) -> str:
+        """El apellido puede venir vacio; solo se recortan los espacios."""
+        return valor.strip()
 
 
 class EventoReservaOut(BaseModel):

@@ -28,6 +28,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -88,6 +89,7 @@ class ReglasAgenda:
         business: object,
         *,
         min_lead_minutes: int | None = None,
+        slot_interval_minutes: int | None = None,
     ) -> ReglasAgenda:
         """Construye las reglas desde una fila de `businesses`.
 
@@ -102,10 +104,20 @@ class ReglasAgenda:
         agenda. El walk-in es el caso contrario--la persona esta parada en el
         mostrador-- y aplicar la misma anticipacion le rechazaria el turno mas
         comun de todos, el de ahora mismo.
+
+        `slot_interval_minutes` tambien se puede forzar. El panel y el mostrador
+        no eligen de una grilla: escriben una hora a mano, y un turno a las 15:07
+        tiene que poder registrarse. La grilla es una restriccion de la pantalla
+        publica, no una regla de la agenda; las reglas reales --horario, bloqueo,
+        feriado, solapamiento-- se siguen comprobando igual.
         """
         return cls(
             timezone=getattr(business, "timezone", "UTC") or "UTC",
-            slot_interval_minutes=getattr(business, "slot_interval_minutes", 15) or 15,
+            slot_interval_minutes=(
+                slot_interval_minutes
+                if slot_interval_minutes is not None
+                else (getattr(business, "slot_interval_minutes", 15) or 15)
+            ),
             min_lead_minutes=(
                 min_lead_minutes
                 if min_lead_minutes is not None
@@ -176,10 +188,21 @@ async def _get_or_create_customer(
     last_name: str,
     phone_e164: str,
 ) -> Customer:
-    """Busca o crea un cliente por su teléfono.
+    """Busca o crea un cliente por su teléfono y actualiza su nombre canónico.
 
     La unicidad es `(business_id, phone_e164)`. Dos personas que comparten
     teléfono comparten registro (decisión consciente, ver modelo).
+
+    **El nombre canónico sigue al último uso.** Antes, un cliente existente se
+    devolvía sin tocar y el nombre nuevo se descartaba: la reserva mostraba el
+    nombre viejo (el bug de "Kemily" guardada como "Alan"). La reserva ahora
+    conserva su propio snapshot, y esta actualización mantiene la ficha del
+    cliente al día para la pestaña Clientes.
+
+    **La creación usa `ON CONFLICT DO NOTHING`.** El `SELECT` seguido de `INSERT`
+    era un check-then-act: dos reservas concurrentes con un teléfono nuevo pasaban
+    el `SELECT`, la segunda chocaba con `uq_customers_business_id_phone` y el
+    `IntegrityError` subía como 500.
     """
     result = await session.execute(
         select(Customer).where(
@@ -188,17 +211,35 @@ async def _get_or_create_customer(
         )
     )
     customer = result.scalar_one_or_none()
-    if customer:
+    if customer is not None:
+        customer.first_name = first_name
+        customer.last_name = last_name
         return customer
 
-    customer = Customer(
-        business_id=business_id,
-        first_name=first_name,
-        last_name=last_name,
-        phone_e164=phone_e164,
+    await session.execute(
+        pg_insert(Customer)
+        .values(
+            business_id=business_id,
+            first_name=first_name,
+            last_name=last_name,
+            phone_e164=phone_e164,
+        )
+        .on_conflict_do_nothing(index_elements=["business_id", "phone_e164"])
     )
-    session.add(customer)
-    await session.flush()
+
+    # Se relee siempre: si otro ganó la carrera, esta es su fila; si ganó este,
+    # es la recién insertada. `ON CONFLICT DO NOTHING` no devuelve la existente.
+    result = await session.execute(
+        select(Customer).where(
+            Customer.business_id == business_id,
+            Customer.phone_e164 == phone_e164,
+        )
+    )
+    customer = result.scalar_one()
+    # Si perdió la carrera, el nombre que acaba de llegar es el último uso y
+    # manda, igual que en la rama de arriba.
+    customer.first_name = first_name
+    customer.last_name = last_name
     return customer
 
 
@@ -326,6 +367,10 @@ def _hash_de_peticion(
     service_id: uuid.UUID,
     professional_id: uuid.UUID | None,
     starts_at: dt.datetime,
+    customer_phone_e164: str,
+    customer_first_name: str,
+    customer_last_name: str,
+    local_date: dt.date,
 ) -> str:
     """Huella del contenido que define una reserva.
 
@@ -334,9 +379,21 @@ def _hash_de_peticion(
     respuesta: es un cliente que colgado una reserva y despues quiere otra con el
     mismo identificador. Devolverle la primera reserva seria responderle "listo" a
     algo que no pidio, y no crear la que pidio.
+
+    El hash incluye **todo lo que define el turno**, no solo servicio, profesional
+    e inicio. Antes solo hasheaba esos tres: dos personas distintas con la misma key
+    --un telefono que reserva para dos hijas a la misma hora, por ejemplo-- recibian
+    como reintento la reserva de la otra. El nombre y el telefono forman parte de la
+    identidad del turno y por eso entran. `local_date` entra porque es derivada de
+    `starts_at` y la zona del negocio: si la zona cambia, el turno es otro dia
+    local.
     """
     return hashlib.sha256(
-        f"{service_id}:{professional_id}:{starts_at.isoformat()}".encode()
+        (
+            f"{service_id}:{professional_id}:{starts_at.isoformat()}:"
+            f"{customer_phone_e164}:{customer_first_name}:{customer_last_name}:"
+            f"{local_date.isoformat()}"
+        ).encode()
     ).hexdigest()
 
 
@@ -553,10 +610,28 @@ async def create_booking(
     # Es un dato derivado. Confiar en el del cliente nunca hace falta.
     ends_at = starts_at + dt.timedelta(minutes=duration_minutes)
 
+    # El nombre se guarda sin espacios sobrantes: "  Kemily " y "Kemily" son la
+    # misma persona, y el snapshot se muestra tal cual en la agenda y el WhatsApp.
+    customer_first_name = customer_first_name.strip()
+    customer_last_name = customer_last_name.strip()
+
+    # `local_date` tambien es un dato derivado. Antes lo calculaban los llamadores y
+    # el servicio confiaba en ellos: un `local_date` equivocado archivaba la reserva en
+    # el dia equivocado y la agenda del dia real no la mostraba (R-03). Con las
+    # reglas del negocio se recalcula aca, que es el unico lugar donde el turno
+    # existe; sin `agenda` --tests de integracion que no siembran calendario-- se
+    # conserva el que vino.
+    if agenda is not None:
+        local_date = starts_at.astimezone(ZoneInfo(agenda.timezone)).date()
+
     request_hash = _hash_de_peticion(
         service_id=service_id,
         professional_id=professional_id,
         starts_at=starts_at,
+        customer_phone_e164=customer_phone_e164,
+        customer_first_name=customer_first_name,
+        customer_last_name=customer_last_name,
+        local_date=local_date,
     )
 
     # Idempotencia: un reintento de red o un doble clic recupera la reserva
@@ -621,6 +696,11 @@ async def create_booking(
     booking = Booking(
         business_id=business_id,
         customer_id=customer.id,
+        # El nombre **de esta reserva**, no el de la ficha del cliente. `customers`
+        # es unico por telefono y se reusa: sin este snapshot, la reserva nueva
+        # mostraba el nombre viejo del cliente (el bug de "Kemily" como "Alan").
+        customer_first_name=customer_first_name,
+        customer_last_name=customer_last_name,
         professional_id=professional.id,
         service_id=service_id,
         # El **miembro del enum**, no el texto. La columna esta declarada como
@@ -847,6 +927,7 @@ async def reschedule_booking(
     new_professional_id: uuid.UUID | None = None,
     buffer_minutes: int = 0,
     timezone: str = "UTC",
+    agenda: ReglasAgenda | None = None,
 ) -> Booking:
     """Reprograma una reserva.
 
@@ -863,6 +944,13 @@ async def reschedule_booking(
     equivocado para cualquier negocio de LatAm. Un turno un martes a las 22:00
     en Buenos Aires es el miercoles 01:00 UTC, asi que la reserva quedaria
     archivada en el dia siguiente, y la agenda del dia real no la mostraria.
+
+    `agenda` activa la **revalidacion contra el motor de disponibilidad**, igual
+    que en `create_booking`. Antes la reprogramacion solo confiaba en la EXCLUDE:
+    dejaba mover un turno a un domingo cerrado, a un feriado, a las tres de la
+    manana o a la hora en que el profesional esta de vacaciones, porque la EXCLUDE
+    solo mira solapamientos con otras reservas. El turno movido se guardaba, la
+    agenda no lo mostraba y el cliente se enteraba el dia del turno.
     """
     # Buscar reserva por token
     token_hash = hash_token_bytes(secure_token)
@@ -882,6 +970,42 @@ async def reschedule_booking(
         raise ValueError("El nuevo horario ya pasó")
     if new_ends_at <= new_starts_at:
         raise ValueError("El fin del turno no puede ser anterior al inicio")
+
+    # Igual que en el alta, el fin es un dato derivado: se recalcula con la
+    # duracion real y el valor del cliente no manda. Un fin corto liberaria
+    # minutos de agenda que el turno sigue ocupando.
+    new_ends_at = new_starts_at + dt.timedelta(minutes=new_duration_minutes)
+
+    # El profesional destino. Si no se especifica se queda el actual.
+    profesional_destino = new_professional_id or booking.professional_id
+
+    # La revalidacion va **antes** de tocar la fila: si el horario no se puede,
+    # la reserva queda exactamente como estaba. `exclude_booking_id` evita que el
+    # turno se bloquee a si mismo -- su horario viejo sigue ocupado en la base y
+    # sin excluirlo el motor lo contaria como un turno ajeno.
+    if agenda is not None:
+        from app.modules.availability.service import buscar_slot
+
+        local_date_nuevo = new_starts_at.astimezone(ZoneInfo(agenda.timezone)).date()
+        slot = await buscar_slot(
+            session,
+            business_id=str(booking.business_id),
+            professional_id=str(profesional_destino),
+            service_id=str(booking.service_id),
+            service_duration_minutes=new_duration_minutes,
+            slot_interval_minutes=agenda.slot_interval_minutes,
+            local_date=local_date_nuevo,
+            timezone=agenda.timezone,
+            starts_at=new_starts_at,
+            min_lead_minutes=agenda.min_lead_minutes,
+            exclude_booking_id=booking.id,
+        )
+        if slot is None:
+            raise SlotNoDisponibleError("Ese horario ya no esta disponible. Elegi otro.")
+        if profesional_destino not in slot.candidatos:
+            raise SlotNoDisponibleError(
+                "Ese horario ya no esta disponible para el profesional elegido."
+            )
 
     # Guardar valores anteriores para auditoría
     old_starts_at = booking.starts_at

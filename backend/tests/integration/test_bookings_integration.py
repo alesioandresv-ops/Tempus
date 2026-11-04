@@ -30,7 +30,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from app.models.enums import BookingStatus
-from app.modules.bookings.models import Booking
+from app.modules.bookings.admin import obtener_reserva
+from app.modules.bookings.models import Booking, IdempotencyKey
 from app.modules.bookings.service import (
     IdempotencyConflictError,
     SlotNoDisponibleError,
@@ -47,7 +48,7 @@ from app.modules.businesses.models import Business  # noqa: F401
 from app.modules.customers.models import Customer
 from app.modules.professionals.models import Professional
 from app.modules.services.models import ProfessionalService, Service
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 pytestmark = pytest.mark.integration
@@ -433,8 +434,9 @@ async def test_idempotencia_misma_clave_otro_cuerpo(
     seria responderle "listo" a algo que no pidio.
 
     Lo que cambia respecto del test anterior es `starts_at`, y por eso el hash
-    cambia: `_hash_de_peticion` mira servicio, profesional e inicio. Con esos tres
-    iguales la peticion es la misma, con el inicio distinto es otra peticion.
+    cambia: `_hash_de_peticion` mira servicio, profesional, inicio, telefono,
+    nombre y fecha local. Con todo eso igual la peticion es la misma; con el
+    inicio distinto es otra peticion.
     """
     await set_tenant(business_c)
     service, professional = await _create_test_data(session, business_c)
@@ -534,3 +536,183 @@ async def test_reuso_de_cliente_por_telefono(
         )
     ).scalar_one()
     assert clientes == 1
+
+
+@pytest.mark.asyncio
+async def test_cada_reserva_conserva_el_nombre_con_el_que_se_reservo(
+    session: AsyncSession, business_c: uuid.UUID, set_tenant
+) -> None:
+    """Dos reservas con el mismo telefono y nombres distintos no se renombran.
+
+    Es el bug reportado: un telefono reusado --la madre reserva para una hija y
+    despues para otra-- hacia que la segunda reserva mostrara el nombre de la
+    primera. `customers` es unico por telefono, asi que el nombre tiene que vivir
+    tambien en la reserva.
+
+    Se comprueban las dos mitades de la decision: cada turno conserva **su**
+    nombre (el snapshot) y la ficha del cliente queda con el ultimo usado (el
+    nombre canonico para la pestana Clientes).
+    """
+    await set_tenant(business_c)
+    service, professional = await _create_test_data(session, business_c)
+
+    comun = {
+        "business_id": business_c,
+        "service_id": service.id,
+        "professional_id": professional.id,
+        "customer_phone_e164": "+54911000111",
+        "duration_minutes": 60,
+        "price": Decimal("1000.00"),
+        "currency": "ARS",
+        "local_date": FECHA_LOCAL,
+    }
+
+    primera = await create_booking(
+        session,
+        customer_first_name="Kemily",
+        customer_last_name="Ledezma",
+        starts_at=HORA_INICIO,
+        ends_at=HORA_INICIO + dt.timedelta(hours=1),
+        **comun,
+    )
+    segunda = await create_booking(
+        session,
+        customer_first_name="Alan",
+        customer_last_name="Ledezma",
+        starts_at=HORA_INICIO + dt.timedelta(hours=4),
+        ends_at=HORA_INICIO + dt.timedelta(hours=5),
+        **comun,
+    )
+    await session.flush()
+
+    # Cada fila guarda el nombre con el que se reservo, no el ultimo de la ficha.
+    primera_fila = await session.get(Booking, primera.booking_id)
+    segunda_fila = await session.get(Booking, segunda.booking_id)
+    assert primera_fila is not None and segunda_fila is not None
+    assert primera_fila.customer_first_name == "Kemily"
+    assert segunda_fila.customer_first_name == "Alan"
+    assert primera_fila.customer_id == segunda_fila.customer_id
+
+    # La ficha del cliente sigue al ultimo uso.
+    customer = await session.get(Customer, primera_fila.customer_id)
+    assert customer is not None
+    assert customer.first_name == "Alan"
+
+    # Y el panel muestra el nombre de cada reserva, no el de la ficha.
+    detalle_primera = await obtener_reserva(session, primera.booking_id, business_id=business_c)
+    detalle_segunda = await obtener_reserva(session, segunda.booking_id, business_id=business_c)
+    assert detalle_primera.cliente_nombre == "Kemily"
+    assert detalle_segunda.cliente_nombre == "Alan"
+
+
+@pytest.mark.asyncio
+async def test_idempotencia_misma_clave_otra_persona_es_conflicto(
+    session: AsyncSession, business_c: uuid.UUID, set_tenant
+) -> None:
+    """La misma key, el mismo horario y **otra persona** no es un reintento.
+
+    Antes el hash solo miraba servicio, profesional e inicio: un telefono que
+    reservaba para dos personas a la misma hora recibia como "replay" la reserva
+    de la otra, con el nombre y el telefono equivocados. La identidad del cliente
+    forma parte de la peticion.
+    """
+    await set_tenant(business_c)
+    service, professional = await _create_test_data(session, business_c)
+
+    clave = f"otra-persona-{uuid.uuid4()}"
+    comun = {
+        "business_id": business_c,
+        "service_id": service.id,
+        "professional_id": professional.id,
+        "starts_at": HORA_INICIO,
+        "ends_at": HORA_INICIO + dt.timedelta(hours=1),
+        "duration_minutes": 60,
+        "price": Decimal("1000.00"),
+        "currency": "ARS",
+        "local_date": FECHA_LOCAL,
+        "idempotency_key": clave,
+    }
+
+    await create_booking(
+        session,
+        customer_first_name="Ana",
+        customer_last_name="Perez",
+        customer_phone_e164="+54911000222",
+        **comun,
+    )
+    await session.flush()
+
+    with pytest.raises(IdempotencyConflictError, match="idempotencia"):
+        await create_booking(
+            session,
+            customer_first_name="Beto",
+            customer_last_name="Gomez",
+            customer_phone_e164="+54911000333",
+            **comun,
+        )
+
+
+@pytest.mark.asyncio
+async def test_replay_sin_cuerpo_no_devuelve_token_vacio(
+    session: AsyncSession, business_c: uuid.UUID, set_tenant
+) -> None:
+    """Una fila de idempotencia vieja se marca en vez de devolver token vacio.
+
+    `response_body` es la unica copia del token en claro. Una fila escrita por una
+    version anterior no la tiene: el reintento no puede inventar el enlace de
+    gestion, y el router tiene que responder 409 en vez de un 201 con
+    `secure_token=""` que el cliente guardaria como valido.
+    """
+    await set_tenant(business_c)
+    service, professional = await _create_test_data(session, business_c)
+
+    clave = f"legacy-{uuid.uuid4()}"
+    primera = await create_booking(
+        session,
+        business_id=business_c,
+        service_id=service.id,
+        professional_id=professional.id,
+        customer_first_name="Ana",
+        customer_last_name="Perez",
+        customer_phone_e164="+54911000444",
+        starts_at=HORA_INICIO,
+        ends_at=HORA_INICIO + dt.timedelta(hours=1),
+        duration_minutes=60,
+        price=Decimal("1000.00"),
+        currency="ARS",
+        local_date=FECHA_LOCAL,
+        idempotency_key=clave,
+    )
+    await session.flush()
+
+    # Simula la fila de una version anterior: hay `entity_id` pero no cuerpo.
+    await session.execute(
+        update(IdempotencyKey)
+        .where(
+            IdempotencyKey.business_id == business_c,
+            IdempotencyKey.key == clave,
+        )
+        .values(response_body=None)
+    )
+    await session.flush()
+
+    replay = await create_booking(
+        session,
+        business_id=business_c,
+        service_id=service.id,
+        professional_id=professional.id,
+        customer_first_name="Ana",
+        customer_last_name="Perez",
+        customer_phone_e164="+54911000444",
+        starts_at=HORA_INICIO,
+        ends_at=HORA_INICIO + dt.timedelta(hours=1),
+        duration_minutes=60,
+        price=Decimal("1000.00"),
+        currency="ARS",
+        local_date=FECHA_LOCAL,
+        idempotency_key=clave,
+    )
+
+    assert replay.booking_id == primera.booking_id
+    assert replay.replay_sin_token is True
+    assert replay.secure_token == ""

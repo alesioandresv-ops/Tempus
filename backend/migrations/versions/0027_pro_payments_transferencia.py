@@ -145,7 +145,9 @@ def upgrade() -> None:
             server_default=sa.text("'pending'"),
             nullable=False,
         ),
-        sa.Column("method", sa.String(length=32), server_default=sa.text("'naranja_x'"), nullable=False),
+        sa.Column(
+            "method", sa.String(length=32), server_default=sa.text("'naranja_x'"), nullable=False
+        ),
         sa.Column("notes", sa.Text(), nullable=True),
         sa.Column("approved_at", app.db.types.UtcDateTime(timezone=True), nullable=True),
         sa.Column(
@@ -178,7 +180,9 @@ def upgrade() -> None:
         ["status", "created_at"],
     )
 
-    op.add_column("businesses", sa.Column("pro_until", app.db.types.UtcDateTime(timezone=True), nullable=True))
+    op.add_column(
+        "businesses", sa.Column("pro_until", app.db.types.UtcDateTime(timezone=True), nullable=True)
+    )
 
     _crear_trigger_updated_at()
     _crear_rls()

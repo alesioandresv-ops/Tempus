@@ -431,7 +431,7 @@ async def _resolver(session: AsyncSession, notificacion: Notification) -> Resolu
             text(
                 """
                 SELECT c.phone_e164,
-                       c.first_name,
+                       COALESCE(b.customer_first_name, c.first_name),
                        bz.name,
                        bz.timezone,
                        b.starts_at,

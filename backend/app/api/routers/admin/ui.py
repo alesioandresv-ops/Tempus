@@ -53,7 +53,6 @@ from app.api.routers.admin.security import (
 from app.core.config import Settings
 from app.core.logging import get_logger
 from app.db.session import get_admin_session
-from app.modules.businesses.models import Business
 from app.modules.admin import service as admin_service
 from app.modules.admin.service import (
     ACCION_ACTIVAR,
@@ -62,6 +61,7 @@ from app.modules.admin.service import (
     ACCION_LOGIN,
     registrar_auditoria,
 )
+from app.modules.businesses.models import Business
 
 logger = get_logger(__name__)
 
@@ -439,7 +439,9 @@ async def eliminar(
     if negocio.slug == "the-peluche":
         raise HTTPException(status_code=403, detail="El negocio principal no se puede eliminar")
     if negocio.slug.lower() != escrito:
-        raise HTTPException(status_code=400, detail="La confirmacion no coincide con el slug del negocio")
+        raise HTTPException(
+            status_code=400, detail="La confirmacion no coincide con el slug del negocio"
+        )
     total = (await sesion.execute(select(func.count()).select_from(Business))).scalar_one()
     if total <= 1:
         raise HTTPException(status_code=403, detail="No se puede eliminar el ultimo negocio")

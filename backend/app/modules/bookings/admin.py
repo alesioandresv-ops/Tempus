@@ -143,7 +143,17 @@ def _aplicar_filtros(consulta: Select, business_id: uuid.UUID, f: ReservaFiltros
                 Customer.phone_e164.ilike(termino),
             )
         )
-        consulta = consulta.where(Booking.customer_id.in_(coincidencias))
+        # La busqueda mira **lo que el panel muestra**, no solo la ficha del
+        # cliente: el nombre de la reserva es el snapshot, y buscar por el nombre
+        # que se ve en la fila tiene que encontrarla aunque la ficha del cliente
+        # ya tenga otro nombre.
+        consulta = consulta.where(
+            or_(
+                Booking.customer_id.in_(coincidencias),
+                func.coalesce(Booking.customer_first_name, "").ilike(termino),
+                func.coalesce(Booking.customer_last_name, "").ilike(termino),
+            )
+        )
     return consulta
 
 
@@ -177,7 +187,14 @@ async def listar_reservas(
         .outerjoin(Professional, Professional.id == Booking.professional_id)
         .outerjoin(Customer, Customer.id == Booking.customer_id)
         .add_columns(
-            Service.name, Professional.display_name, Customer.first_name, Customer.phone_e164
+            Service.name,
+            Professional.display_name,
+            # El nombre **de la reserva** manda sobre la ficha del cliente: el
+            # telefono se reusa entre personas y la ficha se actualiza al ultimo
+            # uso, pero cada turno conserva el nombre con el que se reservo.
+            # `COALESCE` cubre las filas anteriores a la migracion 0032.
+            func.coalesce(Booking.customer_first_name, Customer.first_name),
+            Customer.phone_e164,
         )
         .order_by(Booking.starts_at.desc(), Booking.id.desc())
         .limit(limite)
@@ -215,7 +232,14 @@ async def obtener_reserva(
         .outerjoin(Customer, Customer.id == Booking.customer_id)
         .where(Booking.id == booking_id, Booking.business_id == business_id)
         .add_columns(
-            Service.name, Professional.display_name, Customer.first_name, Customer.phone_e164
+            Service.name,
+            Professional.display_name,
+            # El nombre **de la reserva** manda sobre la ficha del cliente: el
+            # telefono se reusa entre personas y la ficha se actualiza al ultimo
+            # uso, pero cada turno conserva el nombre con el que se reservo.
+            # `COALESCE` cubre las filas anteriores a la migracion 0032.
+            func.coalesce(Booking.customer_first_name, Customer.first_name),
+            Customer.phone_e164,
         )
     )
     fila = result.first()
@@ -259,7 +283,14 @@ async def agenda_del_profesional(
             Booking.starts_at <= hasta,
         )
         .add_columns(
-            Service.name, Professional.display_name, Customer.first_name, Customer.phone_e164
+            Service.name,
+            Professional.display_name,
+            # El nombre **de la reserva** manda sobre la ficha del cliente: el
+            # telefono se reusa entre personas y la ficha se actualiza al ultimo
+            # uso, pero cada turno conserva el nombre con el que se reservo.
+            # `COALESCE` cubre las filas anteriores a la migracion 0032.
+            func.coalesce(Booking.customer_first_name, Customer.first_name),
+            Customer.phone_e164,
         )
         .order_by(Booking.starts_at.asc())
     )
@@ -349,6 +380,7 @@ async def reprogramar_desde_panel(
     new_duration_minutes: int,
     timezone: str,
     actor_user_id: uuid.UUID | None = None,
+    agenda: ReglasAgenda | None = None,
 ) -> Booking:
     """Reprograma una reserva desde el panel, sin secure token.
 
@@ -362,6 +394,14 @@ async def reprogramar_desde_panel(
     `timezone` es el del negocio, no un parametro de conveniencia: `local_date`
     se recalcula a partir de el, y con UTC un turno de las 22:00 en Buenos Aires
     se archivaria en el dia siguiente.
+
+    `agenda` activa la revalidacion contra el motor de disponibilidad, igual que
+    en el flujo publico. Sin ella la unica proteccion era la EXCLUDE, que no mira
+    el calendario: el panel podia mover un turno a un dia cerrado, a un feriado o
+    a las tres de la manana. El panel usa grilla de 1 minuto y antelacion 0
+    porque el admin escribe la hora a mano y puede mover un turno para dentro de
+    diez minutos; las reglas reales --horario, bloqueo, feriado, solapamiento-- se
+    siguen comprobando.
     """
     booking = await _obtener_para_escritura(session, booking_id, business_id)
 
@@ -373,6 +413,32 @@ async def reprogramar_desde_panel(
         raise ConflictError("El nuevo horario ya paso.")
     if new_ends_at <= new_starts_at:
         raise ValidationError("El fin del turno no puede ser anterior al inicio.")
+
+    # El fin es derivado, igual que en el alta: se recalcula con la duracion real
+    # y el valor del cliente no manda.
+    new_ends_at = new_starts_at + dt.timedelta(minutes=new_duration_minutes)
+
+    if agenda is not None:
+        from app.modules.availability.service import buscar_slot
+
+        local_date_nuevo = new_starts_at.astimezone(ZoneInfo(agenda.timezone)).date()
+        slot = await buscar_slot(
+            session,
+            business_id=str(business_id),
+            professional_id=str(booking.professional_id),
+            service_id=str(booking.service_id),
+            service_duration_minutes=new_duration_minutes,
+            slot_interval_minutes=agenda.slot_interval_minutes,
+            local_date=local_date_nuevo,
+            timezone=agenda.timezone,
+            starts_at=new_starts_at,
+            min_lead_minutes=agenda.min_lead_minutes,
+            # El turno que se mueve no puede bloquearse a si mismo: su horario
+            # viejo sigue ocupado hasta el flush.
+            exclude_booking_id=booking.id,
+        )
+        if slot is None:
+            raise ConflictError("Ese horario no esta disponible en la agenda.")
 
     old_starts_at = booking.starts_at
     old_ends_at = booking.ends_at
@@ -529,22 +595,29 @@ async def registrar_walkin(
     ends_at = starts_at + dt.timedelta(minutes=svc.duration_minutes)
     local_date = starts_at.astimezone(ZoneInfo(timezone)).date()
 
-    # El walk-in **si** revalida contra el motor, pero con la antelacion en cero.
+    # El walk-in **si** revalida contra el motor, pero con la antelacion en cero y
+    # sin grilla.
     #
-    # Las dos mitades importan por separado. Revalidar el calendario sin
+    # Las tres mitades importan por separado. Revalidar el calendario sin
     # anticipacion evita que el mostrador registre un turno con el negocio
     # cerrado, en feriado o encima de otro turno -- que es exactamente la clase de
-    # dato basura que despues nadie sabe de donde salio. Y poner la anticipacion
-    # en cero es lo que hace que esto no rompa el caso mas comun de todos: la
-    # persona que entra ahora y quiere un turno ahora. `min_lead_minutes` protege
-    # al cliente que reserva por la web de tener que levantarse al dia siguiente;
-    # no le dice nada a quien ya esta parado en el mostrador.
+    # dato basura que despues nadie sabe de donde salio. La anticipacion en cero
+    # es lo que hace que esto no rompa el caso mas comun de todos: la persona que
+    # entra ahora y quiere un turno ahora. `min_lead_minutes` protege al cliente
+    # que reserva por la web de tener que levantarse al dia siguiente; no le dice
+    # nada a quien ya esta parado en el mostrador. Y la grilla en 1 minuto es lo
+    # que permite registrar las 15:07 que el profesional acaba de acordar con el
+    # cliente: el mostrador no elige de una grilla, escribe la hora.
+    #
+    # Antes esto pasaba `agenda` con la grilla del negocio, y el resultado era una
+    # contradiccion: el docstring prometia aceptar horarios fuera de grilla y el
+    # motor los rechazaba con "ese horario ya no esta disponible".
     negocio = await session.execute(select(Business).where(Business.id == business_id))
     biz = negocio.scalar_one_or_none()
     if biz is None:
         raise NotFoundError("Negocio no encontrado.")
 
-    agenda = ReglasAgenda.de_negocio(biz, min_lead_minutes=0)
+    agenda = ReglasAgenda.de_negocio(biz, min_lead_minutes=0, slot_interval_minutes=1)
 
     try:
         resultado = await create_booking(
