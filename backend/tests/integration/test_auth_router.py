@@ -183,7 +183,12 @@ class TestBusinessLogin:
     async def test_login_rate_limit_por_ip(
         self, http_client: AsyncClient, session: AsyncSession, business_a: uuid.UUID
     ) -> None:
-        """5 intentos fallidos por IP -> 6to es 429 con Retry-After.
+        """30 intentos fallidos con emails distintos -> el 31ro es 429 (limite de IP).
+
+        Cada intento usa un email distinto a proposito: el limite por email (20/min)
+        es mas bajo que el de IP (30/min), y treinta intentos con el mismo email
+        dispararian el cubo del email en el intento 21, probando el limite
+        equivocado. El objetivo de este test es el cubo de IP.
 
         **Este test no alcanza para detectar que el limitador no contaba.** Pasa por
         el fixture `http_client`, que overridea `get_session` con la sesion del test,
@@ -194,18 +199,16 @@ class TestBusinessLogin:
         `test_el_limite_sobrevive_al_rollback_de_la_peticion`, que va por la app sin
         overrides.
         """
-        await _crear_usuario_negocio(session, business_id=business_a, email="user-a@negocio.com.ar")
-
-        for _ in range(5):
+        for i in range(30):
             response = await http_client.post(
                 "/api/v1/auth/login",
-                json={"email": "user-a@negocio.com.ar", "password": "wrongpassword"},
+                json={"email": f"ip-bucket-{i}@negocio.com.ar", "password": "wrongpassword"},
             )
             assert response.status_code == 401
 
         response = await http_client.post(
             "/api/v1/auth/login",
-            json={"email": "user-a@negocio.com.ar", "password": "wrongpassword"},
+            json={"email": "otra-vez-ip-bucket@negocio.com.ar", "password": "wrongpassword"},
         )
         assert response.status_code == 429
         assert "Retry-After" in response.headers
@@ -241,7 +244,7 @@ class TestBusinessLogin:
 
         async with _AsyncClient(transport=transporte, base_url="http://test") as cliente:
             codigos = []
-            for _ in range(7):
+            for _ in range(32):
                 respuesta = await cliente.post(
                     "/api/v1/auth/login",
                     json={

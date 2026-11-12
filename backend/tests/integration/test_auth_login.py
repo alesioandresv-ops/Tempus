@@ -350,10 +350,11 @@ class TestElSlugNoAbreUnTenant:
         confirmaria al atacante que el slug existe pero no es suyo, o que el email esta
         en el negocio equivocado. El log separa los motivos; la respuesta no.
 
-        **Cinco, y no mas, porque cinco es el limite por IP** (`rate_limit_login_per_ip`)
-        y el limitador cuenta los intentos, no solo los fallidos. Un sexto motivo
-        devolveria 429 en vez de 401 y el test pasaria por el motivo equivocado; si hace
-        falta uno mas, partir en dos tests con emails distintos.
+        **Cinco, y no mas.** Con el limite por IP del §10.5 (hoy 30/min) el limitador
+        cuenta los intentos, no solo los fallidos: un test que enviara treinta motivos
+        devolveria 429 en vez de 401 y pasaria por el motivo equivocado. Cinco motivos
+        distintos alcanzan para el contrato; si hace falta uno mas, partir en dos tests
+        con emails distintos.
         """
         email = "indistinguible@negocio.com.ar"
         await _miembros_en_dos_negocios(session, business_a, business_b, email)

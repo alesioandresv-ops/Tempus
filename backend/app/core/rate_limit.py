@@ -5,7 +5,7 @@ distintos parametros:
 
 | Endpoint | Limite | Clave |
 |---|---|---|
-| `/auth/login` | 5/min por IP, 10/min por email | IP y email |
+| `/auth/login` | 30/min por IP, 20/min por email | IP y email |
 | `POST /public/bookings` | 10/min por IP, 5/hora por telefono | IP y telefono |
 | `/internal/scheduler/tick` | 2/min por IP | IP |
 | Resto publico | 120/min por IP | IP |
@@ -20,25 +20,33 @@ lo que debe hacer. Con `session_scope` propio el commit pasa al salir del `with`
 pasa, si falla y si es denegado. Esta comprobacion vive en
 `tests/integration/test_auth_router.py::test_el_limite_sobrevive_al_rollback_de_la_peticion`.
 
-**De donde sale la IP: `request.client.host`, y nada mas.** No se leen
-`X-Forwarded-For` ni `CF-Connecting-IP` a mano, y esa es una decision:
+**De donde sale la IP.** Hay dos capas, y las dos existen por un motivo:
 
-- Leer una cabecera de IP sin validar quien la manda es abrir la puerta a que un
-  cliente se mande un `X-Forwarded-For` inventado en cada peticion y esquive el
-  limite entero. Un limitador que se puede esquivar con una cabecera no limita.
-- La otra alternativa--usar solo `request.client.host` sin pensar-- se rompe igual al
-  reves: atras de Cloudflare y Render esa direccion es la del proxy, todos los
-  usuarios caerian en **un mismo cubo** y las 120/min del resto publico se gastarian
-  entre todos. El sitio se caeria solo, y pareceria un bug de la app.
+1. **`client_ip` lee `CF-Connecting-IP`, pero solo si el peer inmediato es de
+   Cloudflare.** Cloudflare sobrescribe (no agrega) `CF-Connecting-IP` en cada request
+   que pasa por el edge: un cliente no puede traer esa cabecera de su casa y hacerla
+   llegar hasta nuestra app, porque Cloudflare la reemplaza por la IP real del
+   cliente. Es la cabecera mas dificil de falsificar del stack. La validacion del
+   peer contra los rangos publicos de Cloudflare (`_redes_cloudflare`) es lo que
+   impide que un atacante directo a Render manda la cabecera inventada.
 
-La salida correcta es la que ya resuelve uvicorn: `--proxy-headers`, que reescribe
-`request.client.host` desde `X-Forwarded-For` **solo si el pariente inmediato esta en
-`--forwarded-allow-ips`**. Con ahi el proxy real, la IP que llega es la del cliente y
-nadie puede falsearla sin estar en esa lista. Esta modulo no necesita saber nada de eso,
-y por eso no tiene un ajuste propio que alguien pueda activar sin querer.
+   **Historia:** originalmente este modulo no leia ninguna cabecera de IP y dejaba
+   el trabajo a `--forwarded-allow-ips` de uvicorn. En produccion esa variable
+   quedo sin setear en el dashboard y todos los usuarios compartian un cubo: el
+   login daba 429 y la pagina publica no cargaba, **desde cualquier IP de origen**
+   (el cubo lo llenaba el trafico agregado de la plataforma, no el del visitante).
+   Por eso ahora la app resuelve la IP sola: no depende de una variable que alguien
+   tiene que acordarse de poner en el dashboard.
 
-En tests y en local la IP es `127.0.0.1`, que es estable: los cubos se pueden vaciar y
-las pruebas no dependen de la maquina.
+2. **`request.client.host` como respaldo.** Si el peer no es Cloudflare (local,
+   tests, o un despliegue sin CF), la IP del peer es la real y no hay nada que
+   resolver. Comportamiento identico al de antes para esos entornos.
+
+Los tests pueden forzar la cabecera; en local el peer es `127.0.0.1`, estable, y los
+cubos se pueden vaciar: las pruebas no dependen de la maquina.
+
+**Los mensajes son genericos a proposito.** Un 429 no dice si se disparo el cubo de la
+IP o el del email: distinguirlos le diria al atacante si una casilla existe.
 
 **Los mensajes son genericos a proposito.** Un 429 no dice si se disparo el cubo de la
 IP o el del email: distinguirlos le diria al atacante si una casilla existe.
@@ -46,12 +54,59 @@ IP o el del email: distinguirlos le diria al atacante si una casilla existe.
 
 from __future__ import annotations
 
+import functools
+import ipaddress
+
 from fastapi import Request
 from sqlalchemy import text
 
 from app.api.errors import RateLimitError
 from app.core.security import hash_token
 from app.db.session import session_scope
+
+
+#: Rangos publicos de entrada de Cloudflare (https://www.cloudflare.com/ips-v4/).
+#: Solo un peer cuya IP cae en alguno de estos es el edge real, y solo a el se le
+#: cree la cabecera `CF-Connecting-IP`. Se cargan una vez: la lista cambia con una
+#: frecuencia de anos.
+@functools.lru_cache(maxsize=1)
+def _redes_cloudflare() -> tuple[ipaddress.IPv4Network, ...]:
+    return tuple(
+        ipaddress.ip_network(cidr)
+        for cidr in (
+            "173.245.48.0/20",
+            "103.21.244.0/22",
+            "103.22.200.0/22",
+            "103.31.4.0/22",
+            "141.101.64.0/18",
+            "108.162.192.0/18",
+            "190.93.240.0/20",
+            "188.114.96.0/20",
+            "197.234.240.0/22",
+            "198.41.128.0/17",
+            "162.158.0.0/15",
+            "104.16.0.0/13",
+            "104.24.0.0/14",
+            "172.64.0.0/13",
+            "131.0.72.0/22",
+        )
+    )
+
+
+def _peer_es_cloudflare(peer: str | None) -> bool:
+    """¿El peer inmediato es un edge de Cloudflare?
+
+    Una IP invalida (o `None`, que pasa en tests sin conexion) es "no": sin peer
+    verificable no se confia en ninguna cabecera.
+    """
+    if not peer:
+        return False
+    try:
+        direccion = ipaddress.ip_address(peer)
+    except ValueError:
+        return False
+    return any(direccion in red for red in _redes_cloudflare())
+
 
 #: `rate_limit_hit` devuelve `(allowed, hits, retry_after)` y ya sabe aplicar la
 #: ventana deslizante y podar; aca no hay nada de ventana que decidir.
@@ -80,9 +135,24 @@ def rate_limit_key(scope: str, *parts: str) -> str:
 
 
 def client_ip(request: Request) -> str:
-    """IP del cliente segun el servidor. Ver la nota del docstring del modulo."""
+    """IP del cliente real, con `CF-Connecting-IP` si el peer es Cloudflare.
+
+    Detras de Cloudflare el peer es el edge y la cabecera trae la IP del visitante;
+    sin Cloudflare (local, tests) el peer ya es el cliente y la cabecera ni se mira.
+    Ver la nota del docstring del modulo para el por que de cada capa.
+    """
     cliente = request.client
-    return cliente.host if cliente is not None else "desconocida"
+    peer = cliente.host if cliente is not None else None
+    if _peer_es_cloudflare(peer):
+        cf_ip = request.headers.get("CF-Connecting-IP", "").strip()
+        # Una cabecera vacia o malformada cae al peer: peor desenlace posible es
+        # un cubo compartido de edge, no un cubo falsificado por el atacante.
+        try:
+            ipaddress.ip_address(cf_ip)
+        except ValueError:
+            return peer or "desconocida"
+        return cf_ip
+    return peer or "desconocida"
 
 
 async def enforce_rate_limit(

@@ -67,6 +67,21 @@ python -m uvicorn app.main:app --reload
 python -m uvicorn app.main:app --forwarded-allow-ips='<ip-del-proxy>'
 ```
 
+**En producción (Render), el despliegue real es Cloudflare Worker -> Render**, y el
+par inmediato de uvicorn es el edge de Cloudflare, no Render. El valor que va en la
+variable `FORWARDED_ALLOW_IPS` (que el `docker-entrypoint.sh` convierte en el flag de
+arriba) son los **rangos públicos de Cloudflare**, no una sola IP:
+
+```bash
+FORWARDED_ALLOW_IPS=$(curl -s https://www.cloudflare.com/ips-v4 | tr '\n' ',')
+```
+
+Pegar ese valor en las variables de entorno del web service de Render (sin la coma
+final). La lista completa de referencia está en `.env.example`; renovarla cuando
+Cloudflare la actualice (https://www.cloudflare.com/ips-v4/). Un valor más corto —
+por ejemplo solo la IP del router de Render— hace que uvicorn **no** confíe en la
+cabecera y vuelve el modo de falla de arriba.
+
 Sin `--forwarded-allow-ips` en un despliegue con proxy, `client.host` es la dirección
 del proxy: todos los usuarios caen en un mismo cubo y el login de 5/min se vuelve
 5/min **para todo el producto junto**. El síntoma es que el login empieza a devolver

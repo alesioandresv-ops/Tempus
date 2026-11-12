@@ -144,10 +144,10 @@ def main() -> int:
 
     esperar_bloques_vacios()
 
-    # --- login: 5/min por IP (ya implementado antes, se revalida) --------
-    print("\n1. Login: 5/min por IP")
+    # --- login: 30/min por IP (revalida; el default subio tras el incidente de 2026-11) -----
+    print("\n1. Login: 30/min por IP")
     codigos = []
-    for _ in range(7):
+    for _ in range(32):
         codigo, _, cabeceras = pedir(
             "POST",
             "/auth/login",
@@ -159,9 +159,9 @@ def main() -> int:
             comprobar("el 429 trae Retry-After", bool(retry), f"Retry-After={retry}")
             break
     comprobar(
-        "los intentos fallidos cuentan y el sexto rebota",
-        codigos[:5] == [401] * 5 and codigos[5:6] == [429],
-        f"codigos={codigos}",
+        "los intentos fallidos cuentan y el 31ro rebota",
+        codigos[:30] == [401] * 30 and codigos[30:31] == [429],
+        f"codigos={len(codigos)} codigos",
     )
 
     esperar_bloques_vacios()

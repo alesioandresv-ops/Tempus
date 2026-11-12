@@ -11,8 +11,10 @@ solo mira la sesion no los demuestra.
    entrando.
 2. **Login de negocio** sigue,andando con el mismo camino.
 3. **Rate limit.** Antes de la migracion `0013` el limite era de 5 intentos **por
-   segundo**, porque el cubo se reiniciaba cada segundo. Seis intentos seguidos con
-   contrasena incorrecta tienen que dar 429 al sexto, no 401.
+   segundo**, porque el cubo se reiniciaba cada segundo. Hoy el limite es 30/min por
+   IP (subido tras el incidente de 2026-11: el default de 5 bloqueaba logins
+   legitimos detras del proxy compartido). Con contrasena incorrecta el 31ro tiene
+   que dar 429, no 401.
 
 El operador de plataforma se siembra con el rol de DDL y se borra al final, porque
 `0002` le quita todo privilegio de `platform_users` al rol de la app.
@@ -171,10 +173,10 @@ async def main() -> int:
         )
         comprobar("el token trae su tenant", bool(claims.get("tid")), f"tid={claims.get('tid')}")
 
-    print("\n4. El rate limit ahora frena: 6 intentos con contrasena mala desde la misma IP")
+    print("\n4. El rate limit ahora frena: 31 intentos con contrasena mala desde la misma IP")
     codigos = []
     cuerpo: dict = {}
-    for _ in range(10):
+    for _ in range(35):
         st, cuerpo, _cabeceras = pedir(
             "POST",
             "/api/v1/auth/login",
@@ -185,7 +187,9 @@ async def main() -> int:
             break
     print(f"  codigos: {codigos}")
     comprobar(
-        "aparece un 429 dentro de los primeros 6 intentos", 429 in codigos[:6], f"codigos={codigos}"
+        "aparece un 429 dentro de los primeros 31 intentos",
+        429 in codigos[:31],
+        f"codigos={codigos}",
     )
     comprobar(
         "el 429 trae Retry-After en la cabecera",

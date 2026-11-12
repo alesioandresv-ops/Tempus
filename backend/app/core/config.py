@@ -250,8 +250,12 @@ class Settings(BaseSettings):
 
     # --- Rate limiting -----------------------------------------------------
     rate_limit_enabled: bool = Field(default=True)
-    rate_limit_login_per_ip: int = Field(default=5, ge=1)
-    rate_limit_login_per_email: int = Field(default=10, ge=1)
+    # Login: 30/min por IP y 20/min por email. El default original del §10.5 (5 y 10)
+    # era demasiado chico para el despliegue real tras un proxy compartido (incidente
+    # de 2026-11: el 429 bloqueaba logins legítimos). Subir el número mantiene la
+    # barrera de fuerza bruta sin que un cliente real la vea jamás.
+    rate_limit_login_per_ip: int = Field(default=30, ge=1)
+    rate_limit_login_per_email: int = Field(default=20, ge=1)
     rate_limit_public_booking_per_ip: int = Field(default=10, ge=1)
     rate_limit_public_booking_per_phone_hourly: int = Field(default=5, ge=1)
     rate_limit_general_per_ip: int = Field(default=120, ge=1)

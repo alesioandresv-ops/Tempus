@@ -103,8 +103,9 @@ logger = get_logger(__name__)
 #: victima existe, que es el primer paso de un ataque dirigido.
 INVALID_CREDENTIALS = "Credenciales invalidas."
 
-#: Ventana del rate limit de login, en segundos. Corresponde al "5/min" y al
-#: "10/min" del §10.5.
+#: Ventana del rate limit de login, en segundos. Corresponde al "30/min" y al
+#: "20/min" de la tabla (el default del §10.5 era 5/10; se subió tras el incidente
+#: de 2026-11, ver config.py).
 LOGIN_WINDOW_SECONDS = 60
 
 #: Etiquetas de `scope` para los dos cubos. Distintas para que un operador que
@@ -282,7 +283,7 @@ async def _enforce_rate_limit(*, key: str, limit: int, scope: str) -> None:
 
 
 async def _enforce_login_rate_limits(*, email: str, ip_address: str) -> None:
-    """Los dos limites del §10.5 para `/auth/login`: 5/min por IP, 10/min por email.
+    """Los dos limites del §10.5 para `/auth/login`: 30/min por IP, 20/min por email.
 
     La IP va primero porque es el limite mas ajustado. Ninguno de los dos revela si
     el usuario existe -- por eso el detalle del 429 es generico y no dice cual se

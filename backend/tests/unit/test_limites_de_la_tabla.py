@@ -6,6 +6,12 @@ Esta es la prueba que si lo comprueba, y es una linea por setting.
 
 Sin ella, cambiar `rate_limit_login_per_ip` de 5 a 5000 seria un cambio que nadie
 nota: los tests siguen verdes porque todos usan limites propios.
+
+**Login (30/20) difiere de la tabla original del §10.5 (5/10).** Fue un cambio
+deliberado tras el incidente de 2026-11: detras del proxy compartido de produccion
+muchos clientes compartian cubo y el limite de 5 les daba 429 a todos. Los nuevos
+defaults son lo bastante altos para un equipo real y siguen frenando el abuso
+automatizado.
 """
 
 from __future__ import annotations
@@ -13,10 +19,11 @@ from __future__ import annotations
 import pytest
 from app.core.config import Settings
 
-#: (setting, valor del §10.5)
+#: (setting, valor esperado). Login difiere de la tabla original del §10.5: ver el
+#: docstring del modulo.
 LIMITES_DE_LA_TABLA = [
-    ("rate_limit_login_per_ip", 5),
-    ("rate_limit_login_per_email", 10),
+    ("rate_limit_login_per_ip", 30),
+    ("rate_limit_login_per_email", 20),
     ("rate_limit_public_booking_per_ip", 10),
     ("rate_limit_public_booking_per_phone_hourly", 5),
     ("rate_limit_scheduler_tick", 2),

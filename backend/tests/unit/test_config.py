@@ -401,9 +401,11 @@ class TestEnvExample:
     *funcionando mal* en vez de aparecer como error.
     """
 
-    #: Variables que existen en `.env.example` sin ser campos de `Settings`: las
-    #: lee el harness de tests y ninguna otra parte.
-    SOLO_HARNESS: ClassVar[frozenset[str]] = frozenset({"TEST_DATABASE_URL"})
+    #: Variables que existen en `.env.example` sin ser campos de `Settings`: las lee
+    #: el harness de tests (`TEST_DATABASE_URL`) o la infraestructura de despliegue
+    #: y ninguna otra parte (`FORWARDED_ALLOW_IPS` lo consume docker-entrypoint.sh
+    #: para armar el `--forwarded-allow-ips` de uvicorn).
+    SOLO_HARNESS: ClassVar[frozenset[str]] = frozenset({"TEST_DATABASE_URL", "FORWARDED_ALLOW_IPS"})
 
     def _env_example(self) -> dict[str, str]:
         ruta = Path(__file__).resolve().parents[3] / ".env.example"

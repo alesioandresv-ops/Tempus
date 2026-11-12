@@ -313,21 +313,16 @@ def get_request_ip(request: Request) -> str:
     fuerza bruta no puede permitir.
 
     Quitar la cabecera tampoco era una opcion por si sola: atras de Cloudflare y
-    Render, `request.client.host` es la direccion del proxy, y los cinco intentos por
-    minuto pasaban a ser **cinco por minuto para todo el producto junto**. Un logout
+    Render, `request.client.host` es la direccion del proxy, y los intentos por
+    minuto pasaban a ser contados **para todo el producto junto**. Un logout
     del ultimo usuario de la plataforma trababa el login de los demas. El sintoma
     habria sido "la pagina anda lento" sin relacion con nada que se hubiera tocado.
 
-    La resolucion correcta no la hace esta funcion: la hace uvicorn, que con
-    `--proxy-headers`--activo por defecto-- reescribe `request.client.host` desde
-    `X-Forwarded-For` **solo si el pariente inmediato esta en
-    `--forwarded-allow-ips`**. Ahi la IP que llega es la del cliente de verdad y
-    nadie puede falsearla sin estar en esa lista de confianza.
-
-    **Requisito de despliegue.** Para correr atras de Cloudflare hay que pasar
-    `--forwarded-allow-ips` con la IP del proxy. Sin eso, todos los usuarios sharean
-    un cubo--que es el modo de falla de arriba-- y el sintoma es que el login empieza
-    a devolver 429 para todo el mundo.
+    La resolucion correcta vive hoy en `core.rate_limit.client_ip`: lee
+    `CF-Connecting-IP` solo si el peer inmediato es un edge de Cloudflare, y si no,
+    usa `request.client.host` tal cual. No depende de `--forwarded-allow-ips` ni de
+    ninguna variable de dashboard: un despliegue sin la variable configurada ya no
+    colapsa a un cubo compartido.
     """
     return rate_limit_client_ip(request)
 

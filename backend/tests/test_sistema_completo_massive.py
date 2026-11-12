@@ -1085,8 +1085,8 @@ class TestAuth:
     async def test_login_rate_limit_sexto_intento_429(
         self, http_client: AsyncClient, miembro_a: uuid.UUID
     ) -> None:
-        """Cinco intentos por IP: el sexto es 429 y trae `Retry-After`."""
-        for _ in range(5):
+        """Treinta intentos por IP: el 31ro es 429 y trae `Retry-After`."""
+        for _ in range(30):
             respuesta = await http_client.post(
                 URL_LOGIN, json={"email": EMAIL_AUTH, "password": "no-es-la-contrasena"}
             )
